@@ -1,8 +1,8 @@
 {
-  "name": "@dipterix/three-brain",
+  "name": "@rave-ieeg/three-brain",
   "version": "1.0.0",
   "description": "Yet a 3D Viewer for Brain",
-  "main": "dist/threebrain.js",
+  "browser": "dist/threebrain.js",
   "scripts": {
     "build": "bash build.sh",
     "test": "echo \"Error: no test specified\" && exit 1"

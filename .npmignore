@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+.src
+node_modules
+three-brain-js.Rproj
+package-lock.json
