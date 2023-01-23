@@ -16,6 +16,7 @@ The source code currently only contains the viewer part. The data configuration 
 
 ## Roadmap
 
+- [ ] Jul, 2023: Finish documentation; publish electrode localization paper
 - [ ] Jun, 2023: Derail R and implement JavaScript code to generate data configurations 
 - [ ] Mar, 2023: Implement drivers to allow other programs to change the viewers via JavaScript events
 - [X] Jan, 2023: Create initial commit for the viewer
