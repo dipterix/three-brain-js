@@ -48,8 +48,11 @@ class CanvasFileLoader {
       item = this.readBinary( url, "mgh" );
     } else if (
       urlLowerCase.endsWith("pial") || urlLowerCase.endsWith("pial.t1") ||
-      urlLowerCase.endsWith("white") || urlLowerCase.endsWith("sphere") ||
-      urlLowerCase.endsWith("smoothwm")
+      urlLowerCase.endsWith("white") || urlLowerCase.endsWith("smoothwm") ||
+      urlLowerCase.endsWith("sphere") || urlLowerCase.endsWith("sphere.reg") ||
+      urlLowerCase.endsWith("pial.t1") || urlLowerCase.endsWith("inflated") ||
+      urlLowerCase.endsWith("nofix") || urlLowerCase.endsWith("mesh")  ||
+      urlLowerCase.endsWith("outer-smoothed")
     ) {
       item = this.readBinary( url, "fsSurf" );
     } else if (
