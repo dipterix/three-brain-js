@@ -398,6 +398,7 @@ class Sphere extends AbstractThreeBrainObject {
           Torig_inv = subject_data.matrices.Torig.clone().invert(),
           _regexp = new RegExp(`^${subject_code}, ([0-9]+) \\- (.*)$`),
           parsed = _regexp.exec( this.name ),
+          tkrRASOrig = new Vector3(),
           pos = new Vector3();  // pos is reused
 
     let electrode_number = localization_instance.Electrode || "",
@@ -420,7 +421,12 @@ class Sphere extends AbstractThreeBrainObject {
     };
 
     // get position in tkrRAS, set `Coord_xyz`
-    pos.fromArray( this._params.position );
+    tkrRASOrig.fromArray( this._params.position );
+    if( localization_instance.brainShiftEnabled ) {
+      pos.copy( localization_instance.leptoPosition );
+    } else {
+      pos.copy( tkrRASOrig );
+    }
     summary.Coord_x = pos.x;
     summary.Coord_y = pos.y;
     summary.Coord_z = pos.z;
@@ -433,15 +439,30 @@ class Sphere extends AbstractThreeBrainObject {
 
     // get FreeSurfer Label `FSIndex` + `FSLabel`
     if( reset_fs_index ) {
-      localization_instance.FSIndex = undefined;
+      localization_instance[ "manual" ] = undefined;
     }
-    let fs_label = [ "Unknown", 0 ];
-    try {
-      fs_label = localization_instance.get_fs_label();
-    } catch (e) {}
+    try { localization_instance.computeFreeSurferLabel() } catch (e) {}
+    const atlasLabels = localization_instance.atlasLabels;
+    let seekOrder = ["manual", "aparc+aseg", "aparc.DKTatlas+aseg", "aparc.a2009s+aseg", "aseg"];
+    for( let ii in seekOrder ) {
+      const atlasType = seekOrder[ ii ];
+      const atlasLabel = atlasLabels[ atlasType ];
+      if( typeof atlasLabel === "object" ) {
+        if( atlasType === "manual" || atlasType === "aseg" || atlasLabel.index > 0 ) {
+          summary.FSIndex = atlasLabel.index;
+          summary.FSLabel = atlasLabel.label;
+          break;
+        }
+      }
+    }
 
-    summary.FSIndex = fs_label[1];
-    summary.FSLabel = fs_label[0];
+    for( let ii = 1; ii < seekOrder.length; ii++ ) {
+      const atlasType = seekOrder[ ii ];
+      const atlasLabel = atlasLabels[ atlasType ];
+      const atlasTypeReformat = atlasType.replaceAll(/[^a-zA-Z0-9]/g, "_");
+      summary[ `FSIndex_${ atlasTypeReformat }` ] = atlasLabel.index;
+      summary[ `FSLabel_${ atlasTypeReformat }` ] = atlasLabel.label;
+    }
 
     //  T1 MRI scanner RAS (T1RAS)
     pos.applyMatrix4( tkrRAS_Scanner );
@@ -457,12 +478,31 @@ class Sphere extends AbstractThreeBrainObject {
 
     // `SurfaceElectrode` `SurfaceType` `Radius` `VertexNumber` `Hemisphere`
     summary.SurfaceElectrode = (
-      this._params.is_surface_electrode? 'TRUE' : 'FALSE'
+      // this._params.is_surface_electrode? 'TRUE' : 'FALSE'
+      localization_instance.brainShiftEnabled? 'TRUE' : 'FALSE'
     );
     summary.SurfaceType = this._params.surface_type || "pial";
     summary.Radius =  this._params.radius;
     summary.VertexNumber = this._params.vertex_number;     // vertex_number is already changed if std.141 is used
     summary.Hemisphere = this._params.hemisphere;
+
+    // Original tkrRAS
+    summary.OrigCoord_x = tkrRASOrig.x;
+    summary.OrigCoord_y = tkrRASOrig.y;
+    summary.OrigCoord_z = tkrRASOrig.z;
+
+    // xyz on sphere.reg
+    if( localization_instance.brainShiftEnabled ) {
+      summary.ShiftDistance = localization_instance.distanceToLepto;
+      summary.Sphere_x = localization_instance.spherePosition.x;
+      summary.Sphere_y = localization_instance.spherePosition.y;
+      summary.Sphere_z = localization_instance.spherePosition.z;
+    } else {
+      summary.ShiftDistance = 0;
+      summary.Sphere_x = 0;
+      summary.Sphere_y = 0;
+      summary.Sphere_z = 0;
+    }
 
     // CustomizedInformation `Notes`
     summary.Notes = this._params.custom_info || '';
@@ -472,6 +512,8 @@ class Sphere extends AbstractThreeBrainObject {
     summary.Voxel_i = Math.round( pos.x );
     summary.Voxel_j = Math.round( pos.y );
     summary.Voxel_k = Math.round( pos.z );
+
+
 
     return( summary );
   }

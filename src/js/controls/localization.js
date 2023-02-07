@@ -1,8 +1,12 @@
-import { Vector3, SpriteMaterial, DoubleSide } from 'three';
+import { Vector3, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper } from 'three';
 import { vector3ToString } from '../utility/vector3ToString.js';
+import { getDataCube2 } from '../utility/getDataCube2.js';
 import { CONSTANTS } from '../core/constants.js';
 import { is_electrode } from '../geometry/sphere.js';
 import { intersect_volume, electrode_from_ct } from '../Math/raycast_volume.js';
+import { projectOntoMesh } from '../Math/projectOntoMesh.js';
+import { getAnatomicalLabelFromPosition } from '../Math/getAnatomicalLabelFromPosition.js';
+import { getAnatomicalLabelFromIndex } from '../Math/getAnatomicalLabelFromIndex.js';
 import * as download from 'downloadjs';
 import { LineSegments2 } from '../jsm/lines/LineSegments2.js';
 import { LineMaterial } from '../jsm/lines/LineMaterial.js';
@@ -17,122 +21,6 @@ const COL_SELECTED = 0xff0000,
       COL_ENABLED = 0xfa9349,
       COL_DISABLED = 0xf1f2d5;
 
-function atlas_label_from_index(index, canvas){
-  const fslut = canvas.global_data("__global_data__.FSColorLUT");
-  try {
-    const lbl = fslut.map[ index ].Label;
-    if( lbl ){
-      return([lbl, index]);
-    } else {
-      return(["Unknown", index]);
-    }
-  } catch (e) {
-    return(["Unknown", index]);
-  }
-}
-
-
-// pos_array is in world coordinate
-function atlas_label(pos_array, canvas){
-  const sub = canvas.get_state("target_subject") || "none",
-        inst = canvas.threebrain_instances.get(`Atlas - aparc_aseg (${sub})`);
-  if( !inst ){ return( [ "Unknown", 0 ] ); }
-
-  const fslut = canvas.global_data("__global_data__.FSColorLUT");
-
-  const matrix_ = inst.object.matrixWorld.clone(),
-        matrix_inv = matrix_.clone().invert();
-
-  const modelShape = new Vector3().copy( inst.modelShape );
-
-  const mx = modelShape.x,
-        my = modelShape.y,
-        mz = modelShape.z;
-  const label_data = inst.voxelData;
-
-  const pos = new Vector3().set(1, 0, 0),
-        pos0 = new Vector3().set(0, 0, 0).applyMatrix4(matrix_);
-
-  const delta = new Vector3().set(
-    1 / pos.set(1, 0, 0).applyMatrix4(matrix_).sub(pos0).length(),
-    1 / pos.set(0, 1, 0).applyMatrix4(matrix_).sub(pos0).length(),
-    1 / pos.set(0, 0, 1).applyMatrix4(matrix_).sub(pos0).length()
-  );
-  const max_step_size = 2.0;
-
-  // world -> model (voxel coordinate)
-  pos.set(pos_array[0], pos_array[1], pos_array[2]).applyMatrix4(matrix_inv);
-
-  // round model coord -> IJK coord
-  const ijk0 = new Vector3().set(
-    Math.round( ( pos.x + modelShape.x / 2 ) - 1.0 ),
-    Math.round( ( pos.y + modelShape.y / 2 ) - 1.0 ),
-    Math.round( ( pos.z + modelShape.z / 2 ) - 1.0 )
-  );
-  const ijk1 = new Vector3().set(
-    Math.max( Math.min( ijk0.x, mx - delta.x * max_step_size - 1 ), delta.x * max_step_size ),
-    Math.max( Math.min( ijk0.y, my - delta.y * max_step_size - 1 ), delta.y * max_step_size ),
-    Math.max( Math.min( ijk0.z, mz - delta.z * max_step_size - 1 ), delta.z * max_step_size )
-  );
-
-  const ijk_idx = ijk1.clone();
-  const multiply_factor = new Vector3().set( 1, mx, mx * my );
-  let label_id, count = {};
-
-  label_id = label_data[ ijk0.dot(multiply_factor) ] || 0;
-
-  if( label_id == 0 ) {
-    for(
-      ijk_idx.x = Math.round( ijk1.x - delta.x * max_step_size );
-      ijk_idx.x <= Math.round( ijk1.x + delta.x * max_step_size );
-      ijk_idx.x += 1
-    ) {
-      for(
-        ijk_idx.y = Math.round( ijk1.y - delta.y * max_step_size );
-        ijk_idx.y <= Math.round( ijk1.y + delta.y * max_step_size );
-        ijk_idx.y += 1
-      ) {
-        for(
-          ijk_idx.z = Math.round( ijk1.z - delta.z * max_step_size );
-          ijk_idx.z <= Math.round( ijk1.z + delta.z * max_step_size );
-          ijk_idx.z += 1
-        ) {
-          label_id = label_data[ ijk_idx.dot(multiply_factor) ];
-          if( label_id > 0 ){
-            count[ label_id ] = ( count[ label_id ] || 0 ) + 1;
-          }
-        }
-      }
-    }
-
-
-    const keys = Object.keys(count);
-    if( keys.length > 0 ){
-      label_id = keys.reduce((a, b) => count[a] > count[b] ? a : b);
-      label_id = parseInt( label_id );
-    }
-  }
-
-
-  // find label
-  if( label_id == 0 ){
-    return([ "Unknown", 0 ]);
-  }
-
-  try {
-    const lbl = fslut.map[ label_id ].Label;
-    if( lbl ){
-      return([ lbl, label_id ]);
-    } else {
-      return([ "Unknown", 0 ]);
-    }
-  } catch (e) {
-    return([ "Unknown", 0 ]);
-  }
-
-}
-// window.atlas_label = atlas_label;
-
 
 const pal = [0x1874CD, 0x1F75C6, 0x2677BF, 0x2E78B9, 0x357AB2, 0x3C7BAC, 0x447DA5, 0x4B7E9F, 0x528098, 0x598292, 0x61838B, 0x688585, 0x70867E, 0x778878, 0x7E8971, 0x858B6B, 0x8D8C64, 0x948E5E, 0x9B9057, 0xA39151, 0xAA934A, 0xB29444, 0xB9963D, 0xC09737, 0xC89930, 0xCF9A2A, 0xD69C23, 0xDD9E1D, 0xE59F16, 0xECA110, 0xF3A209, 0xFBA403, 0xFFA300, 0xFFA000, 0xFF9D00, 0xFF9A00, 0xFF9700, 0xFF9400, 0xFF9100, 0xFF8E00, 0xFF8B00, 0xFF8800, 0xFF8500, 0xFF8100, 0xFF7E00, 0xFF7B00, 0xFF7800, 0xFF7500, 0xFF7200, 0xFF6F00, 0xFF6C00, 0xFF6900, 0xFF6600, 0xFF6300, 0xFF6000, 0xFF5D00, 0xFF5A00, 0xFF5700, 0xFF5400, 0xFF5100, 0xFF4E00, 0xFF4B00, 0xFF4800, 0xFF4500];
 
@@ -146,44 +34,59 @@ class LocElectrode {
     this.localization_order = localization_order;
     this._canvas = canvas;
     if(Array.isArray(initial_position)){
-      this.initial_position = [...initial_position];
+      this.initialPosition = new Vector3().fromArray( initial_position );
     } else {
-      this.initial_position = initial_position.toArray();
+      this.initialPosition = initial_position.clone();
     }
-    const init_pos_clone = [
-      this.initial_position[0],
-      this.initial_position[1],
-      this.initial_position[2]
-    ];
+    const initialPositionAsArray = this.initialPosition.toArray();
 
     // get fs Label
-    this.fs_label = atlas_label(init_pos_clone, canvas)[0];
-    const regex = /(l|r)h\-/g;
-    const m = regex.exec(this.fs_label);
+    this.atlasLabels = {};
+    this.atlasLabels[ "aseg" ] = { index : 0 , label : "Unknown" };
+    this.atlasLabels[ "aparc+aseg" ] = { index : 0 , label : "Unknown" };
+    this.atlasLabels[ "aparc.DKTatlas+aseg" ] = { index : 0 , label : "Unknown" };
+    this.atlasLabels[ "aparc.a2009s+aseg" ] = { index : 0 , label : "Unknown" };
+    this.atlasLabels[ "manual" ] = undefined;
+    this.computeFreeSurferLabel();
+    const regex = /(lh|rh|Left|Right)\-/g;
 
-    if( m && m.length >= 2 ){
-      this.Hemisphere = m[1] == "r" ? "right" : "left";
-    } else {
-      let ac_pos = canvas.get_state("anterior_commissure");
-      if( ac_pos && ac_pos.isVector3 ){
-        ac_pos = ac_pos.x;
-      } else {
-        ac_pos = 0;
+    for(let atlasType in this.atlasLabels) {
+      const atlasLabel = this.atlasLabels[ atlasType ];
+      if( atlasLabel && typeof atlasLabel === "object" && typeof atlasLabel.label === "string" ) {
+        const m = regex.exec( atlasLabel.label );
+        if( m && m.length >= 2 ){
+          this.Hemisphere = m[1].toLowerCase() == "r" ? "right" : "left";
+          break;
+        }
       }
-      this.Hemisphere = pos.x > ac_pos ? "right" : "left";
+    }
+    if( this.Hemisphere !== "left" && this.Hemisphere !== "right" ) {
+      // cannot determine from the FreeSurfer label, use this._determineHemisphere to decide
+      this.Hemisphere = this._determineHemisphere({
+        electrodePosition : this.initialPosition
+      }) || "left";
     }
 
     this.Label = "NoLabel" + this.localization_order;
     this.Electrode = "";
-    this.FSIndex = undefined;
+    // leptomeningeal projection (this initialization makes sure if lepto is not found, we can still
+    // project to pial)
+    this.brainShiftEnabled = false;
+    this.leptoPosition = this.initialPosition.clone(); // projected on leptomeningeal in world RAS
+    this.distanceToLepto = 0;    // distance to leptoPosition
+    this.pialPosition = this.initialPosition.clone(); // position on pial surface (projected)
+    this.pialVertexIndex = NaN; // nearest vertex index for this.pialPosition
+    this.distanceToPial = 0;    // distance to pial surface
+    this.spherePosition = new Vector3(); // position on sphere.reg
     this._orig_name = `${this.subject_code}, ${this.localization_order} - ${this.Label}`;
     this._scale = electrode_scale;
+    this._globalPosition = this.initialPosition.clone(); // used for cache, not accurate
 
     const inst = canvas.add_object({
       "name": this._orig_name,
       "type": "sphere",
       "time_stamp": [],
-      "position": init_pos_clone,
+      "position": initialPositionAsArray,
       "value": null,
       "clickable": true,
       "layer": 0,
@@ -240,11 +143,162 @@ class LocElectrode {
     );
     this.object.add( line );
 
+    // brain-shift helper for surface electrodes
 
+    // re-use __vec3
+    this.shiftHelper = new ArrowHelper();
+    this.shiftHelper.setColor( 0xff0000 );
+    this.shiftHelper.setLength( 0 );
+    this.shiftHelper.visible = false;
 
+    this.object.add( this.shiftHelper );
 
     this.update_scale();
     this._enabled = true;
+
+    // update project->lepto->pial
+    this.updateProjection();
+
+  }
+
+  _determineHemisphere({ electrodePosition } = {}) {
+    const leftPialName = `FreeSurfer Left Hemisphere - pial (${ this.subject_code })`;
+    const rightPialName = `FreeSurfer Left Hemisphere - pial (${ this.subject_code })`;
+
+    const leftPialInstance = this._canvas.threebrain_instances.get( leftPialName );
+    const rightPialInstance = this._canvas.threebrain_instances.get( rightPialName );
+
+    if( leftPialInstance === undefined ) {
+      return "right";
+    }
+    if( rightPialInstance === undefined ) {
+      return "left";
+    }
+
+    if( !electrodePosition ) {
+      electrodePosition = this.object.getWorldPosition( this._globalPosition );
+    }
+    const projectLeft = projectOntoMesh( electrodePosition, leftPialInstance.object );
+    const projectRight = projectOntoMesh( electrodePosition, rightPialInstance.object );
+    if( projectLeft.distance < projectRight.distance ) {
+      return "left";
+    } else {
+      return "right";
+    }
+  }
+
+  _getSurfaceInstance({ hemisphere, surfaceType = "pial" } = {}) {
+    if( hemisphere === undefined || typeof hemisphere !== "string" ) {
+      hemisphere = this.Hemisphere;
+      if( typeof hemisphere !== "string" ) {
+        hemisphere = this._determineHemisphere() || "left";
+      }
+    }
+    hemisphere = hemisphere.toLowerCase();
+    let instanceName;
+    if( hemisphere[0] === "l" ) {
+      instanceName = `FreeSurfer Left Hemisphere - ${ surfaceType } (${ this.subject_code })`;
+    } else {
+      instanceName = `FreeSurfer Right Hemisphere - ${ surfaceType } (${ this.subject_code })`;
+    }
+    const instance = this._canvas.threebrain_instances.get( instanceName );
+    return instance;
+  }
+
+  projectToLepto({hemisphere, direction} = {}) {
+    const leptoInstance = this._getSurfaceInstance({
+      hemisphere : hemisphere, surfaceType : "pial-outer-smoothed"
+    });
+
+    if( !leptoInstance ) {
+      // Cannot find surface [pial-outer-smoothed], no such projection
+      this.leptoPosition.copy( this.object.position );
+      this.distanceToLepto = 0;
+      return;
+    }
+
+    // compute electrode position in leptomeningeal's model position
+    const electrodePosition = this.object.getWorldPosition( this._globalPosition );
+
+    // project electrode onto smooth envelope
+    const projectionOnLepto = projectOntoMesh( electrodePosition , leptoInstance.object );
+    this.leptoPosition.copy( projectionOnLepto.point );
+    this.distanceToLepto = projectionOnLepto.distance;
+
+    // update shift helper
+    this.updateShiftHelper({ electrodePosition : electrodePosition });
+
+    return {
+      instance    : leptoInstance,
+      point       : this.leptoPosition,
+      distance    : this.distanceToLepto,
+    };
+  }
+
+  projectToPial({ hemisphere } = {}) {
+    const pialInstance = this._getSurfaceInstance({ hemisphere : hemisphere, surfaceType : "pial" });
+    const sphereInstance = this._getSurfaceInstance({ hemisphere : hemisphere, surfaceType : "sphere.reg" });
+
+    if( !pialInstance ) {
+      // Cannot find surface [pial-outer-smoothed], no such projection
+      this.pialPosition.copy( this.object.position );
+      this.distanceToPial = 0;
+      this.pialVertexIndex = NaN;
+      return;
+    }
+    const projectionOnPial = projectOntoMesh( this.leptoPosition , pialInstance.object );
+    this.pialPosition.copy( projectionOnPial.point );
+    this.pialVertexIndex = projectionOnPial.vertexIndex;
+    const shift = this.object.getWorldPosition(new Vector3())
+      .sub( this.pialPosition ).multiplyScalar( -1 );
+    this.distanceToPial = shift.length();
+
+    // update position on sphere.reg
+    if( !sphereInstance ) { return; }
+    const spherePositionAttribute = sphereInstance.object.geometry.getAttribute("position");
+    this.spherePosition.x = spherePositionAttribute.getX( this.pialVertexIndex );
+    this.spherePosition.y = spherePositionAttribute.getY( this.pialVertexIndex );
+    this.spherePosition.z = spherePositionAttribute.getZ( this.pialVertexIndex );
+
+    return {
+      instance    : pialInstance,
+      point       : this.pialPosition,
+      distance    : this.distanceToPial,
+      vertexIndex : this.pialVertexIndex,
+      spherePosition  : this.spherePosition
+    };
+  }
+
+  updateShiftHelper({ electrodePosition } = {}) {
+    if( !electrodePosition ) {
+      electrodePosition = this.object.getWorldPosition( this._globalPosition );
+    } else {
+      this._globalPosition.copy( electrodePosition );
+    }
+    const shiftThreshold = this._canvas.get_state( "brain_shift_max", 0 );
+    const shiftMode = this._canvas.get_state( "brain_shift_mode", "disabled" );
+    const withinThreshold = this.distanceToLepto < shiftThreshold;
+
+    const shift = this._globalPosition.sub( this.leptoPosition ).multiplyScalar( -1 );
+    this.shiftHelper.setLength( withinThreshold ? this.distanceToLepto : shiftThreshold );
+    this.shiftHelper.setDirection( shift.normalize() );
+
+    switch (shiftMode) {
+      case 'hard threshold':
+        this.brainShiftEnabled = withinThreshold;
+        break;
+      case 'soft threshold':
+        this.brainShiftEnabled = true;
+        break;
+      default:
+        this.brainShiftEnabled = false;
+    }
+    this.shiftHelper.visible = this.brainShiftEnabled;
+  }
+
+  updateProjection() {
+    this.projectToLepto();
+    this.projectToPial();
   }
 
   dispose() {
@@ -257,15 +311,50 @@ class LocElectrode {
     } catch (e) {}
   }
 
-  get_fs_label( index ){
-    if( index !== undefined ){
-      return( atlas_label_from_index(index, this._canvas) );
-    } else if ( this.FSIndex !== undefined ) {
-      return( atlas_label_from_index(this.FSIndex, this._canvas) );
-    } else {
-      const pos = this.instance._params.position;
-      return( atlas_label(pos, this._canvas) );
+  computeFreeSurferLabel({ position } = {}) {
+    if( !position ) {
+      if( this.brainShiftEnabled ) {
+        position = this.leptoPosition;
+      } else if ( this.object ) {
+        position = this.object.getWorldPosition( this._globalPosition );
+      } else {
+        position = this.initialPosition;
+      }
     }
+    let inst;
+    let maxStepSize = 2.0;
+
+    if( this.brainShiftEnabled ) {
+      // surface electrode, make sure the step size can reach pial surface
+      maxStepSize = this.distanceToPial > 10 ? 10 : this.distanceToPial;
+      if( maxStepSize < 2.0 ) {
+        maxStepSize = 2.0;
+      }
+    }
+
+    // aseg
+    inst = getDataCube2( this._canvas, "aseg", this.subject_code );
+    this.atlasLabels[ "aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+
+    // aparc+aseg
+    inst = getDataCube2( this._canvas, "aparc_aseg", this.subject_code );
+    this.atlasLabels[ "aparc+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+
+    // aparc.DKTatlas+aseg
+    inst = getDataCube2( this._canvas, "aparc_DKTatlas_aseg", this.subject_code );
+    this.atlasLabels[ "aparc.DKTatlas+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+
+    // aparc.a2009s+aseg
+    inst = getDataCube2( this._canvas, "aparc_a2009s_aseg", this.subject_code );
+    this.atlasLabels[ "aparc.a2009s+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+
+    return this.atlasLabels;
+  }
+
+  useFreeSurferIndex( index ) {
+    // this will only change manual
+    this.atlasLabels[ "manual" ] = getAnatomicalLabelFromIndex( index );
+    return this.atlasLabels;
   }
 
   update_label( label ){
@@ -281,8 +370,10 @@ class LocElectrode {
     for( let k in params ){
       switch (k) {
         case 'Electrode':
-        case 'FSIndex':
           this[k] = params[k];
+          break;
+        case 'FSIndex':
+          this.useFreeSurferIndex( params[k] );
           break;
         case 'Label':
           this.update_label( params.Label );
@@ -343,16 +434,16 @@ class LocElectrode {
   }
 
   reset_position() {
-    this.object.position.fromArray( this.initial_position );
-    this.instance._params.position[0] = this.initial_position[0];
-    this.instance._params.position[1] = this.initial_position[1];
-    this.instance._params.position[2] = this.initial_position[2];
+    this.object.position.copy( this.initialPosition );
+    this.instance._params.position[0] = this.initialPosition.x;
+    this.instance._params.position[1] = this.initialPosition.y;
+    this.instance._params.position[2] = this.initialPosition.z;
     this.update_line();
   }
 
   update_line() {
     const positions = this._line.geometry.attributes.position;
-    const dst = this.__vec3.fromArray( this.initial_position ).sub( this.object.position );
+    const dst = this.__vec3.copy( this.initialPosition ).sub( this.object.position );
 
     //__canvas.object_chosen.position.set(0,0,0)
     const inst_start = this._line.geometry.attributes.instanceStart.data.array,
@@ -522,6 +613,7 @@ class LocElectrode {
 
     this.object.position.copy( pos );
     this.update_line();
+    this.updateProjection();
   }
 
 }
@@ -813,6 +905,51 @@ function register_controls_localization( ViewerControlCenter ){
     }
   };
 
+  const shiftDirectionSum = new Vector3();
+  ViewerControlCenter.prototype.startBrainShift = function({
+    mode, threshold, sameDirection, dryRun
+  } = {}){
+    if( typeof mode === "string" ) {
+      switch (mode[0]) {
+        case 's':
+          this.canvas.set_state( "brain_shift_mode", "soft threshold" );
+          break;
+        case 'h':
+          this.canvas.set_state( "brain_shift_mode", "hard threshold" );
+          break;
+        default:
+          this.canvas.set_state( "brain_shift_mode", "disabled" );
+      }
+    }
+    if( typeof threshold === "number" ) {
+      this.canvas.set_state( "brain_shift_max", threshold );
+    }
+    if( typeof sameDirection === "boolean" ) {
+      this.canvas.set_state( "brain_shift_homogeneous", sameDirection );
+    } else {
+      sameDirection = this.canvas.get_state( "brain_shift_homogeneous", false );
+    }
+
+    if( dryRun ) { return; }
+
+    const electrodes = this.__localize_electrode_list;
+    // reuse static (not really) variable
+    shiftDirectionSum.set( 0, 0, 0 );
+
+    // first pass
+    electrodes.forEach((el) => {
+      el.updateShiftHelper();
+      if( el.brainShiftEnabled ) {
+        // get shift from electrode to its projection to leptomeningeal
+        shiftDirectionSum.add(
+          el.__vec3.copy( el.leptoPosition ).sub( el._globalPosition ).normalize()
+        );
+      }
+    });
+
+    this.canvas.needsUpdate = true;
+  }
+
   ViewerControlCenter.prototype.addPreset_localization = function(){
 
     const electrodes = this.__localize_electrode_list;
@@ -868,6 +1005,28 @@ function register_controls_localization( ViewerControlCenter ){
         this._update_canvas();
 
       });
+
+    this.gui
+      .addController('Brain Shift', "disabled", {
+        folderName: folderName,
+        args: ['disabled', 'soft threshold', 'hard threshold']
+      })
+      .onChange(v => {
+        this.startBrainShift({ mode : v });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.gui
+      .addController('Max Shift', 14.0, { folderName: folderName })
+      .min(0.0).max(50).step(0.1).decimals(1)
+      .onChange(v => {
+        this.startBrainShift({ threshold : v });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    // initialize state values
+    this.startBrainShift({ mode : "disabled", threshold : 14.0, dryRun : true });
 
     // remove electrode
     this.gui.addController( 'Enable/Disable Electrode', () => {
@@ -1106,10 +1265,10 @@ function register_controls_localization( ViewerControlCenter ){
       }
     });
 
-    // bind dblclick ssss
+    // bind dblclick
     this.addEventListener( "viewerApp.mouse.doubleClick", () => {
       const scode = this.canvas.get_state("target_subject"),
-              mode = edit_mode.getValue();
+            mode = edit_mode.getValue();
         if(
           !mode || mode == "disabled" ||
           !scode || scode === ""
@@ -1171,6 +1330,7 @@ function register_controls_localization( ViewerControlCenter ){
       refine_electrode.object.position[ axis ] += step;
       refine_electrode.object.userData.construct_params.position[ xyzTo123[ axis ] ] += step;
       refine_electrode.update_line();
+      refine_electrode.updateProjection();
       this.broadcast({
         data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
       });

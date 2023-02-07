@@ -2590,7 +2590,7 @@ mapped = false,
             tkrRAS_Scanner = subject_data.matrices.tkrRAS_Scanner,
             xfm = subject_data.matrices.xfm,
             pos = new Vector3();
-      let parsed, e, g, inst, fs_label;
+      let parsed, e, g, inst;
       const label_list = {};
 
       for( let k in collection ){
