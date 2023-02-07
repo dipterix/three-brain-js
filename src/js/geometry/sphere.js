@@ -490,7 +490,7 @@ class Sphere extends AbstractThreeBrainObject {
 
     // xyz on sphere.reg
     if( localization_instance.brainShiftEnabled ) {
-      summary.DistanceShifted = localization_instance.distanceToLepto;
+      summary.DistanceShifted = localization_instance.distanceToShifted;
       summary.DistanceToPial = localization_instance.distanceFromShiftedToPial;
       summary.Sphere_x = localization_instance.spherePosition.x;
       summary.Sphere_y = localization_instance.spherePosition.y;
