@@ -323,7 +323,7 @@ class EnhancedGUI extends GUI {
       "Show Legend", "Show Time", "Highlight Box", "Info Text",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity", "Voxel Min", "Voxel Max",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
-      "Edit Mode", "Text Scale", "Text Visibility"
+      "Edit Mode", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {

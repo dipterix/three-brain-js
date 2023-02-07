@@ -115,7 +115,7 @@ class Sphere extends AbstractThreeBrainObject {
   set_label_scale ( v ) {
     if( !this.isElectrode ) { return; }
     if( v && v > 0 ) {
-      this._text_map.update_scale( v * (this._params.radius || 1) );
+      this._text_map.updateScale( v * (this._params.radius || 1) );
     }
   }
 
@@ -423,7 +423,7 @@ class Sphere extends AbstractThreeBrainObject {
     // get position in tkrRAS, set `Coord_xyz`
     tkrRASOrig.fromArray( this._params.position );
     if( localization_instance.brainShiftEnabled ) {
-      pos.copy( localization_instance.leptoPosition );
+      pos.copy( localization_instance.shiftedPosition );
     } else {
       pos.copy( tkrRASOrig );
     }
@@ -443,7 +443,7 @@ class Sphere extends AbstractThreeBrainObject {
     }
     try { localization_instance.computeFreeSurferLabel() } catch (e) {}
     const atlasLabels = localization_instance.atlasLabels;
-    let seekOrder = ["manual", "aparc+aseg", "aparc.DKTatlas+aseg", "aparc.a2009s+aseg", "aseg"];
+    let seekOrder = ["manual", "aparc.a2009s+aseg", "aparc+aseg", "aparc.DKTatlas+aseg", "aseg"];
     for( let ii in seekOrder ) {
       const atlasType = seekOrder[ ii ];
       const atlasLabel = atlasLabels[ atlasType ];
@@ -493,12 +493,14 @@ class Sphere extends AbstractThreeBrainObject {
 
     // xyz on sphere.reg
     if( localization_instance.brainShiftEnabled ) {
-      summary.ShiftDistance = localization_instance.distanceToLepto;
+      summary.DistanceShifted = localization_instance.distanceToLepto;
+      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial;
       summary.Sphere_x = localization_instance.spherePosition.x;
       summary.Sphere_y = localization_instance.spherePosition.y;
       summary.Sphere_z = localization_instance.spherePosition.z;
     } else {
-      summary.ShiftDistance = 0;
+      summary.DistanceShifted = 0;
+      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial;
       summary.Sphere_x = 0;
       summary.Sphere_y = 0;
       summary.Sphere_z = 0;

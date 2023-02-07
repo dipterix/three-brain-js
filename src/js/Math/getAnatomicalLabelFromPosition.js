@@ -1,6 +1,37 @@
 import { Vector3 } from 'three';
 
-function getAnatomicalLabelFromPosition( position, atlasInstance, maxStepSize = 2.0 ) {
+/**
+ * preferredIndexRange can be
+ * [a, b] (index >= a & index <=b)
+ * [[a,b], [c,d]] (index >= a & index <=b or index >= c & index <=d)
+ */
+
+function isPreferredLabel( index, preferredIndexRange ) {
+
+  if( !Array.isArray(preferredIndexRange) || preferredIndexRange.length === 0 ) {
+    return true;
+  }
+  if( preferredIndexRange.length >= 2 && typeof preferredIndexRange[0] == "number" ) {
+    preferredIndexRange = [ preferredIndexRange ];
+  }
+  for(let i = 0; i < preferredIndexRange.length; i++ ) {
+    const range = preferredIndexRange[ i ];
+    if( Array.isArray(range) && range.length > 0 ) {
+      if( range.length === 1 && index === range[ 0 ] ) { return true; }
+      if( range.length > 1) {
+        if( index >= range[ 0 ] && index <= range[ 1 ] ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+
+}
+
+function getAnatomicalLabelFromPosition(
+  position, atlasInstance, { preferredIndexRange, maxStepSize = 2.0 } = {}
+) {
   if( typeof atlasInstance !== "object" || !atlasInstance.isThreeBrainObject ||
       !atlasInstance.isDataCube2 ) {
     return {
@@ -53,7 +84,7 @@ function getAnatomicalLabelFromPosition( position, atlasInstance, maxStepSize = 
   let count = {};
   let label_id = atlasVoxelData[ ijk0.dot(multiplyFactor) ] || 0;
 
-  if( label_id == 0 ) {
+  if( label_id === 0 || !isPreferredLabel( label_id, preferredIndexRange ) ) {
     for(
       ijk_idx.x = Math.round( ijk1.x - delta.x * maxStepSize );
       ijk_idx.x <= Math.round( ijk1.x + delta.x * maxStepSize );
@@ -79,8 +110,14 @@ function getAnatomicalLabelFromPosition( position, atlasInstance, maxStepSize = 
 
 
     const keys = Object.keys(count);
-    if( keys.length > 0 ){
-      label_id = keys.reduce((a, b) => count[a] > count[b] ? a : b);
+    let preferredKeys = keys.filter(k => {
+      return isPreferredLabel( parseInt(k), preferredIndexRange );
+    });
+    if( preferredKeys.length === 0 ) {
+      preferredKeys = keys;
+    }
+    if( preferredKeys.length > 0 ){
+      label_id = preferredKeys.reduce((a, b) => count[a] > count[b] ? a : b);
       label_id = parseInt( label_id );
     }
   }

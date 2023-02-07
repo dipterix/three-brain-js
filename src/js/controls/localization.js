@@ -1,4 +1,4 @@
-import { Vector3, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper } from 'three';
+import { Vector3, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper, Group } from 'three';
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { getDataCube2 } from '../utility/getDataCube2.js';
 import { CONSTANTS } from '../core/constants.js';
@@ -48,15 +48,20 @@ class LocElectrode {
     this.atlasLabels[ "aparc.a2009s+aseg" ] = { index : 0 , label : "Unknown" };
     this.atlasLabels[ "manual" ] = undefined;
     this.computeFreeSurferLabel();
-    const regex = /(lh|rh|Left|Right)\-/g;
+    const regex = /(lh|rh|left|right)\-/g;
 
     for(let atlasType in this.atlasLabels) {
       const atlasLabel = this.atlasLabels[ atlasType ];
       if( atlasLabel && typeof atlasLabel === "object" && typeof atlasLabel.label === "string" ) {
-        const m = regex.exec( atlasLabel.label );
+        const m = regex.exec( atlasLabel.label.toLowerCase() );
         if( m && m.length >= 2 ){
-          this.Hemisphere = m[1].toLowerCase() == "r" ? "right" : "left";
-          break;
+          if( m[1][0] == "r" ) {
+            this.Hemisphere = "right";
+            break;
+          } else if( m[1][0] == "l" ) {
+            this.Hemisphere = "left";
+            break;
+          }
         }
       }
     }
@@ -74,10 +79,19 @@ class LocElectrode {
     this.brainShiftEnabled = false;
     this.leptoPosition = this.initialPosition.clone(); // projected on leptomeningeal in world RAS
     this.distanceToLepto = 0;    // distance to leptoPosition
+
+    // when shifted, shiftedPosition = a * this.leptoPosition + (1-a) _globalPosition,
+    // a might not be zero when soft thresholding
+    this.shiftedPosition = this.initialPosition.clone();
+    this.distanceToShifted = 0;
+    this.distanceFromShiftedToPial = 0;
+
     this.pialPosition = this.initialPosition.clone(); // position on pial surface (projected)
+    this.distanceToPial = 0;    // distance to pial surface from _globalPosition
+
     this.pialVertexIndex = NaN; // nearest vertex index for this.pialPosition
-    this.distanceToPial = 0;    // distance to pial surface
     this.spherePosition = new Vector3(); // position on sphere.reg
+
     this._orig_name = `${this.subject_code}, ${this.localization_order} - ${this.Label}`;
     this._scale = electrode_scale;
     this._globalPosition = this.initialPosition.clone(); // used for cache, not accurate
@@ -146,14 +160,21 @@ class LocElectrode {
     // brain-shift helper for surface electrodes
 
     // re-use __vec3
-    this.shiftHelper = new ArrowHelper();
-    this.shiftHelper.setColor( 0xff0000 );
-    this.shiftHelper.setLength( 0 );
-    this.shiftHelper.visible = false;
+    this.shiftHelperGroup = new Group();
+    this.shiftHelperGroup.visible = false;
+    this.shiftHelperToShifted = new ArrowHelper();
+    this.shiftHelperToShifted.setColor( 0xff0000 );
+    this.shiftHelperToShifted.setLength( 0 );
+    this.shiftHelperGroup.add( this.shiftHelperToShifted );
 
-    this.object.add( this.shiftHelper );
+    this.shiftHelperToPial = new ArrowHelper();
+    this.shiftHelperToPial.setColor( 0x0000ff );
+    this.shiftHelperToPial.setLength( 0 );
+    this.shiftHelperGroup.add( this.shiftHelperToPial );
 
-    this.update_scale();
+    this.object.add( this.shiftHelperGroup );
+
+    this.updateScale();
     this._enabled = true;
 
     // update project->lepto->pial
@@ -163,7 +184,7 @@ class LocElectrode {
 
   _determineHemisphere({ electrodePosition } = {}) {
     const leftPialName = `FreeSurfer Left Hemisphere - pial (${ this.subject_code })`;
-    const rightPialName = `FreeSurfer Left Hemisphere - pial (${ this.subject_code })`;
+    const rightPialName = `FreeSurfer Right Hemisphere - pial (${ this.subject_code })`;
 
     const leftPialInstance = this._canvas.threebrain_instances.get( leftPialName );
     const rightPialInstance = this._canvas.threebrain_instances.get( rightPialName );
@@ -214,6 +235,7 @@ class LocElectrode {
       // Cannot find surface [pial-outer-smoothed], no such projection
       this.leptoPosition.copy( this.object.position );
       this.distanceToLepto = 0;
+      this.updateShiftHelper();
       return;
     }
 
@@ -226,7 +248,10 @@ class LocElectrode {
     this.distanceToLepto = projectionOnLepto.distance;
 
     // update shift helper
-    this.updateShiftHelper({ electrodePosition : electrodePosition });
+    this.updateShiftHelper();
+
+    // this.updateShiftHelper will run projectToPial
+    // this.projectToPial();
 
     return {
       instance    : leptoInstance,
@@ -246,12 +271,19 @@ class LocElectrode {
       this.pialVertexIndex = NaN;
       return;
     }
-    const projectionOnPial = projectOntoMesh( this.leptoPosition , pialInstance.object );
+
+    const electrodePosition = this.object.getWorldPosition( this._globalPosition );
+    const shiftThreshold = this._canvas.get_state( "brain_shift_max", 0 );
+    this.distanceToShifted = this.distanceToLepto < shiftThreshold ? this.distanceToLepto : shiftThreshold;
+    this.shiftedPosition.copy( this.leptoPosition )
+      .sub( electrodePosition ).normalize().multiplyScalar( this.distanceToShifted )
+      .add( electrodePosition );
+
+    const projectionOnPial = projectOntoMesh( this.shiftedPosition , pialInstance.object );
     this.pialPosition.copy( projectionOnPial.point );
     this.pialVertexIndex = projectionOnPial.vertexIndex;
-    const shift = this.object.getWorldPosition(new Vector3())
-      .sub( this.pialPosition ).multiplyScalar( -1 );
-    this.distanceToPial = shift.length();
+    this.distanceToPial = this.pialPosition.distanceTo( electrodePosition );
+    this.distanceFromShiftedToPial = this.pialPosition.distanceTo( this.shiftedPosition );
 
     // update position on sphere.reg
     if( !sphereInstance ) { return; }
@@ -275,13 +307,22 @@ class LocElectrode {
     } else {
       this._globalPosition.copy( electrodePosition );
     }
+    this.projectToPial();
+
     const shiftThreshold = this._canvas.get_state( "brain_shift_max", 0 );
     const shiftMode = this._canvas.get_state( "brain_shift_mode", "disabled" );
     const withinThreshold = this.distanceToLepto < shiftThreshold;
 
-    const shift = this._globalPosition.sub( this.leptoPosition ).multiplyScalar( -1 );
-    this.shiftHelper.setLength( withinThreshold ? this.distanceToLepto : shiftThreshold );
-    this.shiftHelper.setDirection( shift.normalize() );
+    // update helper from electrode to shifted
+    const shift = this._globalPosition.sub( this.shiftedPosition ).multiplyScalar( -1 );
+    this.shiftHelperToPial.position.copy( shift );
+    this.shiftHelperToShifted.setDirection( shift.normalize() );
+    this.shiftHelperToShifted.setLength( this.distanceToShifted );
+
+    // update helper from shifted to pial
+    shift.copy( this.pialPosition ).sub( this.shiftedPosition );
+    this.shiftHelperToPial.setDirection( shift.normalize() );
+    this.shiftHelperToPial.setLength( this.distanceFromShiftedToPial );
 
     switch (shiftMode) {
       case 'hard threshold':
@@ -293,12 +334,13 @@ class LocElectrode {
       default:
         this.brainShiftEnabled = false;
     }
-    this.shiftHelper.visible = this.brainShiftEnabled;
+    this.shiftHelperGroup.visible = this.brainShiftEnabled;
+
   }
 
   updateProjection() {
     this.projectToLepto();
-    this.projectToPial();
+    // this.projectToPial();
   }
 
   dispose() {
@@ -326,27 +368,46 @@ class LocElectrode {
 
     if( this.brainShiftEnabled ) {
       // surface electrode, make sure the step size can reach pial surface
-      maxStepSize = this.distanceToPial > 10 ? 10 : this.distanceToPial;
-      if( maxStepSize < 2.0 ) {
-        maxStepSize = 2.0;
+      maxStepSize = this.distanceFromShiftedToPial + 1;
+      if( maxStepSize > 10 ) {
+        maxStepSize = 10;
+      } else if ( maxStepSize < 2 ) {
+        maxStepSize = 2;
       }
     }
 
     // aseg
     inst = getDataCube2( this._canvas, "aseg", this.subject_code );
-    this.atlasLabels[ "aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+    this.atlasLabels[ "aseg" ] = getAnatomicalLabelFromPosition(
+      position, inst, { maxStepSize : maxStepSize } );
 
     // aparc+aseg
     inst = getDataCube2( this._canvas, "aparc_aseg", this.subject_code );
-    this.atlasLabels[ "aparc+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+    this.atlasLabels[ "aparc+aseg" ] = getAnatomicalLabelFromPosition(
+      position, inst, { preferredIndexRange : [
+        [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
+        [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
+        [3201, 3207], [4201, 4207]
+      ], maxStepSize : maxStepSize } );
 
     // aparc.DKTatlas+aseg
     inst = getDataCube2( this._canvas, "aparc_DKTatlas_aseg", this.subject_code );
-    this.atlasLabels[ "aparc.DKTatlas+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+    this.atlasLabels[ "aparc.DKTatlas+aseg" ] = getAnatomicalLabelFromPosition(
+      position, inst, { preferredIndexRange : [
+        [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
+        [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
+        [3201, 3207], [4201, 4207]
+      ], maxStepSize : maxStepSize } );
 
     // aparc.a2009s+aseg
     inst = getDataCube2( this._canvas, "aparc_a2009s_aseg", this.subject_code );
-    this.atlasLabels[ "aparc.a2009s+aseg" ] = getAnatomicalLabelFromPosition( position, inst, maxStepSize );
+    this.atlasLabels[ "aparc.a2009s+aseg" ] = getAnatomicalLabelFromPosition(
+      position, inst, { preferredIndexRange : [
+        [11101, 11175], [12101, 12175], [13101, 13175], [14101, 14175],
+        [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
+        [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
+        [3201, 3207], [4201, 4207]
+      ], maxStepSize : maxStepSize } );
 
     return this.atlasLabels;
   }
@@ -390,7 +451,7 @@ class LocElectrode {
           break;
         case 'Radius':
           g.radius = parseFloat(params[k]);
-          this.update_scale();
+          this.updateScale();
           break;
         case 'VertexNumber':
           g.vertex_number = parseInt(params[k]);
@@ -408,7 +469,7 @@ class LocElectrode {
     }
   }
 
-  update_scale( scale ){
+  updateScale( scale ){
     if( scale ){
       this._scale = scale;
     }
@@ -417,8 +478,8 @@ class LocElectrode {
     // }
     const v = this._scale * this.instance._params.radius;
     this.object.scale.set( v, v, v );
-    // this._map.update_scale( this._text_scale / v );
     this._line.scale.set( 1 / v, 1 / v, 1 / v );
+    this.shiftHelperGroup.scale.set( 1 / v, 1 / v, 1 / v );
   }
 
   update_color( color ){
@@ -471,7 +532,7 @@ class LocElectrode {
       shift_idx = 63;
     }
     this._line.material.color.set( pal[shift_idx] );
-    this.update_scale();
+    this.updateScale();
   }
 
   enabled() {
@@ -999,7 +1060,7 @@ function register_controls_localization( ViewerControlCenter ){
       .onChange((v) => {
 
         electrodes.forEach((el) => {
-          el.update_scale( v );
+          el.updateScale( v );
         });
 
         this._update_canvas();
@@ -1012,21 +1073,27 @@ function register_controls_localization( ViewerControlCenter ){
         args: ['disabled', 'soft threshold', 'hard threshold']
       })
       .onChange(v => {
+        if( v === "disabled" ) {
+          ctrlMaxShift.hide();
+        } else {
+          ctrlMaxShift.show();
+        }
         this.startBrainShift({ mode : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
 
-    this.gui
-      .addController('Max Shift', 14.0, { folderName: folderName })
+    const ctrlMaxShift = this.gui
+      .addController('Max Shift', 50.0, { folderName: folderName })
       .min(0.0).max(50).step(0.1).decimals(1)
       .onChange(v => {
         this.startBrainShift({ threshold : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
+    ctrlMaxShift.hide();
     // initialize state values
-    this.startBrainShift({ mode : "disabled", threshold : 14.0, dryRun : true });
+    this.startBrainShift({ mode : "disabled", threshold : 50.0, dryRun : true });
 
     // remove electrode
     this.gui.addController( 'Enable/Disable Electrode', () => {

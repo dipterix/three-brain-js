@@ -112,7 +112,7 @@ class TextTexture extends Texture {
 
 	}
 
-	update_scale( v ) {
+	updateScale( v ) {
 	  if( this.object && typeof this.object === "object" &&
         this.object.isSprite === true )
     {
@@ -177,7 +177,7 @@ class TextTexture extends Texture {
     this._context.fillText(this._text, 0, this._size * 26 / 32);
     this.needsUpdate = true;
 
-    this.update_scale();
+    this.updateScale();
 
 	}
 
