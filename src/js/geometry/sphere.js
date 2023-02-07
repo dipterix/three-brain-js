@@ -477,10 +477,7 @@ class Sphere extends AbstractThreeBrainObject {
     summary.MNI305_z = pos.z;
 
     // `SurfaceElectrode` `SurfaceType` `Radius` `VertexNumber` `Hemisphere`
-    summary.SurfaceElectrode = (
-      // this._params.is_surface_electrode? 'TRUE' : 'FALSE'
-      localization_instance.brainShiftEnabled? 'TRUE' : 'FALSE'
-    );
+    summary.SurfaceElectrode = localization_instance.brainShiftEnabled? 'TRUE' : 'FALSE';
     summary.SurfaceType = this._params.surface_type || "pial";
     summary.Radius =  this._params.radius;
     summary.VertexNumber = this._params.vertex_number;     // vertex_number is already changed if std.141 is used

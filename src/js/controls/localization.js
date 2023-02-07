@@ -116,7 +116,7 @@ class LocElectrode {
       "width_segments": 10,
       "height_segments": 6,
       "is_electrode":true,
-      "is_surface_electrode": false,
+      "is_surface_electrode": false, // dummy, use this.brainShiftEnabled
       "use_template":false,
       "surface_type": 'pial',
       "hemisphere": this.Hemisphere,
@@ -379,12 +379,12 @@ class LocElectrode {
     // aseg
     inst = getDataCube2( this._canvas, "aseg", this.subject_code );
     this.atlasLabels[ "aseg" ] = getAnatomicalLabelFromPosition(
-      position, inst, { maxStepSize : maxStepSize } );
+      this._canvas, position, inst, { maxStepSize : maxStepSize } );
 
     // aparc+aseg
     inst = getDataCube2( this._canvas, "aparc_aseg", this.subject_code );
     this.atlasLabels[ "aparc+aseg" ] = getAnatomicalLabelFromPosition(
-      position, inst, { preferredIndexRange : [
+      this._canvas, position, inst, { preferredIndexRange : [
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
         [3201, 3207], [4201, 4207]
@@ -393,7 +393,7 @@ class LocElectrode {
     // aparc.DKTatlas+aseg
     inst = getDataCube2( this._canvas, "aparc_DKTatlas_aseg", this.subject_code );
     this.atlasLabels[ "aparc.DKTatlas+aseg" ] = getAnatomicalLabelFromPosition(
-      position, inst, { preferredIndexRange : [
+      this._canvas, position, inst, { preferredIndexRange : [
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
         [3201, 3207], [4201, 4207]
@@ -402,7 +402,7 @@ class LocElectrode {
     // aparc.a2009s+aseg
     inst = getDataCube2( this._canvas, "aparc_a2009s_aseg", this.subject_code );
     this.atlasLabels[ "aparc.a2009s+aseg" ] = getAnatomicalLabelFromPosition(
-      position, inst, { preferredIndexRange : [
+      this._canvas, position, inst, { preferredIndexRange : [
         [11101, 11175], [12101, 12175], [13101, 13175], [14101, 14175],
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
@@ -414,7 +414,7 @@ class LocElectrode {
 
   useFreeSurferIndex( index ) {
     // this will only change manual
-    this.atlasLabels[ "manual" ] = getAnatomicalLabelFromIndex( index );
+    this.atlasLabels[ "manual" ] = getAnatomicalLabelFromIndex( this._canvas, index );
     return this.atlasLabels;
   }
 
@@ -438,13 +438,6 @@ class LocElectrode {
           break;
         case 'Label':
           this.update_label( params.Label );
-          break;
-        case 'SurfaceElectrode':
-          if( params[k] === "TRUE" || params[k] === true ){
-            g.is_surface_electrode = true;
-          } else {
-            g.is_surface_electrode = false;
-          }
           break;
         case 'SurfaceType':
           g.surface_type = params[k];
@@ -1008,6 +1001,9 @@ function register_controls_localization( ViewerControlCenter ){
       }
     });
 
+    this.broadcast({
+      data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
+    });
     this.canvas.needsUpdate = true;
   }
 

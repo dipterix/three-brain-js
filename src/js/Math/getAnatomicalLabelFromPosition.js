@@ -30,7 +30,7 @@ function isPreferredLabel( index, preferredIndexRange ) {
 }
 
 function getAnatomicalLabelFromPosition(
-  position, atlasInstance, { preferredIndexRange, maxStepSize = 2.0 } = {}
+  canvas, position, atlasInstance, { preferredIndexRange, maxStepSize = 2.0 } = {}
 ) {
   if( typeof atlasInstance !== "object" || !atlasInstance.isThreeBrainObject ||
       !atlasInstance.isDataCube2 ) {
