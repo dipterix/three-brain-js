@@ -157,13 +157,17 @@ class RShinyDriver {
       data.color_map = this.canvas.color_maps.get( colorMapName )
     }
 
-    data.current_clip = this.app.controlCenter.ctrlClipName.getValue();
+    if( this.app.controlCenter && this.app.controlCenter.ctrlClipName ) {
+      data.current_clip = this.app.controlCenter.ctrlClipName.getValue();
+    } else {
+      data.current_clip = "[none]";
+    }
 
-    data.current_time = this.canvas.animParameters.time
+    data.current_time = this.canvas.animParameters.time;
     data.time_range = [
       this.canvas.animParameters.min,
       this.canvas.animParameters.max
-    ]
+    ];
 
     if( is_electrode(objectChosen) ) {
       const m = CONSTANTS.REGEXP_ELECTRODE.exec( g.name );

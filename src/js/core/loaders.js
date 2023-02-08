@@ -47,20 +47,23 @@ class CanvasFileLoader {
     } else if ( urlLowerCase.endsWith("mgh") || urlLowerCase.endsWith("mgz") ) {
       item = this.readBinary( url, "mgh" );
     } else if (
+      urlLowerCase.endsWith("sulc") || urlLowerCase.endsWith("curv")
+    ) {
+      item = this.readBinary( url, "fsCurv" );
+    } else if (
+      urlLowerCase.endsWith("json")
+    ) {
+      item = this.readJSON( url );
+    } else {
+      /*
       urlLowerCase.endsWith("pial") || urlLowerCase.endsWith("pial.t1") ||
       urlLowerCase.endsWith("white") || urlLowerCase.endsWith("smoothwm") ||
       urlLowerCase.endsWith("sphere") || urlLowerCase.endsWith("sphere.reg") ||
       urlLowerCase.endsWith("pial.t1") || urlLowerCase.endsWith("inflated") ||
       urlLowerCase.endsWith("nofix") || urlLowerCase.endsWith("mesh")  ||
       urlLowerCase.endsWith("outer-smoothed")
-    ) {
+      */
       item = this.readBinary( url, "fsSurf" );
-    } else if (
-      urlLowerCase.endsWith("sulc") || urlLowerCase.endsWith("curv")
-    ) {
-      item = this.readBinary( url, "fsCurv" );
-    } else {
-      item = this.readJSON( url );
     }
     this.loadingFiles[ url ] = item;
     return item;
