@@ -297,10 +297,6 @@ class RShinyDriver {
     const c = asColor( color, new Color() );
     const controller = this.app.controllerGUI.getController('Background Color');
     controller.setValue( color );
-    handler_names = [
-      "set_localization_electrode", "clear_localization", "add_localization_electrode",
-
-    ];
   }
   driveMainCameraZoom( zoomLevel ) {
     this.canvas.mainCamera.setZoom({ zoom : zoomLevel, updateProjection : true });
