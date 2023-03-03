@@ -58,8 +58,8 @@ class Compass {
 
       // calculate shift-left
       this._left.copy( this._camera.up ).cross( this._down ).normalize()
-        .multiplyScalar( ( this._camera.left + this._camera.right ) / 2 );
-        // .multiplyScalar( ( this._camera.left + 10 * zoom + ( -150 * ( zoom - 1 ) ) ) );
+        // .multiplyScalar( ( this._camera.left + this._camera.right ) / 2 );
+        .multiplyScalar( ( this._camera.left + 10 * zoom + ( -150 * ( zoom - 1 ) ) ) );
 
       this._down.copy( this._camera.up ).normalize()
         .multiplyScalar( ( this._camera.bottom + 10 * zoom + ( -150 * ( zoom - 1 ) ) * aspRatio ) );
