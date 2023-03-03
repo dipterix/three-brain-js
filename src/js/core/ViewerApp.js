@@ -64,7 +64,7 @@ class ViewerApp extends ThrottledEventDispatcher {
      *   - B. Canvas container
      *      - Coronal panel
      *      - Axial panel
-     *      - Sagital panel
+     *      - Sagittal panel
      *      - Main canvas
      */
     this.$wrapper = $wrapper;

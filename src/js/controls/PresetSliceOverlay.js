@@ -220,14 +220,21 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_sideViewElectrodeThreshold = function(){
     const folderName = CONSTANTS.FOLDERS[ 'side-electrode-dist' ];
     // show electrodes trimmed
-    this.gui.addController('Dist. Threshold', 0, { folderName : folderName })
-      .min(0).max(64).step(0.1)
+    this.gui.addController('Render Distance', 1.0, { folderName : folderName })
+      .min(0.1).max(222).step(0.1)
       .onChange((v) => {
-        this.canvas.updateElectrodeVisibilityOnSideCanvas( v );
+        // this.canvas.updateElectrodeVisibilityOnSideCanvas( v );
+        this.canvas.setVoxelRenderDistance({
+          distance : v
+        });
+        // type : "viewerApp.canvas.setVoxelRenderDistance",
+        // this.canvas.sideCanvasList.coronal.renderThreshold = v;
+        // this.canvas.sideCanvasList.axial.renderThreshold = v;
+        // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 2 );
+      .setValue( 1.0 );
   }
 
   return( ViewerControlCenter );

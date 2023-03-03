@@ -29,6 +29,39 @@ class SideCanvas {
     return this._enabled;
   }
 
+  _updateRenderThreshold( distance ) {
+    if( typeof distance !== "number" ) {
+      distance = this._renderThreshold;
+    } else {
+      if( distance < 0 ) { distance = -distance; }
+      this._renderThreshold = distance;
+    }
+    const depthName = this.type + '_depth';
+    let currentDepth = this.mainCanvas.get_state( depthName );
+
+    switch (this.type) {
+      case 'sagittal':
+        this.camera.near = 500 + currentDepth - distance;
+        break;
+      case 'coronal':
+        this.camera.near = 500 + currentDepth - distance;
+        break;
+      case 'axial':
+        this.camera.near = 500 - currentDepth - distance;
+        break;
+      default:
+        // code
+    }
+    this.camera.updateProjectionMatrix();
+  }
+  get renderThreshold() {
+    return this._renderThreshold;
+  }
+
+  set renderThreshold( distance ) {
+    this._updateRenderThreshold( distance );
+  }
+
   zoom( level ) {
     if( level ) {
       this.zoomLevel = level;
@@ -190,6 +223,11 @@ class SideCanvas {
     this.$canvas.removeEventListener( "mouseup" , this._onMouseUp );
     this.$canvas.removeEventListener( "mousemove" , this._onMouseMove );
     this.$canvas.removeEventListener( "mousewheel" , this._onMouseWheel );
+
+    this.mainCanvas.$el.removeEventListener(
+      "viewerApp.canvas.setVoxelRenderDistance",
+      this._onSetVoxelRenderDistance );
+
     this.renderer.dispose();
   }
 
@@ -290,6 +328,7 @@ class SideCanvas {
     this.mainCanvas = mainCanvas;
     this.zoomLevel = 1;
     this.pixelRatio = this.mainCanvas.pixel_ratio[1];
+    this._renderThreshold = 2.0;
 
     this._enabled = true;
     this._lookAt = new Vector3( 0, 0, 0 );
@@ -445,6 +484,10 @@ class SideCanvas {
     this.$canvas.addEventListener( "mouseup" , this._onMouseUp );
     this.$canvas.addEventListener( "mousemove" , this._onMouseMove );
     this.$canvas.addEventListener( "mousewheel" , this._onMouseWheel );
+
+    this.mainCanvas.$el.addEventListener(
+      "viewerApp.canvas.setVoxelRenderDistance",
+      this._onSetVoxelRenderDistance );
   }
 
   _onResetClicked = () => {
@@ -477,7 +520,6 @@ class SideCanvas {
   _onMouseWheel = ( evt ) => {
     evt.preventDefault();
     const depthName = this.type + '_depth';
-    console.log(depthName);
     let currentDepth = this.mainCanvas.get_state( depthName );
     if( evt.deltaY > 0 ){
       currentDepth += 0.5;
@@ -487,7 +529,7 @@ class SideCanvas {
     this.mainCanvas.set_state( depthName, currentDepth );
 
     switch (this.type) {
-      case 'sagital':
+      case 'sagittal':
         this.mainCanvas.setSliceCrosshair({ x : currentDepth })
         break;
       case 'coronal':
@@ -516,6 +558,12 @@ class SideCanvas {
   }
   _onDoubleClick = () => {
     this.reset({ zoomLevel : false, position : true, size : true })
+  }
+
+  _onSetVoxelRenderDistance = ( event ) => {
+    if( typeof event.detail.distance === "number" ) {
+      this._updateRenderThreshold( event.detail.distance );
+    }
   }
 
 }

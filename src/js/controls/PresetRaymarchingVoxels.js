@@ -58,8 +58,10 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         const lb = Math.floor( dataCubeInstance.__dataLB ),
               ub = Math.ceil( dataCubeInstance.__dataUB );
         ctrlContinuousThresholdLB.min( lb ).max( ub )
+          .step( (ub - lb) / ( nColorKeys - 1 ) )
           .setValue( Math.max( voxelLB , lb ) ).updateDisplay();
         ctrlContinuousThresholdUB.min( lb ).max( ub )
+          .step( (ub - lb) / ( nColorKeys - 1 ) )
           .setValue( Math.min( voxelUB, ub ) ).updateDisplay();
         // applyContinuousSelection();
       } else {
@@ -78,10 +80,14 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       .onChange( this._onDataCube2TypeChanged );
 
     // Controls how the datacube should be displayed
+    const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'main camera'];
     const ctrlDC2Display = this.gui
       .addController(
-        'Voxel Display', 'hidden',
-        { args : ['hidden', 'normal'], folderName : folderName })
+        'Voxel Display', 'side camera',
+        {
+          args : voxelDisplayTypes,
+          folderName : folderName
+        })
       .onChange( (v) => {
         this.canvas.atlases.forEach( (al, subject_code) => {
           for( let atlas_name in al ){
@@ -111,11 +117,10 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : () => {
-        if( ctrlDC2Display.getValue() === 'hidden' ) {
-          ctrlDC2Display.setValue( "normal" );
-        } else {
-          ctrlDC2Display.setValue( "hidden" );
-        }
+        let idx = voxelDisplayTypes.indexOf( ctrlDC2Display.getValue() ) + 1;
+        if( idx >= voxelDisplayTypes.length ) { idx = 0; }
+
+        ctrlDC2Display.setValue( voxelDisplayTypes[ idx ] );
       }
     });
 

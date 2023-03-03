@@ -742,11 +742,31 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
   }
 
-  setSliceCrosshair({x, y, z, immediate = true} = {}) {
+  setSliceCrosshair({x, y, z, immediate = true, centerCrosshair = false} = {}) {
     this.dispatch({
       type : "viewerApp.canvas.setSliceCrosshair",
       data : {
         x : x, y : y, z : z
+      },
+      immediate : immediate
+    });
+
+    this.sideCanvasList.coronal._updateRenderThreshold();
+    this.sideCanvasList.axial._updateRenderThreshold();
+    this.sideCanvasList.sagittal._updateRenderThreshold();
+    if( centerCrosshair ) {
+      this.sideCanvasList.coronal.zoom();
+      this.sideCanvasList.axial.zoom();
+      this.sideCanvasList.sagittal.zoom();
+    }
+  }
+
+  setVoxelRenderDistance({ distance, immediate = true } = {}) {
+    if( typeof distance !== "number" ) { return; }
+    this.dispatch({
+      type : "viewerApp.canvas.setVoxelRenderDistance",
+      data : {
+        distance: distance
       },
       immediate : immediate
     });
@@ -1531,7 +1551,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const sliceInstance = this.state_data.get( "activeSliceInstance" );
       const renderSlices = sliceInstance && sliceInstance.isDataCube;
       if( renderSlices ) {
-        sliceInstance.sliceMaterial.depthWrite = false;
+        // sliceInstance.sliceMaterial.depthWrite = false;
       }
 
       this.sideCanvasList.coronal.render();
@@ -1539,7 +1559,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.sideCanvasList.sagittal.render();
 
       if( renderSlices ) {
-        sliceInstance.sliceMaterial.depthWrite = true;
+        // sliceInstance.sliceMaterial.depthWrite = true;
       }
 
     }
