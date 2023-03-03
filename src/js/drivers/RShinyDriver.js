@@ -348,6 +348,9 @@ class RShinyDriver {
   driveSetCrosshair({ x, y, z } = {}) {
     this.canvas.setSliceCrosshair({ x : x , y : y , z : z });
   }
+  driveSetVoxelRenderDistance({ distance }) {
+    this.canvas.setVoxelRenderDistance({ distance : distance });
+  }
   driveChooseElectrode({ subjectCode, electrodeNumber } = {}) {
 
     if( typeof subjectCode !== "string" || electrodeNumber === undefined ) {
