@@ -12,6 +12,8 @@ const VolumeRenderShader1 = {
 
       stepSize: { value : 1.0 },
 
+      maxRenderDistance: { value : 1000.0 },
+
       // lightDirection : { value : new Vector3() },
 
       // only works when number of color channels is 1
@@ -32,6 +34,7 @@ uniform float bounding;
 // uniform vec2 camera_center;
 
 out mat4 pmv;
+out mat4 mv;
 out vec3 vOrigin;
 // out vec3 vDirection;
 out vec3 vPosition;
@@ -39,6 +42,7 @@ out vec3 vPosition;
 
 
 void main() {
+  mv = modelViewMatrix;
   pmv = projectionMatrix * modelViewMatrix;
 
   vPosition = position;
@@ -71,6 +75,7 @@ in vec3 vPosition;
 // in vec3 vDirection;
 // in vec3 vSamplerBias;
 in mat4 pmv;
+in mat4 mv;
 out vec4 color;
 uniform sampler3D cmap;
 uniform int colorChannels;
@@ -78,6 +83,7 @@ uniform vec3 color1WhenSingleChannel;
 uniform vec3 color2WhenSingleChannel;
 uniform float alpha;
 uniform float stepSize;
+uniform float maxRenderDistance;
 uniform vec3 scale_inv;
 // uniform vec3 lightDirection;
 uniform float bounding;
@@ -108,6 +114,9 @@ float getDepth( vec3 p ){
   // ndc.z = (2.0 * gl_FragCoord.z - gl_DepthRange.near - gl_DepthRange.far) /
   //      (gl_DepthRange.far - gl_DepthRange.near);
   // return (frag2.z / frag2.w / 2.0 + 0.5);
+}
+vec3 getWorldPosition( vec3 p ) {
+  return (mv * vec4( p, 1.0 )).xyz;
 }
 vec4 sample2( vec3 p ) {
   vec4 re = texture( cmap, p * scale_inv + 0.5 );
@@ -214,6 +223,7 @@ void main(){
   vec4 last_color = vec4( 0.0, 0.0, 0.0, 0.0 );
   vec3 zero_rgb = vec3( 0.0, 0.0, 0.0 );
   vec3 nmal;
+  vec3 worldPosition;
 
   for ( float t = bounds.x; t < bounds.y; t += delta ) {
     fcolor = sample2( p );
@@ -235,6 +245,7 @@ void main(){
 
         if( nn == 0 ){
           gl_FragDepth = getDepth( p );
+          worldPosition = getWorldPosition( p );
           color = fcolor;
 
 
@@ -249,6 +260,10 @@ void main(){
 
           color.a = max( color.a, 0.2 );
         } else {
+          if( maxRenderDistance < 999.0 &&
+              maxRenderDistance < distance(worldPosition, getWorldPosition( p )) ) {
+            break;
+          }
           // blend
           color.rgb = vec3( color.a ) * color.rgb + vec3( 1.0 - color.a ) * fcolor.rgb;
           color.a = color.a + ( 1.0 - color.a ) * fcolor.a;

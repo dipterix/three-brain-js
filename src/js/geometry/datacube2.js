@@ -294,6 +294,17 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   }
 
+  _onSetVoxelRenderDistance = (event) => {
+    let dist = 1000.0;
+    if( typeof event.detail.distance === "number" ) {
+      dist = event.detail.distance;
+      if( dist < 0 ) {
+        dist = -dist;
+      }
+    }
+    this.object.material.uniforms.maxRenderDistance.value = dist;
+  }
+
   updatePalette( selectedDataValues, timeSlice ){
     if( !this._canvas.has_webgl2 ){ return; }
 
@@ -487,6 +498,11 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // initialize voxelColor
     this.updatePalette();
+
+    // register listeners
+    this._canvas.$el.addEventListener(
+      "viewerApp.canvas.setVoxelRenderDistance",
+      this._onSetVoxelRenderDistance );
   }
 
   dispose(){
@@ -499,6 +515,12 @@ class DataCube2 extends AbstractThreeBrainObject {
       // this._map_data = undefined;
       // this.voxelData = undefined;
     }
+
+    try {
+      this._canvas.$el.removeEventListener(
+        "viewerApp.canvas.setVoxelRenderDistance",
+        this._onSetVoxelRenderDistance );
+    } catch (e) {}
   }
 
   get_track_data( track_name, reset_material ){}
@@ -533,6 +555,25 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.register_object( ['atlases'] );
 
+  }
+
+  set_display_mode( mode ) {
+
+    super.set_display_mode( mode );
+
+    switch (mode) {
+      case 'main camera':
+        this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+        break;
+      case 'side camera':
+        this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+        break;
+      default:
+        this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+    }
   }
 
   pre_render() {
