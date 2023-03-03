@@ -11,6 +11,7 @@ import * as download from 'downloadjs';
 import { LineSegments2 } from '../jsm/lines/LineSegments2.js';
 import { LineMaterial } from '../jsm/lines/LineMaterial.js';
 import { LineSegmentsGeometry } from '../jsm/lines/LineSegmentsGeometry.js';
+import { getVoxelBlobCenter } from '../Math/getVoxelBlobCenter.js';
 
 
 // Electrode localization
@@ -179,6 +180,11 @@ class LocElectrode {
 
     // update project->lepto->pial
     this.updateProjection();
+
+    // if auto refine is enabled
+    if( this._canvas.get_state( "auto_refine_electrodes", false ) ) {
+      this.adjust({ force: true });
+    }
 
   }
 
@@ -554,10 +560,21 @@ class LocElectrode {
     return;
   }
 
-  adjust() {
-    if( this.mode !== "CT/volume" ){ return; }
+  adjust({ force = false } = {}) {
+    if( !force && this.mode !== "CT/volume" ){ return; }
     const inst = this.get_volume_instance();
     if( !inst ){ return; }
+
+    this._adjust({ radius : 1.0 });
+    this._adjust({ radius : 4.0 });
+
+    this.update_line();
+    this.updateProjection();
+  }
+
+  _adjust({ radius = 2.0 } = {}) {
+
+    const inst = this.get_volume_instance();
 
     const matrix_ = inst.object.matrixWorld.clone(),
           matrix_inv = matrix_.clone().invert();
@@ -581,7 +598,10 @@ class LocElectrode {
       1 / pos.set(0, 1, 0).applyMatrix4(matrix_).sub(pos0).length(),
       1 / pos.set(0, 0, 1).applyMatrix4(matrix_).sub(pos0).length()
     );
-    const max_step_size = 2.0;
+
+    // default search nearest +-2mm voxels,
+    // assuming electrodes are most likely to be contained
+    const max_step_size = radius;
 
 
     // get position
@@ -604,53 +624,54 @@ class LocElectrode {
       Math.max( Math.min( ijk0.y, my - delta.y * max_step_size - 1 ), delta.y * max_step_size ),
       Math.max( Math.min( ijk0.z, mz - delta.z * max_step_size - 1 ), delta.z * max_step_size )
     );
-    const ijk_new = new Vector3().set(0, 0, 0),
-          ijk_distance = new Vector3();
-    const multiply_factor = new Vector3().set( 1, mx, mx * my );
 
-    const voxel_value = ct_data[ ijk0.dot(multiply_factor) ];
-    const ijk_idx = ijk1.clone();
-    let tmp, dist, total_v = 0;
-    for(
-      ijk_idx.x = Math.round( ijk1.x - delta.x * max_step_size );
-      ijk_idx.x <= Math.round( ijk1.x + delta.x * max_step_size );
-      ijk_idx.x += 1
-    ) {
-      for(
-        ijk_idx.y = Math.round( ijk1.y - delta.y * max_step_size );
-        ijk_idx.y <= Math.round( ijk1.y + delta.y * max_step_size );
-        ijk_idx.y += 1
-      ) {
-        for(
-          ijk_idx.z = Math.round( ijk1.z - delta.z * max_step_size );
-          ijk_idx.z <= Math.round( ijk1.z + delta.z * max_step_size );
-          ijk_idx.z += 1
-        ) {
+    const ijkLB = new Vector3().set(
+      Math.round( ijk1.x - delta.x * max_step_size ),
+      Math.round( ijk1.y - delta.y * max_step_size ),
+      Math.round( ijk1.z - delta.z * max_step_size )
+    );
+    const ijkUB = new Vector3().set(
+      Math.round( ijk1.x + delta.x * max_step_size ),
+      Math.round( ijk1.y + delta.y * max_step_size ),
+      Math.round( ijk1.z + delta.z * max_step_size )
+    );
+    const subVolumeShape = ijkUB.clone().sub(ijkLB).addScalar(1);
+    const subVolume = new Float32Array( subVolumeShape.x * subVolumeShape.y * subVolumeShape.z );
+
+    const multiply_factor = new Vector3().set( 1, mx, mx * my );
+    const ijk_idx = new Vector3();
+
+    let tmp;
+    for( ijk_idx.x = ijkLB.x; ijk_idx.x <= ijkUB.x; ijk_idx.x += 1 ) {
+      for( ijk_idx.y = ijkLB.y; ijk_idx.y <= ijkUB.y; ijk_idx.y += 1 ) {
+        for( ijk_idx.z = ijkLB.z; ijk_idx.z <= ijkUB.z; ijk_idx.z += 1  ) {
           tmp = ct_data[ ijk_idx.dot(multiply_factor) ];
-          if( tmp >= voxel_value ) {
-            // calculate weight
-            dist = ijk_distance.copy( ijk_idx ).sub( ijk0 ).length() / max_step_size;
-            tmp *= Math.exp( - (dist * dist) / 8.0 );
-            if(tmp > ct_threshold_min) { tmp *= 2; }
-            total_v += tmp;
-            ijk_new.x += tmp * (ijk_idx.x - ijk0.x);
-            ijk_new.y += tmp * (ijk_idx.y - ijk0.y);
-            ijk_new.z += tmp * (ijk_idx.z - ijk0.z);
-          }
+
+          subVolume[
+            ijk_idx.x - ijkLB.x + subVolumeShape.x * ( ijk_idx.y - ijkLB.y + subVolumeShape.y * ( ijk_idx.z - ijkLB.z ))
+          ] = tmp;
         }
       }
     }
-    if( total_v <= 0 ){ return; }
-    ijk_new.multiplyScalar( 1.0 / total_v ).add( ijk0 );
+
+    const ijk_new = getVoxelBlobCenter({
+      x: subVolume,
+      dim: subVolumeShape,
+      initial: ijk0.clone().sub(ijkLB),
+      sliceDensity: delta,
+      maxSearch: 1.0,
+      threshold: ct_threshold_min
+    });
+    ijk_new.add( ijkLB );
 
     // (ijk + 0.5 - margin_voxels / 2) * f
-    ijk_new.multiplyScalar( 2.0 ).sub( modelShape ).addScalar( 2.0 ).multiplyScalar( 0.5 );
+    ijk_new.multiplyScalar( 2.0 ).sub( modelShape ).addScalar( 1.0 ).multiplyScalar( 0.5 );
     pos.copy( ijk_new );
 
     // reverse back
     pos.applyMatrix4( matrix_ );
 
-
+    /*
     if(this.__interpolate_direction && this.__interpolate_direction.isVector3) {
       // already normalized
       const interp_dir = this.__interpolate_direction.clone();
@@ -660,14 +681,13 @@ class LocElectrode {
       const inner_prod = pos.dot( interp_dir );
       pos.sub( interp_dir.multiplyScalar( inner_prod * 0.9 ) ).add( pos0 );
     }
+    */
 
     position[0] = pos.x;
     position[1] = pos.y;
     position[2] = pos.z;
 
     this.object.position.copy( pos );
-    this.update_line();
-    this.updateProjection();
   }
 
 }
@@ -741,12 +761,15 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
   if( size <= 2 ){ return; }
   const src = canvas.mainCamera.position;
   const dst = new Vector3();
+  const last = new Vector3();
+
   electrodes[electrodes.length - 2].object.getWorldPosition( dst );
 
   const n = size - 1;
   const step = new Vector3();
-  electrodes[electrodes.length - 1].object.getWorldPosition( step );
-  step.sub( dst );
+  electrodes[electrodes.length - 1].object.getWorldPosition( last );
+  step.copy( last ).sub( dst );
+
   const step_length = step.length();
   const tmp = new Vector3();
   const est = new Vector3();
@@ -754,8 +777,10 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
   const dir = new Vector3();
   const re = [];
 
-  est.copy(dst).add( step );
+  // last is most recently registered electrode
+  est.copy( last );
   let added = false;
+  let distanceToLast;
   for( let ii = 1; ii < n; ii++ ){
 
     est.add( step );
@@ -765,11 +790,18 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
     added = false
     for( let delta = 0.5; delta < 100; delta += 0.5 ){
       const res = intersect_volume(src, dir, inst, canvas, delta, false);
-      if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10 ){
-        step.add( res ).sub( est ).normalize().multiplyScalar(step_length);
-        est.copy( res );
-        added = true;
-        break;
+      if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10){
+        distanceToLast = res.distanceTo( last );
+        if(
+          distanceToLast > 0.7 * step_length &&
+            distanceToLast < 1.3 * step_length
+        ) {
+          step.add( res ).sub( est ).normalize().multiplyScalar(step_length);
+          last.copy( est );
+          est.copy( res );
+          added = true;
+          break;
+        }
       }
     }
     re.push( est.clone() );
@@ -923,6 +955,7 @@ function register_controls_localization( ViewerControlCenter ){
       this.canvas, electrode_size);
     el.set_mode( edit_mode );
     electrodes.push( el );
+
     this.canvas.switch_subject();
 
     if( fireEvents ){
@@ -1029,7 +1062,7 @@ function register_controls_localization( ViewerControlCenter ){
         this.gui.hideControllers([
           '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
           'Interpolate from Recently Added', 'Extend from Recently Added',
-          'Reset Highlighted',
+          'Reset Highlighted', "Auto Refine",
           'Auto-Adjust Highlighted', 'Auto-Adjust All'
         ], folderName);
         if( v === 'disabled' ){ return; }
@@ -1040,7 +1073,7 @@ function register_controls_localization( ViewerControlCenter ){
           ], folderName);
         } else {
           this.gui.showControllers([
-            '- tkrRAS', '- MNI305', '- T1 RAS',
+            '- tkrRAS', '- MNI305', '- T1 RAS', 'Auto Refine',
             'Interpolate Size', 'Interpolate from Recently Added',
             'Extend from Recently Added'
           ], folderName);
@@ -1049,6 +1082,15 @@ function register_controls_localization( ViewerControlCenter ){
         this._update_canvas();
 
       });
+    const auto_refine = this.gui
+      .addController(
+        'Auto Refine', true, {
+          folderName: folderName
+        })
+      .onChange(v => {
+        this.canvas.set_state( "auto_refine_electrodes", v );
+      })
+      .setValue( true );
 
     const elec_size = this.gui
       .addController( 'Electrode Scale', 1.0, { folderName: folderName })
@@ -1453,7 +1495,8 @@ function register_controls_localization( ViewerControlCenter ){
     this.gui.hideControllers([
       '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
       'Interpolate from Recently Added', 'Extend from Recently Added',
-      'Auto-Adjust Highlighted', 'Auto-Adjust All', 'Reset Highlighted'
+      'Auto-Adjust Highlighted', 'Auto-Adjust All', 'Reset Highlighted',
+      'Auto Refine'
     ], folderName);
   };
 

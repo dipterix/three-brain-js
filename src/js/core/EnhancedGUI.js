@@ -315,7 +315,7 @@ class EnhancedGUI extends GUI {
       "Background Color", "Camera Position", "Display Coordinates", "Show Panels",
       "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
-      "Dist. Threshold", "Surface Type", "Surface Material",
+      "Render Distance", "Surface Type", "Surface Material",
       "Left Hemisphere", "Right Hemisphere", "Left Opacity", "Right Opacity",
       "Map Electrodes", "Surface Mapping", "Volume Mapping", "Visibility",
       "Display Data", "Display Range", "Threshold Data", "Threshold Range",
@@ -323,7 +323,7 @@ class EnhancedGUI extends GUI {
       "Show Legend", "Show Time", "Highlight Box", "Info Text",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity", "Voxel Min", "Voxel Max",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
-      "Edit Mode", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
+      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {
