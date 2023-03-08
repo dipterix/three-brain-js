@@ -104,7 +104,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         // TODO use event dispatcher
         this.canvas.set_state( "surface_color_refresh", Date() );
         this._update_canvas();
-      });
+      })
+      .setValue( 'side camera' );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_ATLAS_MODE,
       shiftKey  : false,
@@ -134,6 +135,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         // mesh.material.uniforms.alpha.value = opa;
         if( inst ){
           inst.object.material.uniforms.alpha.value = opa;
+
           if( opa < 0 ){
             inst.updatePalette();
           }

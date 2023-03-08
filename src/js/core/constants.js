@@ -145,7 +145,7 @@ CONSTANTS.FOLDERS = {
   'side-three-planes'     : 'Volume Settings',
   'side-electrode-dist'   : 'Volume Settings',
   'atlas'                 : 'Volume Settings',
-  'subject-selector'      : 'Surface Settings',
+  'subject-selector'      : 'Electrode Settings',
   'surface-selector'      : 'Surface Settings',
   'hemisphere-material'   : 'Surface Settings',
   'electrode-style'       : 'Electrode Settings',

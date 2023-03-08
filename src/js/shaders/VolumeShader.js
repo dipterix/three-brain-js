@@ -207,7 +207,11 @@ void main(){
   vec3 rayDir = normalize( vPosition - vOrigin );
 
   vec2 bounds = hitBox( fOrigin, rayDir );
-  if ( bounds.x > bounds.y ) discard;
+  if ( bounds.x > bounds.y ) {
+    gl_FragDepth = gl_DepthRange.far;
+    color.a = 0.0;
+    return;
+  }
   bounds.x = max( bounds.x, 0.0 );
   // 0-255 need to be 0.5-255.5
 
@@ -292,7 +296,10 @@ void main(){
     }
     p += rayDir * delta;
   }
-  if ( nn == 0 || color.a == 0.0 ) discard;
+  if ( nn == 0 || color.a == 0.0 ) {
+    gl_FragDepth = gl_DepthRange.far;
+    color.a = 0.0;
+  }
 
   // calculate alpha at depth
 }

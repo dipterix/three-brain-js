@@ -2,12 +2,14 @@ import { AbstractThreeBrainObject } from './abstract.js';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, get_or_default } from '../utils.js';
 import { Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
-         LinearFilter, NearestFilter,
+         LinearFilter, NearestFilter, SpriteMaterial, Matrix4,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments } from 'three';
+import { TextSprite, TextTexture } from '../ext/text_sprite.js';
 import { SliceShader } from '../shaders/SliceShader.js';
 import { Volume2dArrayShader_xy, Volume2dArrayShader_xz,
          Volume2dArrayShader_yz } from '../shaders/Volume2DShader.js';
+
 
 /* WebGL doesn't take transparency into consideration when calculating depth
 https://stackoverflow.com/questions/11165345/three-js-webgl-transparent-planes-hiding-other-planes-behind-them
@@ -22,6 +24,9 @@ What we need to do is to set render order to be -1, which means always render vo
 parts will show.
 
 */
+
+const tmpVec3 = new Vector3();
+const tmpMat4 = new Matrix4();
 
 class DataCube extends AbstractThreeBrainObject {
   constructor(g, canvas){
@@ -136,7 +141,7 @@ class DataCube extends AbstractThreeBrainObject {
   	    new Vector3( 4, 0, 0 ), new Vector3( 256, 0, 0 )
   	  ]);
   	const crosshairMaterialLR = new LineBasicMaterial({
-      color: 0x00ff00, transparent: false, depthTest : false
+      color: 0x00ff00, transparent: true, depthTest : false
     });
     this.crosshairLR = new LineSegments( crosshairGeometryLR, crosshairMaterialLR );
     this.crosshairLR.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
@@ -150,7 +155,7 @@ class DataCube extends AbstractThreeBrainObject {
   	    new Vector3( 0, 4, 0 ), new Vector3( 0, 256, 0 )
   	  ]);
   	const crosshairMaterialPA = new LineBasicMaterial({
-      color: 0x00ff00, transparent: false, depthTest : false
+      color: 0x00ff00, transparent: true, depthTest : false
     });
     this.crosshairPA = new LineSegments( crosshairGeometryPA, crosshairMaterialPA );
     this.crosshairPA.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
@@ -164,13 +169,56 @@ class DataCube extends AbstractThreeBrainObject {
   	    new Vector3( 0, 0, 4 ), new Vector3( 0, 0, 256 )
   	  ]);
   	const crosshairMaterialIS = new LineBasicMaterial({
-      color: 0x00ff00, transparent: false, depthTest : false
+      color: 0x00ff00, transparent: true, depthTest : false
     });
     this.crosshairIS = new LineSegments( crosshairGeometryIS, crosshairMaterialIS );
     this.crosshairIS.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
     this.crosshairIS.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
     this.crosshairIS.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
     this.crosshairGroup.add( this.crosshairIS );
+
+    // Add crosshair text
+    this.coronalTextSprite = new TextSprite(
+      "                           ",
+      {
+        textHeight  : 17,
+        color       : "white",
+        shadowColor : "black"
+      }
+    );
+    this.coronalTextSprite.material.depthTest = false;
+    this.coronalTextSprite.material.transparent = true;
+    this.coronalTextSprite.position.z = this.coronalTextSprite.scale.y / 2 + 4;
+    this.coronalTextSprite.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
+    this.crosshairGroup.add( this.coronalTextSprite );
+
+    this.axialTextSprite = new TextSprite(
+      "                           ",
+      {
+        textHeight  : 17,
+        color       : "white",
+        shadowColor : "black"
+      }
+    );
+    this.axialTextSprite.material.depthTest = false;
+    this.axialTextSprite.material.transparent = true;
+    this.axialTextSprite.position.y = this.axialTextSprite.scale.y / 2 + 4;
+    this.axialTextSprite.layers.set( CONSTANTS.LAYER_SYS_AXIAL_10 );
+    this.crosshairGroup.add( this.axialTextSprite );
+
+    this.sagittalTextSprite = new TextSprite(
+      "                           ",
+      {
+        textHeight  : 17,
+        color       : "white",
+        shadowColor : "black"
+      }
+    );
+    this.sagittalTextSprite.material.depthTest = false;
+    this.sagittalTextSprite.material.transparent = true;
+    this.sagittalTextSprite.position.z = this.sagittalTextSprite.scale.y / 2 + 4;
+    this.sagittalTextSprite.layers.set( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
+    this.crosshairGroup.add( this.sagittalTextSprite );
 
 
     sliceMeshXY.userData.dispose = () => {
@@ -259,7 +307,54 @@ class DataCube extends AbstractThreeBrainObject {
     this.crosshairGroup.position.z = z;
     this._canvas.set_state( 'axial_depth', z );
 
-    this._canvas.updateElectrodeVisibilityOnSideCanvas();
+    // this._canvas.updateElectrodeVisibilityOnSideCanvas();
+    this._canvas.setVoxelRenderDistance();
+
+    // get active datacube2
+    let crosshairText = "";
+    const datacube2Instance = this._canvas.get_state( "activeDataCube2Instance" )
+    if( datacube2Instance && datacube2Instance.isDataCube2 ) {
+
+      tmpMat4.copy( datacube2Instance.object.matrixWorld ).invert();
+      tmpVec3.set( x, y, z ).applyMatrix4( tmpMat4 );
+      tmpVec3.x += datacube2Instance.modelShape.x / 2;
+      tmpVec3.y += datacube2Instance.modelShape.y / 2;
+      tmpVec3.z += datacube2Instance.modelShape.z / 2;
+
+      const idx = Math.floor(
+        Math.round(tmpVec3.x) +
+        datacube2Instance.modelShape.x * (
+          Math.round(tmpVec3.y) + Math.round(tmpVec3.z) * datacube2Instance.modelShape.y
+        )
+      );
+
+      const voxelValue = datacube2Instance.voxelData[ idx ];
+
+      if( datacube2Instance.lut.mapDataType === "discrete" ) {
+        const cinfo = datacube2Instance.lut.map[ voxelValue ];
+        if( typeof cinfo === "object" ) {
+          crosshairText = cinfo.Label;
+        } else {
+          crosshairText = "";
+        }
+      } else {
+        crosshairText = voxelValue.toFixed(1);
+      }
+
+      this.coronalTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.coronal.zoomLevel;
+      this.axialTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.axial.zoomLevel;
+      this.sagittalTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.sagittal.zoomLevel;
+
+      this.coronalTextSprite.position.z = this.coronalTextSprite._textHeight / 2 + 4;
+      this.axialTextSprite.position.y = this.axialTextSprite._textHeight / 2 + 4;
+      this.sagittalTextSprite.position.z = this.sagittalTextSprite._textHeight / 2 + 4;
+
+    }
+
+    // update
+    this.coronalTextSprite.text = crosshairText;
+    this.axialTextSprite.text = crosshairText;
+    this.sagittalTextSprite.text = crosshairText;
 
     // Calculate MNI305 positions
     const crosshairMNI = this._canvas.getSideCanvasCrosshairMNI305(

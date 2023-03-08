@@ -505,6 +505,11 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     this.$controllerContainer.appendChild( this.controllerGUI.domElement );
 
+
+    this.controllerGUI.addFolder( "Volume Settings" );
+    this.controllerGUI.addFolder( "Surface Settings" );
+    this.controllerGUI.addFolder( "Electrode Settings" );
+
     // ---- Add Presets --------------------------------------------------------
     const enabledPresets = this.settings.control_presets;
     this.controlCenter = new ViewerControlCenter( this );

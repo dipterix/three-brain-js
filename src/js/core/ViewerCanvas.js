@@ -762,7 +762,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
-    if( typeof distance !== "number" ) { return; }
+    if( typeof distance === "number" ) {
+      this.set_state( "voxel_render_distance", distance );
+    } else {
+      distance = this.get_state( "voxel_render_distance" , 0.1 );
+    }
     this.dispatch({
       type : "viewerApp.canvas.setVoxelRenderDistance",
       data : {
@@ -1548,18 +1552,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       // temporarily disable slice depthWrite property so electrodes can
       // display properly
-      const sliceInstance = this.state_data.get( "activeSliceInstance" );
-      const renderSlices = sliceInstance && sliceInstance.isDataCube;
-      if( renderSlices ) {
+      const datacubeInstance = this.state_data.get( "activeDataCube2Instance" );
+      const renderCube = datacubeInstance && datacubeInstance.isDataCube2;
+
+      if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
         // sliceInstance.sliceMaterial.depthWrite = false;
+        datacubeInstance.object.material.depthWrite = false;
       }
 
       this.sideCanvasList.coronal.render();
       this.sideCanvasList.axial.render();
       this.sideCanvasList.sagittal.render();
 
-      if( renderSlices ) {
+      if( renderCube ) {
         // sliceInstance.sliceMaterial.depthWrite = true;
+        datacubeInstance.object.material.depthWrite = true;
       }
 
     }
@@ -2218,7 +2225,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( args.map_template !== undefined ){
       map_template = args.map_template;
     }
-    let map_type_surface = args.map_type_surface || state.get( 'map_type_surface' ) || 'std.141';
+    let map_type_surface = args.map_type_surface || state.get( 'map_type_surface' ) || 'sphere.reg';
     let map_type_volume = args.map_type_volume || state.get( 'map_type_volume' ) || 'mni305';
     let surface_opacity_left = args.surface_opacity_left || state.get( 'surface_opacity_left' ) || 1;
     let surface_opacity_right = args.surface_opacity_right || state.get( 'surface_opacity_right' ) || 1;
@@ -2450,7 +2457,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   // Map electrodes
-  map_electrodes( target_subject, surface = 'std.141', volume = 'mni305' ){
+  map_electrodes( target_subject, surface = 'sphere.reg', volume = 'mni305' ){
+
     /* debug code
     target_subject = 'N27';surface = 'std.141';volume = 'mni305';origin_subject='YAB';
     pos_targ = new Vector3(),
@@ -2471,123 +2479,17 @@ mapped = false,
             side = (typeof g.hemisphere === 'string' && g.hemisphere.length > 0) ? (g.hemisphere.charAt(0).toUpperCase() + g.hemisphere.slice(1)) : '';
     */
 
-
-    const pos_targ = new Vector3(),
-          pos_orig = new Vector3();
-          // mat1 = new Matrix4(),
-          // mat2 = new Matrix4();
-
-    this.electrodes.forEach( (els, origin_subject) => {
-      for( let el_name in els ){
-        const el = els[ el_name ],
-              g = el.userData.construct_params,
-              is_surf = g.is_surface_electrode,
-              vert_num = g.vertex_number,
-              surf_type = g.surface_type,
-              mni305 = g.MNI305_position,
-              origin_position = g.position,
-              target_group = this.group.get( `Surface - ${surf_type} (${target_subject})` ),
-              // origin_volume = this.group.get( `Volume (${origin_subject})` ),
-              // target_volume = this.group.get( `Volume (${target_subject})` ),
-              hide_electrode = origin_position[0] === 0 && origin_position[1] === 0 && origin_position[2] === 0;
-
-        // Calculate MNI 305 coordinate in template space
-        if( el.userData.MNI305_position === undefined ){
-          el.userData.MNI305_position = new Vector3().set(0, 0, 0);
-          if(
-            Array.isArray( mni305 ) && mni305.length === 3 &&
-            !( mni305[0] === 0 && mni305[1] === 0 && mni305[2] === 0 )
-          ) {
-            el.userData.MNI305_position.fromArray( mni305 );
-          } else {
-            const subject_data  = this.shared_data.get( origin_subject );
-            const tkrRAS_MNI305 = subject_data.matrices.tkrRAS_MNI305;
-            pos_targ.fromArray( origin_position ).applyMatrix4( tkrRAS_MNI305 );
-            el.userData.MNI305_position.copy( pos_targ );
-          }
-        }
-
-        // mni305_points is always valid (if data is complete).
-        const mni305_points = el.userData.MNI305_position;
-        pos_orig.fromArray( origin_position );
-
-        let mapped = false,
-            side = (typeof g.hemisphere === 'string' && g.hemisphere.length > 0) ? (g.hemisphere.charAt(0).toUpperCase() + g.hemisphere.slice(1)) : '';
-
-        // always do MNI305 mapping first as calibration
-        if( !hide_electrode && volume === 'mni305' ){
-          // apply MNI 305 transformation
-          const subject_data2  = this.shared_data.get( target_subject );
-          const MNI305_tkrRAS = subject_data2.matrices.MNI305_tkrRAS;
-
-          if( mni305_points.x !== 0 || mni305_points.y !== 0 || mni305_points.z !== 0 ){
-            pos_targ.set( mni305_points.x, mni305_points.y, mni305_points.z ).applyMatrix4(MNI305_tkrRAS);
-            mapped = true;
-          }
-
-          if( mapped ){
-            el.position.copy( pos_targ );
-            el.userData._template_mni305 = pos_targ.clone();
-            el.userData._template_mapped = true;
-            el.userData._template_space = 'mni305';
-            el.userData._template_shift = 0;
-            el.userData._template_surface = g.surface_type;
-            el.userData._template_hemisphere = g.hemisphere;
-          }else{
-            el.userData._template_mni305 = undefined;
-          }
-
-        }
-
-        if( !hide_electrode && surface === 'std.141' && is_surf && vert_num >= 0 &&
-            target_group && target_group.isObject3D && target_group.children.length === 2 ){
-          // User choose std.141, electrode is surface electrode, and
-          // vert_num >= 0, meaning original surface is loaded, and target_surface exists
-          // meaning template surface is loaded
-          //
-          // check if target surface is std 141
-          let target_surface = target_group.children.filter((_t) => {
-            return( _t.name === `mesh_free_Standard 141 ${side} Hemisphere - ${surf_type} (${target_subject})`);
-          });
-
-          if( target_surface.length === 1 ){
-            // Find vert_num at target_surface[0]
-            const vertices = target_surface[0].geometry.getAttribute('position');
-            const shift = target_surface[0].getWorldPosition( el.parent.position.clone() );
-            pos_targ.set( vertices.getX( vert_num ), vertices.getY( vert_num ), vertices.getZ( vert_num ) ).add(shift);
-            el.position.copy( pos_targ );
-            el.userData._template_mapped = true;
-            el.userData._template_space = 'std.141';
-            el.userData._template_surface = g.surface_type;
-            el.userData._template_hemisphere = g.hemisphere;
-            if( el.userData._template_mni305 ){
-              el.userData._template_shift = pos_targ.distanceTo( el.userData._template_mni305 );
-            }
-            mapped = true;
-          }
-
-        }
-
-
-        // Reset electrode
-        if( !mapped ){
-          el.position.fromArray( origin_position );
-          el.userData._template_mapped = false;
-          el.userData._template_space = 'original';
-          el.userData._template_mni305 = undefined;
-          el.userData._template_shift = 0;
-          el.userData._template_surface = g.surface_type;
-          el.userData._template_hemisphere = g.hemisphere;
-        }
-        if( hide_electrode ){
-          // el.visible = false;
-          set_visibility( el, false );
-        }
-
-      }
+    this.dispatch( {
+      type : "viewerApp.electrodes.mapToTemplate",
+      data : {
+        subject : target_subject,
+        surface : surface,
+        volume  : volume
+      },
+      immediate : true
     });
 
-    // also update singletons
+    // also update singletons TODO: add event listeners
     const line_segs = this.singletons.get(
       CONSTANTS.SINGLETONS["line-segments"]
     );

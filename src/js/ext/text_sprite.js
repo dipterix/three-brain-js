@@ -2,13 +2,18 @@ import { Vector3, Sprite, Texture, SpriteMaterial, LinearFilter } from 'three';
 
 
 class TextSprite extends Sprite {
-  constructor(text = '', textHeight = 10, color = 'rgba(255, 255, 255, 1)', font_face = 'Arial') {
+  constructor(content = '', {
+    textHeight = 10, color = 'rgba(0, 0, 0, 1)', fontFace = 'Arial',
+    shadowBlur = 4, shadowColor = '#FFFFFF'
+  } = {}) {
     super(new SpriteMaterial({ map: new Texture(), transparent:true, opacity: 0.5 }));
-    this._text = text;
+    this._text = content;
     this._textHeight = textHeight;
     this._color = color;
+    this._shadowBlur = shadowBlur;
+    this._shadowColor = shadowColor;
 
-    this._fontFace = font_face;
+    this._fontFace = fontFace;
     this._fontSize = 90; // defines text resolution
     this._fontWeight = 'normal';
 
@@ -20,7 +25,7 @@ class TextSprite extends Sprite {
   }
 
   get text() { return this._text; }
-  set text(text) { this._text = text; this._genCanvas(); }
+  set text(content) { this._text = content; this._genCanvas(); }
   get textHeight() { return this._textHeight; }
   set textHeight(textHeight) { this._textHeight = textHeight; this._genCanvas(); }
   get color() { return this._color; }
@@ -34,26 +39,56 @@ class TextSprite extends Sprite {
 
 
   _genCanvas() {
+
+    let initialized = true;
+    if( typeof this._aspectRatio !== "number" ) {
+      initialized = false;
+    }
+
     const canvas = this._canvas;
     const ctx = canvas.getContext('2d');
 
-    const font = `${this.fontWeight} ${this.fontSize}px ${this.fontFace}`;
+    let font = `${this._fontWeight} ${this._fontSize}px ${this._fontFace}`;
 
     ctx.font = font;
-    const textWidth = ctx.measureText(this.text).width;
-    canvas.width = textWidth;
-    canvas.height = this.fontSize;
+    const textWidth = ctx.measureText(this._text).width;
+
+    let actualFontSize = this._fontSize;
+    let actualScale = this._textHeight;
+    let offsetX = 0;
+
+    if( !initialized ) {
+      canvas.width = textWidth;
+      canvas.height = this._fontSize;
+      this._aspectRatio = canvas.width / canvas.height;
+    } else {
+      if( textWidth > canvas.width ) {
+        actualFontSize = this._fontSize * canvas.width / textWidth;
+        if( actualFontSize > 1 ) {
+          // actualFontSize = Math.floor( actualFontSize );
+        }
+        actualScale = this._textHeight * this._fontSize / actualFontSize;
+
+        font = `${this._fontWeight} ${ actualFontSize }px ${this._fontFace}`;
+      } else {
+        offsetX = Math.floor( ( canvas.width - textWidth ) / 2 );
+        if( offsetX < 0 ) { offsetX = 0; }
+      }
+    }
 
     ctx.font = font;
-    ctx.fillStyle = this.color;
+    ctx.fillStyle = this._color;
     ctx.textBaseline = 'bottom';
-    ctx.fillText(this.text, 0, canvas.height);
+    ctx.clearRect(0,0, canvas.width, canvas.height)
+    ctx.shadowBlur = this._shadowBlur;
+    ctx.shadowColor = this._shadowColor;
+    ctx.fillText(this._text, offsetX, canvas.height);
 
     // Inject canvas into sprite
     this._texture.image = canvas;
     this._texture.needsUpdate = true;
 
-    this.scale.set(this.textHeight * canvas.width / canvas.height, this.textHeight);
+    this.scale.set(actualScale * this._aspectRatio, actualScale);
   }
 
   clone() {

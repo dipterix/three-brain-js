@@ -5,6 +5,7 @@ import { MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial,
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { to_array, get_or_default } from '../utils.js';
 import { CONSTANTS } from '../core/constants.js';
+import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 
 const MATERIAL_PARAMS = { 'transparent' : false };
 
@@ -87,6 +88,31 @@ class Sphere extends AbstractThreeBrainObject {
     this._text_sprite = sprite;
     this._text_map = map;
 
+    // guess hemisphere from freesurfer label
+    if( !g.hemisphere || !['left', 'right'].includes( g.hemisphere ) ) {
+
+      g.hemisphere = null;
+
+      let fsLabel = g.anatomical_label;
+      if( typeof fsLabel === "string" ) {
+        fsLabel = fsLabel.toLowerCase();
+        if(
+          fslabel.startsWith("ctx-lh") ||
+          fslabel.startsWith("ctx_lh") ||
+          fslabel.startsWith("left")
+        ) {
+          g.hemisphere = "left";
+        } else if (
+          fslabel.startsWith("ctx-rh") ||
+          fslabel.startsWith("ctx_rh") ||
+          fslabel.startsWith("right")
+        ) {
+          g.hemisphere = "right";
+        }
+      }
+
+    }
+
     this._link_userData();
   }
 
@@ -142,6 +168,13 @@ class Sphere extends AbstractThreeBrainObject {
 
     this._mesh.material.dispose();
     this._mesh.geometry.dispose();
+
+    try {
+      this._canvas.$el.removeEventListener(
+        "viewerApp.electrodes.mapToTemplate",
+        this.mapToTemplate
+      )
+    } catch (e) {}
   }
 
   pre_render(){
@@ -517,6 +550,283 @@ class Sphere extends AbstractThreeBrainObject {
     return( summary );
   }
 
+  _mapToTemplateSurface( hemisphere, { subjectCode, surfaceType = "pial", dryRun = false } = {}) {
+
+    if( !this.isElectrode ) { return; }
+
+    const g = this._params;
+
+    if( !g.is_surface_electrode ) { return; }
+    if( !Array.isArray( g.sphere_position ) ) { return; }
+
+    let hemisphere_ = hemisphere.toLowerCase();
+    if( hemisphere_ !== "left" && hemisphere_ !== "right" ) { return; }
+    if( hemisphere_ === "left" ) {
+      hemisphere_ = "Left";
+    } else {
+      hemisphere_ = "Right";
+    }
+
+    if( typeof subjectCode !== "string" || subjectCode === "" || subjectCode === "/" ) {
+      subjectCode = this._canvas.get_state("target_subject");
+    }
+    const surfaceName = `FreeSurfer ${hemisphere_} Hemisphere - ${surfaceType} (${subjectCode})`;
+    const sphereName = `FreeSurfer ${hemisphere_} Hemisphere - sphere.reg (${subjectCode})`;
+
+    // get surfaces
+    const surfaceInstance = this._canvas.threebrain_instances.get( surfaceName );
+    const sphereInstance = this._canvas.threebrain_instances.get( sphereName );
+
+    // check if both sphere exist
+    if( !surfaceInstance || !surfaceInstance.isThreeBrainObject ) { return; }
+    if( !sphereInstance || !sphereInstance.isThreeBrainObject ) { return; }
+
+    const electrodeSpherePosition = new Vector3().fromArray( g.sphere_position );
+
+    // Not mapped, invalid sphere position (length should be ~100)
+    if( electrodeSpherePosition.length() < 0.5 ) { return; }
+
+    const spherePositions = sphereInstance.object.geometry.getAttribute("position");
+
+    let minDist = Infinity,
+        minDistArg = 0,
+        tmpDist = 0,
+        tmp = new Vector3();
+    for(let i = 0; i < spherePositions.count; i++) {
+      tmpDist = tmp
+        .set( spherePositions.getX( i ), spherePositions.getY( i ), spherePositions.getZ( i ))
+        .distanceTo( electrodeSpherePosition );
+      if( tmpDist < minDist ) {
+        minDistArg = i;
+        minDist = tmpDist;
+      }
+    }
+
+    // minDistArg is the node number
+    const surfacePositions = surfaceInstance.object.geometry.getAttribute("position");
+    const newPosition = new Vector3().set(
+      surfacePositions.getX( minDistArg ),
+      surfacePositions.getY( minDistArg ),
+      surfacePositions.getZ( minDistArg )
+    );
+
+    // get electrode group and get the group
+    const group = this.get_group_object();
+    if( group ) {
+      const worldToModel = group.matrixWorld.clone().invert();
+      newPosition.applyMatrix4( worldToModel );
+    }
+
+    const shiftDistance = tmp.fromArray( g.position ).distanceTo( newPosition );
+
+    if( !dryRun ) {
+      this.object.position.copy( newPosition );
+
+      this.object.userData._template_mapped = true;
+      this.object.userData._template_space = 'sphere.reg';
+      this.object.userData._template_surface = surfaceType;
+      this.object.userData._template_hemisphere = hemisphere_;
+      this.object.userData._template_shift = shiftDistance;
+    }
+
+    return {
+      mapping : "sphere.reg",
+      hemisphere: hemisphere_,
+      shiftDistance: shiftDistance,
+      newPosition: newPosition
+    }
+
+  }
+
+  mapToTemplateSurface ({ subjectCode } = {}) {
+
+    if( !this.isElectrode ) { return; }
+
+    const g = this._params;
+    let surfaceType = g.surface_type,
+        hemisphere = g.hemisphere;
+
+    if( typeof surfaceType !== "string" ) {
+      surfaceType = "pial"
+    }
+    if( typeof hemisphere !== "string" || !['left', 'right'].includes( hemisphere ) ) {
+      const mapLeft = this._mapToTemplateSurface( "left", {
+        surfaceType : surfaceType, dryRun : true,
+        subjectCode : subjectCode
+      });
+      const mapRight = this._mapToTemplateSurface( "right", {
+        surfaceType : surfaceType, dryRun : true,
+        subjectCode : subjectCode
+      });
+
+      if( !mapLeft || !mapRight ) { return; }
+      if( mapLeft.shiftDistance < mapRight.shiftDistance ) {
+        hemisphere = "left";
+        g.hemisphere = "left";
+      } else {
+        hemisphere = "right";
+        g.hemisphere = "right";
+      }
+    }
+
+    return this._mapToTemplateSurface( hemisphere, {
+      surfaceType : surfaceType, subjectCode : subjectCode
+    });
+
+  }
+
+  mapToTemplateVolume({ subjectCode, linear = false, mapToLeptomeningeal = false } = {}) {
+    const origSubject = this.subject_code,
+          g = this._params;
+
+    //target_group = this.group.get( `Surface - ${surf_type} (${target_subject})` ),
+    const mni305Array = g.MNI305_position,
+          origPosition = g.position;
+
+    if( typeof subjectCode !== "string" || subjectCode === "" || subjectCode === "/" ) {
+      subjectCode = this._canvas.get_state("target_subject");
+    }
+
+    const mniPosition = new Vector3();
+
+    if( linear ) {
+
+      const origSubjectData  = this._canvas.shared_data.get( origSubject );
+      const tkrRAS_MNI305 = origSubjectData.matrices.tkrRAS_MNI305;
+      mniPosition.fromArray( origPosition ).applyMatrix4( tkrRAS_MNI305 );
+
+    } else {
+      // check cache
+      if( this.object.userData.MNI305_position === undefined ) {
+        this.object.userData.MNI305_position = new Vector3().set( 0, 0, 0 );
+        if(
+          Array.isArray(mni305Array) && mni305Array.length >= 3 &&
+          !( mni305Array[0] === 0 && mni305Array[1] === 0 && mni305Array[2] === 0 )
+        ) {
+          this.object.userData.MNI305_position.fromArray( mni305Array );
+        } else {
+
+          // calculate MNI 305 by myself
+          const origSubjectData  = this._canvas.shared_data.get( origSubject );
+          const tkrRAS_MNI305 = origSubjectData.matrices.tkrRAS_MNI305;
+
+          this.object.userData.MNI305_position
+            .fromArray( origPosition ).applyMatrix4( tkrRAS_MNI305 );
+        }
+      }
+
+      mniPosition.copy( this.object.userData.MNI305_position );
+    }
+
+    if( !mniPosition.length() ) { return; }
+
+    const targetSubjectData = this._canvas.shared_data.get( subjectCode );
+    const mappedPosition = mniPosition.clone().applyMatrix4( targetSubjectData.matrices.MNI305_tkrRAS );
+
+    let shiftDistance = 0;
+
+    if( mapToLeptomeningeal && typeof g.hemisphere === "string" ) {
+      let hemisphere_ = g.hemisphere.toLowerCase();
+      if( hemisphere_ === "left" ) {
+        hemisphere_ = "Left";
+      } else {
+        hemisphere_ = "Right";
+      }
+      const leptoName = `FreeSurfer ${hemisphere_} Hemisphere - pial-outer-smoothed (${subjectCode})`;
+      const leptoInstance = this._canvas.threebrain_instances.get( leptoName );
+
+      if( leptoInstance && leptoInstance.isThreeBrainObject ) {
+        const projectionOnLepto = projectOntoMesh( mappedPosition , leptoInstance.object );
+        mappedPosition.copy( projectionOnLepto.point );
+        shiftDistance = projectionOnLepto.distance;
+      }
+    }
+
+    // TODO: take electrode group into consideration
+    this.object.position.copy( mappedPosition );
+    this.object.userData._template_mni305 = mniPosition.clone();
+    this.object.userData._template_mapped = true;
+    this.object.userData._template_space = 'mni305';
+    this.object.userData._template_shift = shiftDistance;
+    this.object.userData._template_surface = g.surface_type;
+    this.object.userData._template_hemisphere = g.hemisphere;
+
+    return {
+      mapping : "mni305",
+      newPosition: mniPosition.clone()
+    }
+
+  }
+
+  mapToTemplate = ( event ) => {
+    if( !this.isElectrode ) { return; }
+
+    const mapConfig = event.detail;
+    const subjectCode = mapConfig.subject,
+          surfaceMapping = mapConfig.surface,
+          volumeMapping = mapConfig.volume;
+    const g = this._params;
+
+    // not a valid position, do not map
+    if( g.position[0] === 0 && g.position[1] === 0 && g.position[2] === 0 ) {
+      this.object.position.fromArray( g.position );
+      this.object.userData._template_mapped = false;
+      this.object.userData._template_space = 'original';
+      this.object.userData._template_mni305 = undefined;
+      this.object.userData._template_shift = 0;
+      this.object.userData._template_surface = g.surface_type;
+      this.object.userData._template_hemisphere = g.hemisphere;
+
+      return;
+    }
+
+    // check if this is surface mapping is needed
+    let result;
+    if( g.is_surface_electrode ) {
+
+      if( surfaceMapping === "sphere.reg" ) {
+        result = this.mapToTemplateSurface({ subjectCode : subjectCode });
+
+        // result is object, then mapped, return
+        if( result ) { return result; }
+      }
+
+      if ( surfaceMapping === "mni305" || surfaceMapping === "sphere.reg" ) {
+        result = this.mapToTemplateVolume({ subjectCode : subjectCode });
+      } else if ( surfaceMapping === "mni305+shift" ) {
+        result = this.mapToTemplateVolume({
+          subjectCode : subjectCode,
+          mapToLeptomeningeal: true
+        });
+      } else if ( surfaceMapping === "mni305.linear" ) {
+        result = this.mapToTemplateVolume({
+          subjectCode : subjectCode,
+          linear : true
+        });
+      }
+      if( result ) { return result; }
+      // result is undefined, surface mapping failed, volume mapping
+    } else {
+      if ( volumeMapping === "mni305" ) {
+        result = this.mapToTemplateVolume({ subjectCode : subjectCode });
+      }  else if ( volumeMapping === "mni305.linear" ) {
+        result = this.mapToTemplateVolume({
+          subjectCode : subjectCode,
+          linear : true
+        });
+      }
+      if( result ) { return result; }
+    }
+    this.object.position.fromArray( g.position );
+    this.object.userData._template_mapped = false;
+    this.object.userData._template_space = 'original';
+    this.object.userData._template_mni305 = undefined;
+    this.object.userData._template_shift = 0;
+    this.object.userData._template_surface = g.surface_type;
+    this.object.userData._template_hemisphere = g.hemisphere;
+
+  }
+
   finish_init(){
 
     super.finish_init();
@@ -540,60 +850,12 @@ class Sphere extends AbstractThreeBrainObject {
         this.set_label_scale( 1.5 );
       }
 
-      let gp_position = this.get_group_object().position.clone();
+      this._canvas.$el.addEventListener(
+        "viewerApp.electrodes.mapToTemplate",
+        this.mapToTemplate
+      )
 
-      // For electrode, we need some calculation
-      // g = this.object.userData.construct_params
 
-      if( (
-            !g.vertex_number || g.vertex_number < 0 ||
-            !g.hemisphere || !['left', 'right'].includes( g.hemisphere )
-          ) && g.is_surface_electrode ){
-        // surface electrode, need to calculate nearest node
-        const snap_surface = g.surface_type,
-              search_group = this.group.get( `Surface - ${snap_surface} (${subject_code})` );
-
-        // Search 141 only
-        if( search_group && search_group.userData ){
-          const lh_vertices = search_group.userData.group_data[
-            `free_vertices_Standard 141 Left Hemisphere - ${snap_surface} (${subject_code})`];
-          const rh_vertices = search_group.userData.group_data[
-            `free_vertices_Standard 141 Right Hemisphere - ${snap_surface} (${subject_code})`];
-          const mesh_center = search_group.getWorldPosition( gp_position );
-          if( lh_vertices && rh_vertices ){
-            // calculate
-            let _tmp = new Vector3(),
-                node_idx = -1,
-                min_dist = Infinity,
-                side = '',
-                _dist = 0;
-
-            lh_vertices.forEach((v, ii) => {
-              _dist = _tmp.fromArray( v ).add( mesh_center ).distanceToSquared( this.object.position );
-              if( _dist < min_dist ){
-                min_dist = _dist;
-                node_idx = ii;
-                side = 'left';
-              }
-            });
-            rh_vertices.forEach((v, ii) => {
-              _dist = _tmp.fromArray( v ).add( mesh_center ).distanceToSquared( this.object.position );
-              if( _dist < min_dist ){
-                min_dist = _dist;
-                node_idx = ii;
-                side = 'right';
-              }
-            });
-
-            if( node_idx >= 0 ){
-              g.vertex_number = node_idx;
-              g.hemisphere = side;
-            }
-            // console.log(`Electrode ${this.object.name}: ${node_idx}, ${side}`);
-          }
-        }
-
-      }
 
     }
 

@@ -179,8 +179,8 @@ function registerPresetElectrodes( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController('Surface Mapping', 'std.141',
-                            { args : ['std.141', 'mni305', 'no mapping'], folderName : folderName })
+    this.gui.addController('Surface Mapping', 'sphere.reg',
+                            { args : ['sphere.reg', 'mni305', 'mni305+shift', 'mni305.linear', 'no mapping'], folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'map_type_surface': v });
         this.broadcast();
@@ -188,7 +188,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
       });
 
     this.gui.addController('Volume Mapping', 'mni305',
-                            { args : ['mni305', 'no mapping'], folderName : folderName })
+                            { args : ['mni305', 'mni305.linear', 'no mapping'], folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'map_type_volume': v });
         this.broadcast();

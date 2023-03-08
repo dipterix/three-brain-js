@@ -33,7 +33,10 @@ class Compass {
       // if( rotation[ii] ) { line[ rotation[ii] ]( Math.PI / 2 ); }
 
       const axis = new ArrowHelper( direction, origin, 6, color.getHex(), 5.9 );
-      const sprite = new TextSprite(text[ ii ], 6, `rgba(${_c[0]}, ${_c[1]}, ${_c[2]}, 1)`);
+      const sprite = new TextSprite(text[ ii ], {
+        textHeight: 6,
+        color: `rgba(${_c[0]}, ${_c[1]}, ${_c[2]}, 1)`
+      });
       sprite.position.copy( direction ).multiplyScalar( 9 );
 
       axis.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );

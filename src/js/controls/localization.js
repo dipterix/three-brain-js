@@ -26,8 +26,11 @@ const COL_SELECTED = 0xff0000,
 const pal = [0x1874CD, 0x1F75C6, 0x2677BF, 0x2E78B9, 0x357AB2, 0x3C7BAC, 0x447DA5, 0x4B7E9F, 0x528098, 0x598292, 0x61838B, 0x688585, 0x70867E, 0x778878, 0x7E8971, 0x858B6B, 0x8D8C64, 0x948E5E, 0x9B9057, 0xA39151, 0xAA934A, 0xB29444, 0xB9963D, 0xC09737, 0xC89930, 0xCF9A2A, 0xD69C23, 0xDD9E1D, 0xE59F16, 0xECA110, 0xF3A209, 0xFBA403, 0xFFA300, 0xFFA000, 0xFF9D00, 0xFF9A00, 0xFF9700, 0xFF9400, 0xFF9100, 0xFF8E00, 0xFF8B00, 0xFF8800, 0xFF8500, 0xFF8100, 0xFF7E00, 0xFF7B00, 0xFF7800, 0xFF7500, 0xFF7200, 0xFF6F00, 0xFF6C00, 0xFF6900, 0xFF6600, 0xFF6300, 0xFF6000, 0xFF5D00, 0xFF5A00, 0xFF5700, 0xFF5400, 0xFF5100, 0xFF4E00, 0xFF4B00, 0xFF4800, 0xFF4500];
 
 class LocElectrode {
-  constructor(subject_code, localization_order, initial_position, canvas,
-              electrode_scale = 1) {
+  constructor(
+    subject_code, localization_order, initial_position,
+    canvas, autoRefine,
+    electrode_scale = 1) {
+
     this.isLocElectrode = true;
     // temp vector 3
     this.__vec3 = new Vector3().set( 0, 0, 0 );
@@ -182,7 +185,10 @@ class LocElectrode {
     this.updateProjection();
 
     // if auto refine is enabled
-    if( this._canvas.get_state( "auto_refine_electrodes", false ) ) {
+    if( autoRefine === undefined ) {
+      autoRefine = this._canvas.get_state( "auto_refine_electrodes", false );
+    }
+    if( autoRefine ) {
       this.adjust({ force: true });
     }
 
@@ -566,7 +572,6 @@ class LocElectrode {
     if( !inst ){ return; }
 
     this._adjust({ radius : 1.0 });
-    this._adjust({ radius : 4.0 });
 
     this.update_line();
     this.updateProjection();
@@ -952,7 +957,7 @@ function register_controls_localization( ViewerControlCenter ){
 
     const el = new LocElectrode(
       scode, electrodes.length + 1, [x,y,z],
-      this.canvas, electrode_size);
+      this.canvas, false, electrode_size);
     el.set_mode( edit_mode );
     electrodes.push( el );
 
@@ -1254,7 +1259,7 @@ function register_controls_localization( ViewerControlCenter ){
 
           res.positions.forEach((pos) => {
             const el = new LocElectrode(
-              scode, electrodes.length + 1, pos, this.canvas,
+              scode, electrodes.length + 1, pos, this.canvas, undefined,
               elec_size.getValue());
             el.set_mode( mode );
             el.__interpolate_direction = res.direction.clone().normalize();
@@ -1303,7 +1308,7 @@ function register_controls_localization( ViewerControlCenter ){
           res.direction.normalize();
           res.positions.forEach((pos) => {
             const el = new LocElectrode(
-              scode, electrodes.length + 1, pos, this.canvas,
+              scode, electrodes.length + 1, pos, this.canvas, undefined,
               elec_size.getValue());
             el.set_mode( mode );
             electrodes.push( el );
@@ -1393,7 +1398,7 @@ function register_controls_localization( ViewerControlCenter ){
           const num = electrodes.length + 1,
               group_name = `group_Electrodes (${scode})`;
           const el = new LocElectrode(
-            scode, num, electrode_position, this.canvas,
+            scode, num, electrode_position, this.canvas, undefined,
             elec_size.getValue());
           el.set_mode( mode );
           electrodes.push( el );
@@ -1415,6 +1420,8 @@ function register_controls_localization( ViewerControlCenter ){
             refine_electrode.update_color( COL_SELECTED );
           }
         }
+
+        this.canvas.needsUpdate = true;
 
         this.broadcast({
           data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
