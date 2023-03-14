@@ -88,11 +88,58 @@ function huntedErode3d(x, dim) {
   return x_;
 }
 
+function initialBlob3d(x, dim, sliceDensity, startIdx) {
+
+  const xlen = dim.x;
+  const ylen = dim.y;
+  const zlen = dim.z;
+
+  const x_ = new Uint8Array(x);
+  if( xlen <= 1 || ylen <= 1 || zlen <= 1 ) {
+    return x_;
+  }
+
+  const ijk2Index = (i, j, k) => {
+    return i + xlen * (j + ylen * k);
+  }
+
+  let i, j, k, s;
+  let idx0, idx1;
+  let v1,v2,v3,v4,v5,v6;
+  const inc = new Vector3();
+  const tmp = new Vector3();
+  let stepSize, nsteps;
+  let hit = false;
+
+  for( i = 0; i < xlen; i++ ) {
+    for( j = 0; j < ylen; j++ ) {
+      for( k = 0; k < zlen; k++ ) {
+        idx0 = ijk2Index( i, j, k );
+        if( x[ idx0 ] === 0 ) {
+          x_[ idx0 ] = 0;
+          continue;
+        }
+
+        inc.set(i, j, k).sub(startIdx);
+        inc.x /= sliceDensity.x;
+        inc.y /= sliceDensity.y;
+        inc.z /= sliceDensity.z;
+
+        if( inc.length() > 2 ) {
+          x_[ idx0 ] = 0;
+        } else {
+          x_[ idx0 ] = 1;
+        }
+      }
+    }
+  }
+  return x_;
+}
 
 function getVoxelBlobCenter({
   x, dim, initial, sliceDensity, maxSearch = 1, threshold } = {}) {
 
-  window.origX = x;
+  // window.origX = x;
 
   if( !dim.isVector3 ) {
     throw "localMaxima: dim must be a THREE.Vector3"
@@ -125,6 +172,24 @@ function getVoxelBlobCenter({
   let ii;
   for( ii = 0; ii < x.length; ii++) {
     if(x[ii] >= thred) {
+      x_[ii] = 1;
+    } else {
+      x_[ii] = 0;
+    }
+  }
+  // console.log(x_.join(" "));
+  // window.initialmask = x_;
+  x_ = initialBlob3d( x_, dim, sliceDensity, initial );
+  // console.log(x_.join(" "));
+  // window.blobmask = x_;
+
+  // re-threshold
+  thred = x[ ijk2Index( ijk ) ];
+  if( typeof threshold === "number" && thred < threshold ) {
+    thred = threshold;
+  }
+  for( ii = 0; ii < x.length; ii++) {
+    if(x[ii] >= thred && x_[ii] !== 0) {
       x_[ii] = 1;
     } else {
       x_[ii] = 0;
@@ -185,9 +250,9 @@ function getVoxelBlobCenter({
   }
 
   // the blob center is near ijk at sub-voxel level
-  const mdx = Math.floor( sliceDensity.x * maxSearch ),
-        mdy = Math.floor( sliceDensity.y * maxSearch ),
-        mdz = Math.floor( sliceDensity.z * maxSearch );
+  const mdx = Math.floor( sliceDensity.x * 2 ),
+        mdy = Math.floor( sliceDensity.y * 2 ),
+        mdz = Math.floor( sliceDensity.z * 2 );
 
   let mv, totalWeights = 0;
   ijk3.set(0, 0, 0);

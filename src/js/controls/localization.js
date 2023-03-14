@@ -12,6 +12,7 @@ import { LineSegments2 } from '../jsm/lines/LineSegments2.js';
 import { LineMaterial } from '../jsm/lines/LineMaterial.js';
 import { LineSegmentsGeometry } from '../jsm/lines/LineSegmentsGeometry.js';
 import { getVoxelBlobCenter } from '../Math/getVoxelBlobCenter.js';
+import { getClosestVoxel } from '../Math/getClosestVoxel.js';
 
 
 // Electrode localization
@@ -572,6 +573,9 @@ class LocElectrode {
     if( !inst ){ return; }
 
     this._adjust({ radius : 1.0 });
+    this._adjust({ radius : 2.0 });
+    // this._adjust({ radius : 3.0 });
+    this._adjust({ radius : 4.0 });
 
     this.update_line();
     this.updateProjection();
@@ -664,7 +668,7 @@ class LocElectrode {
       dim: subVolumeShape,
       initial: ijk0.clone().sub(ijkLB),
       sliceDensity: delta,
-      maxSearch: 1.0,
+      maxSearch: max_step_size,
       threshold: ct_threshold_min
     });
     ijk_new.add( ijkLB );
@@ -719,13 +723,20 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
   if( electrodes.length < 2 ){ return; }
   if( size <= 2 ){ return; }
   const src = canvas.mainCamera.position;
+
+  // position of starting point
   const dst = new Vector3();
   electrodes[electrodes.length - 2].object.getWorldPosition( dst );
 
+  // position of end point
+  const end = new Vector3();
+  electrodes[electrodes.length - 1].object.getWorldPosition( end );
+
+  // position of last localized electrode
+  const prev = dst.clone();
+
   const n = size - 1;
   const step = new Vector3();
-  electrodes[electrodes.length - 1].object.getWorldPosition( step );
-  step.sub( dst ).multiplyScalar( 1 / n );
   const tmp = new Vector3();
   const est = new Vector3();
 
@@ -735,21 +746,32 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
   let added = false;
   for( let ii = 1; ii < n; ii++ ){
 
-    tmp.copy( step ).multiplyScalar( ii );
-    est.copy( dst ).add( tmp );
+    step.copy( prev ).sub( end ).multiplyScalar( 1 / (size - ii) );
+    tmp.copy( step ).multiplyScalar( n - ii );
+    est.copy( end ).add( tmp );
     dir.copy( est ).sub( src ).normalize();
 
     // adjust
     added = false;
-    for( let delta = 0.5; delta < 100; delta += 0.5 ){
+    for( let delta = 0.5; delta < step.length() / 2; delta += 0.5 ){
       const res = intersect_volume(src, dir, inst, canvas, delta, false);
       if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10 ){
+        prev.copy( res );
         re.push( res.clone() );
         added = true;
         break;
       }
     }
     if(!added) {
+      const res = getClosestVoxel( inst, est, step.length() * 2.0, prev, step.length() * 0.8);
+      if( isFinite( res.minDistance ) ) {
+        prev.copy( res.minDistanceXYZ );
+        re.push( res.minDistanceXYZ );
+        added = true;
+      }
+    }
+    if(!added) {
+      prev.copy( est );
       re.push( est.clone() );
     }
   }
@@ -766,14 +788,14 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
   if( size <= 2 ){ return; }
   const src = canvas.mainCamera.position;
   const dst = new Vector3();
-  const last = new Vector3();
+  const prev = new Vector3();
 
   electrodes[electrodes.length - 2].object.getWorldPosition( dst );
 
   const n = size - 1;
   const step = new Vector3();
-  electrodes[electrodes.length - 1].object.getWorldPosition( last );
-  step.copy( last ).sub( dst );
+  electrodes[electrodes.length - 1].object.getWorldPosition( prev );
+  step.copy( prev ).sub( dst );
 
   const step_length = step.length();
   const tmp = new Vector3();
@@ -782,34 +804,48 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
   const dir = new Vector3();
   const re = [];
 
-  // last is most recently registered electrode
-  est.copy( last );
+  // prev is most recently registered electrode
+  est.copy( prev );
   let added = false;
-  let distanceToLast;
+  let distanceToPrev;
   for( let ii = 1; ii < n; ii++ ){
 
-    est.add( step );
+    step.copy( prev ).sub( dst ).normalize().multiplyScalar(step_length);
+    est.copy( prev ).add( step );
     dir.copy( est ).sub( src ).normalize();
 
     // adjust the est
     added = false
-    for( let delta = 0.5; delta < 100; delta += 0.5 ){
+    for( let delta = 0.5; delta < step_length * 0.3; delta += 0.5 ){
       const res = intersect_volume(src, dir, inst, canvas, delta, false);
       if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10){
-        distanceToLast = res.distanceTo( last );
+        distanceToPrev = res.distanceTo( prev );
         if(
-          distanceToLast > 0.7 * step_length &&
-            distanceToLast < 1.3 * step_length
+          distanceToPrev > 0.7 * step_length &&
+            distanceToPrev < 1.3 * step_length
         ) {
-          step.add( res ).sub( est ).normalize().multiplyScalar(step_length);
-          last.copy( est );
-          est.copy( res );
+          re.push( res.clone() );
+          dst.copy( prev );
+          prev.copy( res );
           added = true;
           break;
         }
       }
     }
-    re.push( est.clone() );
+    if( !added ) {
+      const res = getClosestVoxel( inst, est, step_length * 1.8, prev, step_length * 0.8);
+      if( isFinite( res.minDistance ) ) {
+        dst.copy( prev );
+        prev.copy( res.minDistanceXYZ );
+        re.push( res.minDistanceXYZ );
+        added = true;
+      }
+    }
+    if( !added ) {
+      dst.copy( prev );
+      prev.copy( est );
+      re.push( est.clone() );
+    }
   }
 
   return({
