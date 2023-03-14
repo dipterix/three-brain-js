@@ -73,7 +73,7 @@ class ThrottledEventDispatcher {
     this._listeners.clear();
   }
 
-  dispatch({ type, data, immediate = false, muffled = false}){
+  dispatch({ type, data, callback, immediate = false, muffled = false }){
 
     if( typeof(type) !== "string" || type.length === 0 ) {
       throw TypeError( 'ThrottledEventDispatcher.dispatch: Can only dispatch event of none-empty type' );
@@ -86,6 +86,7 @@ class ThrottledEventDispatcher {
     if( !this._eventBuffers.has( type ) ) {
       buffer = {
         type: type,
+        callback: callback,
 
         // make sure doDispatch only called once
         throttlePause: false,
@@ -102,6 +103,9 @@ class ThrottledEventDispatcher {
       buffer.muffled = muffled;
       buffer.dispatched = false;
       exists = true;
+      if( callback !== undefined ) {
+        buffer.callback = callback;
+      }
     }
 
     if( immediate_ ) {
@@ -165,6 +169,12 @@ class ThrottledEventDispatcher {
         this.debugVerbose(`[${ this.constructor.name }] is dispatching an throttled event: ${ buffer.type }`);
       }
       this.$wrapper.dispatchEvent(event);
+
+      if( typeof buffer.callback === "function" ) {
+        const callback = buffer.callback;
+        buffer.callback = undefined;
+        callback();
+      }
 
     };
 
