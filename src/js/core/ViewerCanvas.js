@@ -748,16 +748,22 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       data : {
         x : x, y : y, z : z
       },
-      immediate : immediate
+      immediate : true
     });
-
     this.sideCanvasList.coronal._updateRenderThreshold();
     this.sideCanvasList.axial._updateRenderThreshold();
     this.sideCanvasList.sagittal._updateRenderThreshold();
-    if( centerCrosshair ) {
+    if( centerCrosshair === true ) {
       this.sideCanvasList.coronal.zoom();
       this.sideCanvasList.axial.zoom();
       this.sideCanvasList.sagittal.zoom();
+    } else if ( Array.isArray( centerCrosshair ) ) {
+      centerCrosshair.forEach((v) => {
+        const sideCanvas = this.sideCanvasList[ v ];
+        if( sideCanvas ) {
+          sideCanvas.zoom();
+        }
+      });
     }
   }
 
