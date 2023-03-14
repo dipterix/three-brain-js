@@ -60,21 +60,21 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const controllerCoronal = this.gui.addController(
       'Coronal (P - A)', 0, { folderName : folderName }
     ).min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
-      this.canvas.setSliceCrosshair({ y : v });
+      this.canvas.setSliceCrosshair({ y : v , centerCrosshair : true });
     });
 
     const controllerAxial = this.gui
       .addController('Axial (I - S)', 0, { folderName : folderName })
       .min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
         // this.setSlice({ z : v });
-        this.canvas.setSliceCrosshair({ z : v });
+        this.canvas.setSliceCrosshair({ z : v , centerCrosshair : true });
       });
 
     const controllerSagittal = this.gui
       .addController('Sagittal (L - R)', 0, { folderName : folderName })
       .min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
         // this.setSlice({ x : v });
-        this.canvas.setSliceCrosshair({ x : v });
+        this.canvas.setSliceCrosshair({ x : v , centerCrosshair : true });
       });
 
     const controllerCrosshair = this.gui

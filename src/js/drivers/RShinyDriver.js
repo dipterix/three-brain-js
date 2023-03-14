@@ -345,8 +345,8 @@ class RShinyDriver {
       ));
     }
   }
-  driveSetCrosshair({ x, y, z } = {}) {
-    this.canvas.setSliceCrosshair({ x : x , y : y , z : z });
+  driveSetCrosshair({ x, y, z, centerCrosshair = true } = {}) {
+    this.canvas.setSliceCrosshair({ x : x , y : y , z : z, centerCrosshair : centerCrosshair });
   }
   driveSetVoxelRenderDistance({ distance }) {
     this.canvas.setVoxelRenderDistance({ distance : distance });

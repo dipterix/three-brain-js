@@ -222,7 +222,7 @@ class SideCanvas {
     this.$canvas.removeEventListener( "contextmenu" , this._onContextMenu );
     this.$canvas.removeEventListener( "mouseup" , this._onMouseUp );
     this.$canvas.removeEventListener( "mousemove" , this._onMouseMove );
-    this.$canvas.removeEventListener( "mousewheel" , this._onMouseWheel );
+    this.$canvas.removeEventListener( "wheel" , this._onMouseWheel );
 
     this.mainCanvas.$el.removeEventListener(
       "viewerApp.canvas.setVoxelRenderDistance",
@@ -492,7 +492,7 @@ class SideCanvas {
     this.$canvas.addEventListener( "contextmenu" , this._onContextMenu );
     this.$canvas.addEventListener( "mouseup" , this._onMouseUp );
     this.$canvas.addEventListener( "mousemove" , this._onMouseMove );
-    this.$canvas.addEventListener( "mousewheel" , this._onMouseWheel );
+    this.$canvas.addEventListener( "wheel" , this._onMouseWheel );
 
     this.mainCanvas.$el.addEventListener(
       "viewerApp.canvas.setVoxelRenderDistance",
@@ -527,10 +527,8 @@ class SideCanvas {
   }
 
   _onMouseWheel = ( evt ) => {
-    console.log(evt);
     evt.preventDefault();
     const depthName = this.type + '_depth';
-    console.log(depthName);
     let currentDepth = this.mainCanvas.get_state( depthName );
     if( evt.deltaY > 0 ){
       currentDepth += 0.5;
@@ -541,13 +539,16 @@ class SideCanvas {
 
     switch (this.type) {
       case 'sagittal':
-        this.mainCanvas.setSliceCrosshair({ x : currentDepth })
+        this.mainCanvas.setSliceCrosshair({ x : currentDepth,
+        centerCrosshair : ["coronal", "axial"] })
         break;
       case 'coronal':
-        this.mainCanvas.setSliceCrosshair({ y : currentDepth })
+        this.mainCanvas.setSliceCrosshair({ y : currentDepth,
+        centerCrosshair : ["sagittal", "axial"] })
         break;
       case 'axial':
-        this.mainCanvas.setSliceCrosshair({ z : currentDepth })
+        this.mainCanvas.setSliceCrosshair({ z : currentDepth,
+        centerCrosshair : ["coronal", "sagittal"] })
         break;
       default:
         // code
