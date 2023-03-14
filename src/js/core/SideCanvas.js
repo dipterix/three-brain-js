@@ -254,21 +254,26 @@ class SideCanvas {
     }
 
     let sagittalDepth, coronalDepth, axialDepth;
+    let centerCanvas = false;
+
     switch ( this.type ) {
       case 'coronal':
         sagittalDepth = depthX + this._lookAt.x;
         coronalDepth = this.mainCanvas.get_state( 'coronal_depth' );
         axialDepth = depthY + this._lookAt.z;
+        centerCanvas = ["sagittal", "axial"];
         break;
       case 'axial':
         sagittalDepth = depthX + this._lookAt.x;
         coronalDepth = depthY + this._lookAt.y;
         axialDepth = this.mainCanvas.get_state( 'axial_depth' );
+        centerCanvas = ["sagittal", "coronal"];
         break;
       case 'sagittal':
         sagittalDepth = this.mainCanvas.get_state( 'sagittal_depth' );
         coronalDepth = -depthX + this._lookAt.y;
         axialDepth = depthY + this._lookAt.z;
+        centerCanvas = ["axial", "axial"];
         break;
       default:
         throw 'SideCanvas: type must be coronal, sagittal, or axial';
@@ -281,7 +286,10 @@ class SideCanvas {
     this.mainCanvas.setSliceCrosshair({
       x : sagittalDepth,
       y : coronalDepth,
-      z : axialDepth, immediate : false });
+      z : axialDepth,
+      immediate : false,
+      centerCrosshair : centerCanvas
+    });
     // need to update mainCamera
     if( updateMainCamera ) {
       const newMainCameraPosition = new Vector3()
@@ -303,6 +311,7 @@ class SideCanvas {
       this.mainCanvas.mainCamera.position.copy( newMainCameraPosition );
       this.mainCanvas.mainCamera.up.copy( newMainCameraUp );
     }
+
   }
 
   constructor ( mainCanvas, type = "coronal" ) {
@@ -518,8 +527,10 @@ class SideCanvas {
   }
 
   _onMouseWheel = ( evt ) => {
+    console.log(evt);
     evt.preventDefault();
     const depthName = this.type + '_depth';
+    console.log(depthName);
     let currentDepth = this.mainCanvas.get_state( depthName );
     if( evt.deltaY > 0 ){
       currentDepth += 0.5;
