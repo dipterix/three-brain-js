@@ -456,13 +456,17 @@ class Sphere extends AbstractThreeBrainObject {
     // get position in tkrRAS, set `Coord_xyz`
     tkrRASOrig.fromArray( this._params.position );
     if( localization_instance.brainShiftEnabled ) {
-      pos.copy( localization_instance.shiftedPosition );
+      pos.copy( localization_instance.pialPosition );
     } else {
       pos.copy( tkrRASOrig );
     }
     summary.Coord_x = pos.x;
     summary.Coord_y = pos.y;
     summary.Coord_z = pos.z;
+
+    if( enabled_only && pos.length() === 0 ) {
+      return;
+    }
 
     // Clinical `Label`
     summary.Label = localization_instance.Label || tentative_label;
@@ -476,25 +480,28 @@ class Sphere extends AbstractThreeBrainObject {
     }
     try { localization_instance.computeFreeSurferLabel() } catch (e) {}
     const atlasLabels = localization_instance.atlasLabels;
-    let seekOrder = ["manual", "aparc.a2009s+aseg", "aparc+aseg", "aparc.DKTatlas+aseg", "aseg"];
-    for( let ii in seekOrder ) {
-      const atlasType = seekOrder[ ii ];
-      const atlasLabel = atlasLabels[ atlasType ];
-      if( typeof atlasLabel === "object" ) {
-        if( atlasType === "manual" || atlasType === "aseg" || atlasLabel.index > 0 ) {
-          summary.FSIndex = atlasLabel.index;
-          summary.FSLabel = atlasLabel.label;
-          break;
+
+    if( atlasLabels ) {
+      let seekOrder = ["manual", "aparc.a2009s+aseg", "aparc+aseg", "aparc.DKTatlas+aseg", "aseg"];
+      for( let ii in seekOrder ) {
+        const atlasType = seekOrder[ ii ];
+        const atlasLabel = atlasLabels[ atlasType ];
+        if( typeof atlasLabel === "object" ) {
+          if( atlasType === "manual" || atlasType === "aseg" || atlasLabel.index > 0 ) {
+            summary.FSIndex = atlasLabel.index;
+            summary.FSLabel = atlasLabel.label;
+            break;
+          }
         }
       }
-    }
 
-    for( let ii = 1; ii < seekOrder.length; ii++ ) {
-      const atlasType = seekOrder[ ii ];
-      const atlasLabel = atlasLabels[ atlasType ];
-      const atlasTypeReformat = atlasType.replaceAll(/[^a-zA-Z0-9]/g, "_");
-      summary[ `FSIndex_${ atlasTypeReformat }` ] = atlasLabel.index;
-      summary[ `FSLabel_${ atlasTypeReformat }` ] = atlasLabel.label;
+      for( let ii = 1; ii < seekOrder.length; ii++ ) {
+        const atlasType = seekOrder[ ii ];
+        const atlasLabel = atlasLabels[ atlasType ];
+        const atlasTypeReformat = atlasType.replaceAll(/[^a-zA-Z0-9]/g, "_");
+        summary[ `FSIndex_${ atlasTypeReformat }` ] = atlasLabel.index;
+        summary[ `FSLabel_${ atlasTypeReformat }` ] = atlasLabel.label;
+      }
     }
 
     //  T1 MRI scanner RAS (T1RAS)
@@ -510,7 +517,8 @@ class Sphere extends AbstractThreeBrainObject {
     summary.MNI305_z = pos.z;
 
     // `SurfaceElectrode` `SurfaceType` `Radius` `VertexNumber` `Hemisphere`
-    summary.SurfaceElectrode = localization_instance.brainShiftEnabled? 'TRUE' : 'FALSE';
+    const isSurfaceElectrode = localization_instance.brainShiftEnabled ?? this._params.is_surface_electrode;
+    summary.SurfaceElectrode = isSurfaceElectrode ? 'TRUE' : 'FALSE';
     summary.SurfaceType = this._params.surface_type || "pial";
     summary.Radius =  this._params.radius;
     summary.VertexNumber = this._params.vertex_number;     // vertex_number is already changed if std.141 is used
@@ -530,10 +538,16 @@ class Sphere extends AbstractThreeBrainObject {
       summary.Sphere_z = localization_instance.spherePosition.z;
     } else {
       summary.DistanceShifted = 0;
-      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial;
-      summary.Sphere_x = 0;
-      summary.Sphere_y = 0;
-      summary.Sphere_z = 0;
+      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial ?? 0;
+      if( this._params.sphere_position ) {
+        summary.Sphere_x = this._params.sphere_position[0];
+        summary.Sphere_y = this._params.sphere_position[1];
+        summary.Sphere_z = this._params.sphere_position[2];
+      } else {
+        summary.Sphere_x = 0;
+        summary.Sphere_y = 0;
+        summary.Sphere_z = 0;
+      }
     }
 
     // CustomizedInformation `Notes`
