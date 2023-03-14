@@ -199,11 +199,10 @@ class MouseKeyboard extends ThrottledEventDispatcher {
     if( event.isComposing || event.keyCode === 229 || this.mouseLocation === MouseKeyboard.OFF_VIEWER ) { return; }
     if( this.mouseLocation & MouseKeyboard.ON_CONTROLLER ) {
       if( this._app.controllerGUI.isFocused ) {
-        console.log("Focused -> " + this.mouseLocation);
         return;
       }
     }
-    event.preventDefault();
+    // event.preventDefault();
     this.dispatch({
       type      : "viewerApp.keyboad.keydown",
       data      : event,
