@@ -1,5 +1,5 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { TwoPassDoubleSide, BufferAttribute, DataTexture, NearestFilter,
+import { DoubleSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3,
          MeshPhongMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
          Data3DTexture } from 'three';
@@ -9,9 +9,10 @@ import { compile_free_material } from '../shaders/SurfaceShader.js';
 
 const MATERIAL_PARAMS = {
   'transparent' : true,
-  'side': TwoPassDoubleSide,
+  'side': DoubleSide,
   'wireframeLinewidth' : 0.1,
-  'vertexColors' : true
+  'vertexColors' : true,
+  'forceSinglePass' : false
 };
 
 // freemesh
