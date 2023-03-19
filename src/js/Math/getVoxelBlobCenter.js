@@ -1,7 +1,9 @@
 import { Vector3 } from 'three';
 
 function dnorm(x, m = 0, s = 1) {
-  return Math.exp( -0.5 * Math.pow((x - m) / 2, 2) ) / Math.sqrt( 2 * Math.PI );
+  const y = Math.pow((x - m) / s, 2) / 2.0;
+  if( y > 20 ) { return 0; }
+  return Math.exp( - y ) / Math.sqrt( 2 * Math.PI );
 }
 
 function huntedErode3d(x, dim) {
@@ -178,8 +180,10 @@ function getVoxelBlobCenter({
     }
   }
   // console.log(x_.join(" "));
-  // window.initialmask = x_;
-  x_ = initialBlob3d( x_, dim, sliceDensity, initial );
+  const initialMask = initialBlob3d( x_, dim, sliceDensity, initial );
+  window.initialMask = initialMask;
+  window.initialV = x;
+  x_ = new Uint8Array( initialMask );
   // console.log(x_.join(" "));
   // window.blobmask = x_;
 
@@ -250,9 +254,9 @@ function getVoxelBlobCenter({
   }
 
   // the blob center is near ijk at sub-voxel level
-  const mdx = Math.floor( sliceDensity.x * 2 ),
-        mdy = Math.floor( sliceDensity.y * 2 ),
-        mdz = Math.floor( sliceDensity.z * 2 );
+  const mdx = Math.floor( sliceDensity.x * Math.max( maxSearch, 2 ) ),
+        mdy = Math.floor( sliceDensity.y * Math.max( maxSearch, 2 ) ),
+        mdz = Math.floor( sliceDensity.z * Math.max( maxSearch, 2 ) );
 
   let mv, totalWeights = 0;
   ijk3.set(0, 0, 0);
@@ -263,11 +267,25 @@ function getVoxelBlobCenter({
 
         ijk2.copy( ijk1 ).sub( ijk );
 
-        mv = x[ ijk2Index( ijk1 ) ] - thred;
-        if( mv < -50/0 ) {
-          mv = -50.0;
+        mv = x[ ijk2Index( ijk1 ) ] - threshold;
+
+        if( isNaN( mv ) ) {
+          continue;
         }
-        mv *= dnorm(ijk2.length(), 0.0, 0.3);
+
+        if( mv >= 0 ) {
+          mv /= 50;
+          if( mv > 20 ) { mv = 20; }
+        } else {
+          mv /= 100;
+          if( mv < -3 ) {
+            mv = -3;
+          }
+        }
+        mv = Math.exp( mv );
+
+        mv = 2 * mv / (1 + mv) - 1;
+        mv *= dnorm(ijk2.length(), 0.0, 1.0);
 
         ijk3.add( ijk2.multiplyScalar( mv ) );
         totalWeights += mv > 0 ? mv : -mv;
@@ -279,7 +297,10 @@ function getVoxelBlobCenter({
 
 
   if( totalWeights > 0 ) {
-    ijk.add( ijk3.multiplyScalar( 1 / totalWeights ) );
+    ijk3.multiplyScalar( 1 / totalWeights );
+    console.log([ ijk3.x, ijk3.y, ijk3.z ]);
+
+    ijk.add( ijk3 );
   }
 
 
