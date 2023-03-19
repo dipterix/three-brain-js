@@ -6,8 +6,6 @@ import { Vector3, Matrix4, Data3DTexture, NearestFilter, FloatType,
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { VolumeRenderShader1 } from '../shaders/VolumeShader.js';
-import { ConvexGeometry } from '../jsm/geometries/ConvexGeometry.js';
-
 
 class DataCube2 extends AbstractThreeBrainObject {
 
