@@ -2,6 +2,8 @@ import { NodeUpdateType } from './constants.js';
 import { getNodesKeys, getCacheKey } from './NodeUtils.js';
 import { MathUtils } from 'three';
 
+const NodeClasses = new Map();
+
 let _nodeId = 0;
 
 class Node {
@@ -32,9 +34,7 @@ class Node {
 
 	}
 
-	getChildren() {
-
-		const children = [];
+	* getChildren() {
 
 		for ( const property in this ) {
 
@@ -42,19 +42,22 @@ class Node {
 
 			if ( Array.isArray( object ) === true ) {
 
-				for ( const child of object ) {
+				for ( let i = 0; i < object.length; i++ ) {
 
-					if ( child?.isNode === true ) {
+					const child = object[ i ];
 
-						children.push( child );
+					if ( child && child.isNode === true ) {
+
+						yield { childNode: child, replaceNode( node ) { object[ i ] = node; } };
 
 					}
 
 				}
 
-			} else if ( object?.isNode === true ) {
+			} else if ( object && object.isNode === true ) {
 
-				children.push( object );
+				const self = this;
+				yield { childNode: object, replaceNode( node ) { self[ property ] = node; } };
 
 			} else if ( typeof object === 'object' ) {
 
@@ -62,9 +65,9 @@ class Node {
 
 					const child = object[ property ];
 
-					if ( child?.isNode === true ) {
+					if ( child && child.isNode === true ) {
 
-						children.push( child );
+						yield { childNode: child, replaceNode( node ) { object[ property ] = node; } };
 
 					}
 
@@ -74,7 +77,16 @@ class Node {
 
 		}
 
-		return children;
+	}
+
+	traverse( callback, replaceNode = null ) {
+
+		callback( this, replaceNode );
+		for ( const { childNode, replaceNode } of this.getChildren() ) {
+
+			childNode.traverse( callback, replaceNode );
+
+		}
 
 	}
 
@@ -115,7 +127,7 @@ class Node {
 
 		const nodeProperties = builder.getNodeProperties( this );
 
-		for ( const childNode of this.getChildren() ) {
+		for ( const { childNode } of this.getChildren() ) {
 
 			nodeProperties[ '_node' + childNode.id ] = childNode;
 
@@ -139,7 +151,7 @@ class Node {
 
 			for ( const childNode of Object.values( nodeProperties ) ) {
 
-				if ( childNode?.isNode === true ) {
+				if ( childNode && childNode.isNode === true ) {
 
 					childNode.build( builder );
 
@@ -155,7 +167,7 @@ class Node {
 
 		const { outputNode } = builder.getNodeProperties( this );
 
-		if ( outputNode?.isNode === true ) {
+		if ( outputNode && outputNode.isNode === true ) {
 
 			return outputNode.build( builder, output );
 
@@ -202,7 +214,7 @@ class Node {
 
 				for ( const childNode of Object.values( properties ) ) {
 
-					if ( childNode?.isNode === true ) {
+					if ( childNode && childNode.isNode === true ) {
 
 						childNode.build( builder );
 
@@ -366,3 +378,24 @@ class Node {
 }
 
 export default Node;
+
+export function addNodeClass( nodeClass ) {
+
+	if ( typeof nodeClass !== 'function' || ! nodeClass.name ) throw new Error( `Node class ${ nodeClass.name } is not a class` );
+	if ( NodeClasses.has( nodeClass.name ) ) throw new Error( `Redefinition of node class ${ nodeClass.name }` );
+
+	NodeClasses.set( nodeClass.name, nodeClass );
+
+}
+
+export function createNodeFromType( type ) {
+
+	const Class = NodeClasses.get( type );
+
+	if ( Class !== undefined ) {
+
+		return new Class();
+
+	}
+
+};

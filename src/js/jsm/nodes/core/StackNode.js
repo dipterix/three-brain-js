@@ -1,5 +1,8 @@
-import Node from './Node.js';
-import OperatorNode from '../math/OperatorNode.js';
+import Node, { addNodeClass } from './Node.js';
+import { assign } from '../math/OperatorNode.js';
+import { bypass } from '../core/BypassNode.js';
+import { expression } from '../core/ExpressionNode.js';
+import { nodeProxy } from '../shadernode/ShaderNode.js';
 
 class StackNode extends Node {
 
@@ -20,11 +23,17 @@ class StackNode extends Node {
 
 	}
 
-	assign( targetNode, sourceValue ) {
+	add( node ) {
 
-		this.nodes.push( new OperatorNode( '=', targetNode, sourceValue ) );
+		this.nodes.push( bypass( expression(), node ) );
 
 		return this;
+
+	}
+
+	assign( targetNode, sourceValue ) {
+
+		return this.add( assign( targetNode, sourceValue ) );
 
 	}
 
@@ -43,3 +52,7 @@ class StackNode extends Node {
 }
 
 export default StackNode;
+
+export const stack = nodeProxy( StackNode );
+
+addNodeClass( StackNode );

@@ -1,18 +1,13 @@
-import Node from '../core/Node.js';
-import { uniform, div, vec2, invert } from '../shadernode/ShaderNodeBaseElements.js';
-import { Vector2 } from 'three';
+import Node, { addNodeClass } from '../core/Node.js';
 import { NodeUpdateType } from '../core/constants.js';
+import { uniform } from '../core/UniformNode.js';
+import { nodeImmutable, vec2 } from '../shadernode/ShaderNode.js';
+
+import { Vector2 } from 'three';
 
 let resolution;
 
 class ViewportNode extends Node {
-
-	static COORDINATE = 'coordinate';
-	static RESOLUTION = 'resolution';
-	static TOP_LEFT = 'topLeft';
-	static BOTTOM_LEFT = 'bottomLeft';
-	static TOP_RIGHT = 'topRight';
-	static BOTTOM_RIGHT = 'bottomRight';
 
 	constructor( scope ) {
 
@@ -62,24 +57,22 @@ class ViewportNode extends Node {
 
 		if ( scope === ViewportNode.RESOLUTION ) {
 
-			resolution ||= new Vector2();
-
-			output = uniform( resolution );
+			output = uniform( resolution || ( resolution = new Vector2() ) );
 
 		} else {
 
 			const coordinateNode = vec2( new ViewportNode( ViewportNode.COORDINATE ) );
 			const resolutionNode = new ViewportNode( ViewportNode.RESOLUTION );
 
-			output = div( coordinateNode, resolutionNode );
+			output = coordinateNode.div( resolutionNode );
 
 			let outX = output.x;
 			let outY = output.y;
 
-			if ( /top/i.test( scope ) && builder.isFlipY() ) outY = invert( outY );
-			else if ( /bottom/i.test( scope ) && builder.isFlipY() === false ) outY = invert( outY );
+			if ( /top/i.test( scope ) && builder.isFlipY() ) outY = outY.invert();
+			else if ( /bottom/i.test( scope ) && builder.isFlipY() === false ) outY = outY.invert();
 
-			if ( /right/i.test( scope ) ) outX = invert( outX );
+			if ( /right/i.test( scope ) ) outX = outX.invert();
 
 			output = vec2( outX, outY );
 
@@ -103,4 +96,20 @@ class ViewportNode extends Node {
 
 }
 
+ViewportNode.COORDINATE = 'coordinate';
+ViewportNode.RESOLUTION = 'resolution';
+ViewportNode.TOP_LEFT = 'topLeft';
+ViewportNode.BOTTOM_LEFT = 'bottomLeft';
+ViewportNode.TOP_RIGHT = 'topRight';
+ViewportNode.BOTTOM_RIGHT = 'bottomRight';
+
 export default ViewportNode;
+
+export const viewportCoordinate = nodeImmutable( ViewportNode, ViewportNode.COORDINATE );
+export const viewportResolution = nodeImmutable( ViewportNode, ViewportNode.RESOLUTION );
+export const viewportTopLeft = nodeImmutable( ViewportNode, ViewportNode.TOP_LEFT );
+export const viewportBottomLeft = nodeImmutable( ViewportNode, ViewportNode.BOTTOM_LEFT );
+export const viewportTopRight = nodeImmutable( ViewportNode, ViewportNode.TOP_RIGHT );
+export const viewportBottomRight = nodeImmutable( ViewportNode, ViewportNode.BOTTOM_RIGHT );
+
+addNodeClass( ViewportNode );
