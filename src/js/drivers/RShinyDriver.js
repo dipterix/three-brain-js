@@ -71,6 +71,9 @@ class RShinyDriver {
         case 'background':
           this.driveBackground( data.value );
           break;
+        case 'title':
+          this.driveTitle( data.value );
+          break;
         case 'zoom_level':
           this.driveMainCameraZoom( data.value );
           break;
@@ -298,6 +301,16 @@ class RShinyDriver {
     const controller = this.app.controllerGUI.getController('Background Color');
     controller.setValue( color );
   }
+
+  driveTitle( title ) {
+    if( typeof title === "string" ) {
+      this.canvas.title = title;
+    } else {
+      this.canvas.title = "";
+    }
+    this.canvas.needsUpdate = true;
+  }
+
   driveMainCameraZoom( zoomLevel ) {
     this.canvas.mainCamera.setZoom({ zoom : zoomLevel, updateProjection : true });
   }

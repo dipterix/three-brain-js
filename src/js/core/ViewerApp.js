@@ -439,7 +439,12 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.debugVerbose("[ViewerApp.updateData]: Executing customized js code:\n"+this.settings.custom_javascript);
       (( viewerApp ) => {
         try {
-          eval( this.settings.custom_javascript );
+          ((canvas, controlCenter) => {
+            eval( this.settings.custom_javascript );
+          }) (
+            this.canvas,
+            this.controlCenter
+          )
         } catch (e) {
           console.warn(e);
         }
