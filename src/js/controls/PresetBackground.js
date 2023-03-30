@@ -8,6 +8,17 @@ function registerPresetBackground( ViewerControlCenter ){
     const initialValue = this.settings.background || "#ffffff",
           folderName = CONSTANTS.FOLDERS['background-color'];
 
+    const citation = this.gui.addController(
+      'Viewer Citation Information', () => {}
+    )
+    // replace
+    const $a = document.createElement("a");
+    $a.innerText = 'See rave.wiki for citation information';
+    $a.setAttribute("href", "https://rave.wiki/");
+    $a.setAttribute("target", "_blank");
+    $a.style.lineHeight = "var(--widget-height)";
+    citation.domElement.replaceChildren($a);
+
     const controller = this.gui.addController(
       'Background Color', '#FFFFFF',
       { isColor : true, folderName: folderName }
