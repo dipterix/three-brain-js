@@ -132,6 +132,15 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
+    this.canvas.set_state("outline_state", "auto");
+    this.gui.addController( 'Outlines', "auto",
+                      { args : ["auto", "on", "off"], folderName : folderName } )
+      .onChange(( v ) => {
+        this.canvas.set_state("outline_state", v);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
     this.canvas.set_state('electrode_label', { scale : 2, visible : false });
     this.gui
       .addController('Text Scale', 1.5, { folderName : folderName })

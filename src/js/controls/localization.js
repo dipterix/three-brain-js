@@ -29,8 +29,7 @@ const pal = [0x1874CD, 0x1F75C6, 0x2677BF, 0x2E78B9, 0x357AB2, 0x3C7BAC, 0x447DA
 class LocElectrode {
   constructor(
     subject_code, localization_order, initial_position,
-    canvas, autoRefine,
-    electrode_scale = 1) {
+    canvas, autoRefine, electrode_scale = 1) {
 
     this.isLocElectrode = true;
     // temp vector 3
@@ -45,6 +44,8 @@ class LocElectrode {
     }
     const initialPositionAsArray = this.initialPosition.toArray();
 
+    this.Hemisphere = canvas.get_state("newElectrodesHemisphere", "auto");
+
     // get fs Label
     this.atlasLabels = {};
     this.atlasLabels[ "aseg" ] = { index : 0 , label : "Unknown" };
@@ -53,23 +54,28 @@ class LocElectrode {
     this.atlasLabels[ "aparc.a2009s+aseg" ] = { index : 0 , label : "Unknown" };
     this.atlasLabels[ "manual" ] = undefined;
     this.computeFreeSurferLabel();
-    const regex = /(lh|rh|left|right)\-/g;
 
-    for(let atlasType in this.atlasLabels) {
-      const atlasLabel = this.atlasLabels[ atlasType ];
-      if( atlasLabel && typeof atlasLabel === "object" && typeof atlasLabel.label === "string" ) {
-        const m = regex.exec( atlasLabel.label.toLowerCase() );
-        if( m && m.length >= 2 ){
-          if( m[1][0] == "r" ) {
-            this.Hemisphere = "right";
-            break;
-          } else if( m[1][0] == "l" ) {
-            this.Hemisphere = "left";
-            break;
+
+    if( this.Hemisphere !== "left" && this.Hemisphere !== "right" ) {
+      const regex = /(lh|rh|left|right)\-/g;
+
+      for(let atlasType in this.atlasLabels) {
+        const atlasLabel = this.atlasLabels[ atlasType ];
+        if( atlasLabel && typeof atlasLabel === "object" && typeof atlasLabel.label === "string" ) {
+          const m = regex.exec( atlasLabel.label.toLowerCase() );
+          if( m && m.length >= 2 ){
+            if( m[1][0] == "r" ) {
+              this.Hemisphere = "right";
+              break;
+            } else if( m[1][0] == "l" ) {
+              this.Hemisphere = "left";
+              break;
+            }
           }
         }
       }
     }
+
     if( this.Hemisphere !== "left" && this.Hemisphere !== "right" ) {
       // cannot determine from the FreeSurfer label, use this._determineHemisphere to decide
       this.Hemisphere = this._determineHemisphere({
@@ -392,7 +398,7 @@ class LocElectrode {
     // aseg
     inst = getDataCube2( this._canvas, "aseg", this.subject_code );
     this.atlasLabels[ "aseg" ] = getAnatomicalLabelFromPosition(
-      this._canvas, position, inst, { maxStepSize : maxStepSize } );
+      this._canvas, position, inst, { maxStepSize : maxStepSize, hemisphere : this.Hemisphere } );
 
     // aparc+aseg
     inst = getDataCube2( this._canvas, "aparc_aseg", this.subject_code );
@@ -401,7 +407,7 @@ class LocElectrode {
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
         [3201, 3207], [4201, 4207]
-      ], maxStepSize : maxStepSize } );
+      ], maxStepSize : maxStepSize, hemisphere : this.Hemisphere } );
 
     // aparc.DKTatlas+aseg
     inst = getDataCube2( this._canvas, "aparc_DKTatlas_aseg", this.subject_code );
@@ -410,7 +416,7 @@ class LocElectrode {
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
         [3201, 3207], [4201, 4207]
-      ], maxStepSize : maxStepSize } );
+      ], maxStepSize : maxStepSize, hemisphere : this.Hemisphere } );
 
     // aparc.a2009s+aseg
     inst = getDataCube2( this._canvas, "aparc_a2009s_aseg", this.subject_code );
@@ -420,7 +426,7 @@ class LocElectrode {
         [1001, 1035], [2001, 2035], [3001, 3035], [4001, 4035], // 2005 aparc labels, pial + white
         [1101, 1212], [2101, 2212], [3101, 3181], [4101, 4181], // 2005 seg values
         [3201, 3207], [4201, 4207]
-      ], maxStepSize : maxStepSize } );
+      ], maxStepSize : maxStepSize, hemisphere : this.Hemisphere } );
 
     return this.atlasLabels;
   }
@@ -463,8 +469,15 @@ class LocElectrode {
           g.vertex_number = parseInt(params[k]);
           break;
         case 'Hemisphere':
-          this.Hemisphere = params[k];
-          g.hemisphere = params[k];
+          const h = params[k].toLowerCase();
+          if( h === "left" || h === "right" ) {
+            const oldValue = this.Hemisphere;
+            this.Hemisphere = h;
+            g.hemisphere = h;
+            if( oldValue !== h ) {
+              this.computeFreeSurferLabel();
+            }
+          }
           break;
         case 'Notes':
           g.custom_info = params[k];
@@ -978,9 +991,10 @@ function register_controls_localization( ViewerControlCenter ){
     }
   };
 
-  ViewerControlCenter.prototype.localizeAddElectrode = function(
-    x, y, z, mode, fireEvents = true
-  ){
+  ViewerControlCenter.prototype.localizeAddElectrode = function({
+    Coord_x, Coord_y, Coord_z, Hemisphere = "auto",
+    mode, fireEvents = true, ...moreArgs
+  } = {}){
     const electrodes = this.__localize_electrode_list;
     const scode = this.canvas.get_state("target_subject");
     let edit_mode = mode;
@@ -992,10 +1006,13 @@ function register_controls_localization( ViewerControlCenter ){
        edit_mode === "refine"){ return; }
 
     const el = new LocElectrode(
-      scode, electrodes.length + 1, [x,y,z],
+      scode, electrodes.length + 1, [Coord_x, Coord_y, Coord_z],
       this.canvas, false, electrode_size);
     el.set_mode( edit_mode );
     electrodes.push( el );
+
+    // update electrode
+    el.update( moreArgs );
 
     this.canvas.switch_subject();
 
@@ -1102,7 +1119,7 @@ function register_controls_localization( ViewerControlCenter ){
         }
         this.gui.hideControllers([
           '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
-          'Interpolate from Recently Added', 'Extend from Recently Added',
+          'Interpolate from Recently Added', 'Extend from Recently Added', 'Register from Crosshair',
           'Reset Highlighted', "Auto Refine",
           'Auto-Adjust Highlighted', 'Auto-Adjust All'
         ], folderName);
@@ -1116,7 +1133,7 @@ function register_controls_localization( ViewerControlCenter ){
           this.gui.showControllers([
             '- tkrRAS', '- MNI305', '- T1 RAS', 'Auto Refine',
             'Interpolate Size', 'Interpolate from Recently Added',
-            'Extend from Recently Added'
+            'Extend from Recently Added', 'Register from Crosshair'
           ], folderName);
         }
 
@@ -1362,6 +1379,31 @@ function register_controls_localization( ViewerControlCenter ){
       { folderName: folderName }
     );
 
+    // Add electrode from crosshair
+    this.gui.addController( 'Register from Crosshair', () => {
+      const mode = edit_mode.getValue();
+      const scode = this.canvas.get_state("target_subject");
+      if( !mode || mode == "disabled" ||
+          mode == "refine" ||
+          !scode || scode === ""
+      ){ return; }
+      const tkrRAS = new Vector3().set(
+        this.canvas.get_state("sagittal_depth", 0.0),
+        this.canvas.get_state("coronal_depth", 0.0),
+        this.canvas.get_state("axial_depth", 0.0)
+      );
+      const el = new LocElectrode(
+              scode, electrodes.length + 1, tkrRAS, this.canvas,
+              false, elec_size.getValue());
+      el.set_mode( mode );
+      electrodes.push( el );
+      this.canvas.switch_subject();
+      this.broadcast({
+        data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
+      });
+    }, {
+      folderName: folderName
+    });
 
     // Download as CSV
     this.gui.addController( 'Download Current as CSV', () => {
@@ -1539,7 +1581,7 @@ function register_controls_localization( ViewerControlCenter ){
       '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
       'Interpolate from Recently Added', 'Extend from Recently Added',
       'Auto-Adjust Highlighted', 'Auto-Adjust All', 'Reset Highlighted',
-      'Auto Refine'
+      'Auto Refine', 'Register from Crosshair'
     ], folderName);
   };
 

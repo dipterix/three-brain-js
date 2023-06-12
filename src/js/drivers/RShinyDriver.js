@@ -104,6 +104,9 @@ class RShinyDriver {
         case 'add_localization_electrode':
           this.driveAddLocalization( data.value );
           break;
+        case 'set_incoming_localization_hemisphere':
+          this.driveSetIncomingLocalizationHemisphere( data.value );
+          break;
         default:
           // code
           console.warn(`Unknown Shiny command type: [${data.name}].`);
@@ -396,17 +399,27 @@ class RShinyDriver {
     this.app.controlCenter.clearLocalization( updateShiny );
   }
 
-  driveAddLocalization( args = {} ) {
-    const el = this.app.controlCenter.localizeAddElectrode(
-       args.Coord_x, args.Coord_y, args.Coord_z,
-       args.mode || "CT/volume", false
-    );
-    if( el ){
-      const locorder = el.localization_order;
-      this.app.controlCenter.localizeSetElectrode(
-        locorder, args, args.update_shiny
-      );
+  driveSetIncomingLocalizationHemisphere( hemisphere ) {
+    if( typeof hemisphere !== "string" || hemisphere.length === 0 ) {
+      hemisphere = "auto";
+    } else {
+      hemisphere = hemisphere.toLowerCase();
     }
+    if( hemisphere[0] === "l" ) {
+      this.app.canvas.set_state("newElectrodesHemisphere", "left");
+    } else if ( hemisphere[0] === "r" ) {
+      this.app.canvas.set_state("newElectrodesHemisphere", "right");
+    } else {
+      this.app.canvas.set_state("newElectrodesHemisphere", "auto");
+    }
+  }
+
+  driveAddLocalization( args = {} ) {
+    const argsCopy = { ...args };
+    argsCopy.mode = argsCopy.mode ?? "CT/volume";
+    argsCopy.fireEvents = false;
+    // const el =
+    this.app.controlCenter.localizeAddElectrode( argsCopy );
   }
 
 }

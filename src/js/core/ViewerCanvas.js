@@ -6,8 +6,14 @@ import {
   Raycaster, ArrowHelper, BoxHelper,
   LoadingManager, FileLoader, FontLoader,
   AnimationClip, AnimationMixer, Clock,
-  Mesh, MeshBasicMaterial
+  Mesh, MeshBasicMaterial, SubtractiveBlending
 } from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+// import { OutlinePass2 } from '../jsm/postprocessing/OutlinePass2.js';
+// import { OutlineEffect2 } from '../jsm/effects/OutlineEffect2.js';
+
 import Stats from 'three/addons/libs/stats.module.js';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
@@ -161,6 +167,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // All mesh/geoms in this store will be calculated when raycasting
     this.clickable = new Map();
     this.clickable_array = [];
+    // this.outlineMesh = [];
 
     // Dispatcher of handlers when mouse is clicked on the main canvas
     this._mouse_click_callbacks = {};
@@ -677,6 +684,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.object_chosen=undefined;
     this.clickable.clear();
     this.clickable_array.length = 0;
+    // this.outlineMesh.length = 0;
     this.title = undefined;
 
     this.subject_codes.length = 0;
@@ -1522,6 +1530,23 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     //this.main_renderer.setClearColor( renderer_colors[0] );
     this.main_renderer.clear();
 
+    const renderOutlines = this.get_state( "outline_state", "auto" );
+    if ( renderOutlines === "auto" ) {
+      const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
+      const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
+      const left_mtype = this.get_state( "material_type_left", "normal" );
+      const right_mtype = this.get_state( "material_type_right", "normal" );
+
+      if( (left_mtype === "normal" && left_opacity > 0.2 && left_opacity < 1) ||
+          (left_mtype === "wireframe" && left_opacity > 0.1) ||
+          (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
+          (right_mtype === "wireframe" && right_opacity > 0.1)
+      ) {
+      } else {
+        this.state_data.set( "outline_state", "off" );
+      }
+    }
+
     // Pre render all meshes
     this.mesh.forEach((m) => {
       if( typeof m.userData.pre_render === 'function' ){
@@ -1581,6 +1606,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
 		// draw main and side rendered images to this.domElement (2d context)
 		this.mapToCanvas();
+
+		this.state_data.set( "outline_state", renderOutlines );
 
 
 		// Add additional information

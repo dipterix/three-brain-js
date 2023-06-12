@@ -29,8 +29,21 @@ function isPreferredLabel( index, preferredIndexRange ) {
 
 }
 
+function isCorrectHemisphere(label, hemisphere) {
+  if( hemisphere.startsWith("l") ) {
+    if(label.match(/^(ctx|wm|)[_-]{0,1}rh/g) || label.match("Right")) {
+      return false;
+    }
+  } else if ( hemisphere.startsWith("r") ) {
+    if(label.match(/^(ctx|wm|)[_-]{0,1}lh/g) || label.match("Left")) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function getAnatomicalLabelFromPosition(
-  canvas, position, atlasInstance, { preferredIndexRange, maxStepSize = 2.0 } = {}
+  canvas, position, atlasInstance, { preferredIndexRange, hemisphere = "auto", maxStepSize = 2.0 } = {}
 ) {
   if( typeof atlasInstance !== "object" || !atlasInstance.isThreeBrainObject ||
       !atlasInstance.isDataCube2 ) {
@@ -84,7 +97,28 @@ function getAnatomicalLabelFromPosition(
   let count = {};
   let label_id = atlasVoxelData[ ijk0.dot(multiplyFactor) ] || 0;
 
-  if( label_id === 0 || !isPreferredLabel( label_id, preferredIndexRange ) ) {
+  let furtherSearchNeeded = false;
+  let isLeft, isRight;
+  if( typeof hemisphere === "string" ) {
+    isLeft = hemisphere.startsWith("l");
+    isRight = hemisphere.startsWith("r");
+  } else {
+    hemisphere = "auto";
+  }
+
+  if( label_id === 0 ) {
+    furtherSearchNeeded = true;
+  } else if( !isPreferredLabel( label_id, preferredIndexRange ) ) {
+    furtherSearchNeeded = true;
+  } else {
+    const lbl = fslut.map[ parseInt(label_id) ].Label;
+    if( !isCorrectHemisphere(lbl, hemisphere) ) {
+      furtherSearchNeeded = true;
+    }
+  }
+
+
+  if( furtherSearchNeeded ) {
     for(
       ijk_idx.x = Math.round( ijk1.x - delta.x * maxStepSize );
       ijk_idx.x <= Math.round( ijk1.x + delta.x * maxStepSize );
@@ -108,9 +142,13 @@ function getAnatomicalLabelFromPosition(
       }
     }
 
-
     const keys = Object.keys(count);
     let preferredKeys = keys.filter(k => {
+      if( parseInt(k) === 0 ) { return false; }
+      const lbl = fslut.map[ parseInt(k) ].Label;
+      if( !isCorrectHemisphere(lbl, hemisphere) ) {
+        return false;
+      }
       return isPreferredLabel( parseInt(k), preferredIndexRange );
     });
     if( preferredKeys.length === 0 ) {
@@ -119,6 +157,35 @@ function getAnatomicalLabelFromPosition(
     if( preferredKeys.length > 0 ){
       label_id = preferredKeys.reduce((a, b) => count[a] > count[b] ? a : b);
       label_id = parseInt( label_id );
+      let updateLabelId = false;
+      if( label_id !== 0 ) {
+        let lbl = fslut.map[ label_id ].Label;
+        if( isLeft ) {
+          if( lbl.match(/^(ctx|wm|)([_-]{0,1})rh/g) ) {
+            lbl = lbl.replace(/^(ctx|wm|)([_-]{0,1})rh/g, "$1$2lh");
+            updateLabelId = true;
+          } else if ( lbl.match("Right") ) {
+            lbl = lbl.replace("Right", "Left");
+            updateLabelId = true;
+          }
+        } else if ( isRight ) {
+          if( lbl.match(/^(ctx|wm|)([_-]{0,1})lh/g) ) {
+            lbl = lbl.replace(/^(ctx|wm|)([_-]{0,1})lh/g, "$1$2rh");
+            updateLabelId = true;
+          } else if ( lbl.match("Left") ) {
+            lbl = lbl.replace("Left", "Right");
+            updateLabelId = true;
+          }
+        }
+        if( updateLabelId ) {
+          for( let tmpLabelId in fslut.map ) {
+            if( fslut.map[ tmpLabelId ].Label === lbl ) {
+              label_id = tmpLabelId;
+              break;
+            }
+          }
+        }
+      }
     }
   }
 

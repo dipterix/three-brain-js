@@ -328,17 +328,22 @@ class DataCube extends AbstractThreeBrainObject {
         )
       );
 
-      const voxelValue = datacube2Instance.voxelData[ idx ];
+      crosshairText = "";
+      if( idx >= 0 ) {
+        const voxelValue = datacube2Instance.voxelData[ idx ];
 
-      if( datacube2Instance.lut.mapDataType === "discrete" ) {
-        const cinfo = datacube2Instance.lut.map[ voxelValue ];
-        if( typeof cinfo === "object" ) {
-          crosshairText = cinfo.Label;
-        } else {
-          crosshairText = "";
+        if( typeof voxelValue === "number" ) {
+          if( datacube2Instance.lut.mapDataType === "discrete" ) {
+            const cinfo = datacube2Instance.lut.map[ voxelValue ];
+            if( typeof cinfo === "object" ) {
+              crosshairText = cinfo.Label;
+            } else {
+              crosshairText = "";
+            }
+          } else {
+            crosshairText = voxelValue.toFixed(1);
+          }
         }
-      } else {
-        crosshairText = voxelValue.toFixed(1);
       }
 
       this.coronalTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.coronal.zoomLevel;
