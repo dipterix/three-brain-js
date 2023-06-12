@@ -10,8 +10,8 @@ import {
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
-// import { OutlinePass2 } from '../jsm/postprocessing/OutlinePass2.js';
+// import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { OutlinePass2 } from '../jsm/postprocessing/OutlinePass2.js';
 // import { OutlineEffect2 } from '../jsm/effects/OutlineEffect2.js';
 
 import Stats from 'three/addons/libs/stats.module.js';
@@ -167,7 +167,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // All mesh/geoms in this store will be calculated when raycasting
     this.clickable = new Map();
     this.clickable_array = [];
-    // this.outlineMesh = [];
 
     // Dispatcher of handlers when mouse is clicked on the main canvas
     this._mouse_click_callbacks = {};
@@ -254,6 +253,35 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
   	this.main_renderer.localClippingEnabled=true; // Enable clipping
   	this.main_renderer.setClearColor( this.background_color );
+
+  	// Add composer
+  	this.mainComposer = new EffectComposer( this.main_renderer );
+  	/*
+  	this.mainEffect = new OutlineEffect2( this.main_renderer, {
+  	  defaultThickness: 0.003,
+  	  defaultColor: [ 0, 0, 0 ],
+  	  defaultAlpha: 1.0,
+  	} );
+  	*/
+
+  	// Main renderer pass
+  	this.mainRenderPass = new RenderPass( this.scene, this.mainCamera );
+  	this.mainComposer.addPass( this.mainRenderPass );
+
+    // outline pass
+  	this.mainOutlinePass = new OutlinePass2( new Vector2( width, height ), this.scene, this.mainCamera );
+  	this.mainOutlinePass.enabled = false;
+
+  	this.mainOutlinePass.selectedObjects = this.clickable_array;
+  	this.mainOutlinePass.edgeStrength = 1.5;
+  	this.mainOutlinePass.edgeGlow = 1;
+  	this.mainOutlinePass.edgeThickness = 1;
+  	this.mainOutlinePass.pulsePeriod = 0;
+  	this.mainOutlinePass.visibleEdgeColor.set( '#ffffff' );
+  	this.mainOutlinePass.hiddenEdgeColor.set( '#ffffff' );
+  	this.mainOutlinePass.overlayMaterial.blending = SubtractiveBlending;
+
+  	this.mainComposer.addPass( this.mainOutlinePass );
 
     // this.main_canvas.appendChild( this.main_renderer.domElement );
     this.main_canvas.appendChild( this.domElement );
@@ -684,7 +712,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.object_chosen=undefined;
     this.clickable.clear();
     this.clickable_array.length = 0;
-    // this.outlineMesh.length = 0;
     this.title = undefined;
 
     this.subject_codes.length = 0;
@@ -827,7 +854,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas.style.width = main_width + 'px';
     this.main_canvas.style.height = main_height + 'px';
 
-    this.main_renderer.setSize( main_width, main_height );
+    // this.main_renderer.setSize( main_width, main_height );
+    this.mainComposer.setSize( main_width, main_height );
 
     const pixelRatio = this.pixel_ratio[0];
 
@@ -1530,23 +1558,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     //this.main_renderer.setClearColor( renderer_colors[0] );
     this.main_renderer.clear();
 
-    const renderOutlines = this.get_state( "outline_state", "auto" );
-    if ( renderOutlines === "auto" ) {
-      const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
-      const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
-      const left_mtype = this.get_state( "material_type_left", "normal" );
-      const right_mtype = this.get_state( "material_type_right", "normal" );
-
-      if( (left_mtype === "normal" && left_opacity > 0.2 && left_opacity < 1) ||
-          (left_mtype === "wireframe" && left_opacity > 0.1) ||
-          (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
-          (right_mtype === "wireframe" && right_opacity > 0.1)
-      ) {
-      } else {
-        this.state_data.set( "outline_state", "off" );
-      }
-    }
-
     // Pre render all meshes
     this.mesh.forEach((m) => {
       if( typeof m.userData.pre_render === 'function' ){
@@ -1577,7 +1588,30 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     });
 
-    this.main_renderer.render( this.scene, this.mainCamera );
+    // this.main_renderer.render( this.scene, this.mainCamera );
+
+    const renderOutlines = this.get_state( "outline_state", "auto" );
+    if ( renderOutlines === "on" ) {
+      this.mainOutlinePass.enabled = true;
+    } else if ( renderOutlines === "off" ) {
+      this.mainOutlinePass.enabled = false;
+    } else {
+      const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
+      const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
+      const left_mtype = this.get_state( "material_type_left", "normal" );
+      const right_mtype = this.get_state( "material_type_right", "normal" );
+
+      if( (left_mtype === "normal" && left_opacity > 0.2 && left_opacity < 1) ||
+          (left_mtype === "wireframe" && left_opacity > 0.1) ||
+          (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
+          (right_mtype === "wireframe" && right_opacity > 0.1)
+      ) {
+        this.mainOutlinePass.enabled = true;
+      } else {
+        this.mainOutlinePass.enabled = false;
+      }
+    }
+    this.mainComposer.render( this.scene, this.mainCamera );
 
     if(this.sideCanvasEnabled){
 
@@ -1606,8 +1640,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
 		// draw main and side rendered images to this.domElement (2d context)
 		this.mapToCanvas();
-
-		this.state_data.set( "outline_state", renderOutlines );
 
 
 		// Add additional information

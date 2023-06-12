@@ -200,7 +200,8 @@ class OutlinePass2 extends Pass {
 		for ( let i = 0; i < this.selectedObjects.length; i ++ ) {
 
 			const selectedObject = this.selectedObjects[ i ];
-			selectedObject.traverse( gatherSelectedMeshesCallBack );
+			// selectedObject.traverse( gatherSelectedMeshesCallBack );
+			gatherSelectedMeshesCallBack( selectedObject );
 
 		}
 
@@ -220,7 +221,8 @@ class OutlinePass2 extends Pass {
 		for ( let i = 0; i < this.selectedObjects.length; i ++ ) {
 
 			const selectedObject = this.selectedObjects[ i ];
-			selectedObject.traverse( gatherSelectedMeshesCallBack );
+			// selectedObject.traverse( gatherSelectedMeshesCallBack );
+			gatherSelectedMeshesCallBack( selectedObject );
 
 		}
 

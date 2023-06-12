@@ -1,7 +1,6 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial,
-         SphereGeometry, Mesh, Vector3, Texture, RGBAFormat, Sprite,
-         Matrix4 } from 'three';
+         SphereGeometry, Mesh, Vector3, Matrix4 } from 'three';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { to_array, get_or_default } from '../utils.js';
 import { CONSTANTS } from '../core/constants.js';
@@ -9,24 +8,6 @@ import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
 
 const MATERIAL_PARAMS = { 'transparent' : false };
-
-
-function generateOutlineTexture(radius = 32, lineWidth = 4) {
-    const canvas = document.createElement( 'canvas' );
-    const width = radius * 2;
-    canvas.width = width;
-    canvas.height = width;
-
-    const context = canvas.getContext( '2d' );
-
-    context.lineWidth = lineWidth;
-    context.beginPath();
-    context.arc(radius, radius, radius - (lineWidth) / 2, 0, 2 * Math.PI);
-    context.stroke();
-
-    return canvas;
-}
-const outlineCanvas = generateOutlineTexture();
 
 class Sphere extends AbstractThreeBrainObject {
   constructor (g, canvas) {
@@ -57,9 +38,9 @@ class Sphere extends AbstractThreeBrainObject {
     }
 
     const mesh = new Mesh(gb, this._materials[ this._material_type ]);
-    // const meshOutline = new Mesh(gb, new MeshBasicMaterial( MATERIAL_PARAMS ));
     mesh.name = 'mesh_sphere_' + g.name;
-    // mesh.userData.renderOutline = true;
+    const gb2 = gb.clone();
+    gb2.name = gb.name + "--clone"
 
     // FIXME: need to use class instead of canvas.mesh
     let linked = false;
@@ -89,7 +70,6 @@ class Sphere extends AbstractThreeBrainObject {
     mesh.userData.display_info = {};
 
     this._mesh = mesh;
-    // this._meshOutline = meshOutline;
     this.object = mesh;
 
     // Add text label to electrodes
@@ -105,24 +85,10 @@ class Sphere extends AbstractThreeBrainObject {
     const sprite = new Sprite2( material );
     sprite.visible = false;
     this._mesh.add( sprite );
+
+
     this._text_sprite = sprite;
     this._text_map = map;
-
-    // Construct outline sprite
-    const outlineTexture = new Texture( outlineCanvas );
-    outlineTexture.needsUpdate = true;
-    const outlineSprite = new Sprite( new SpriteMaterial( {
-      map: outlineTexture,
-      transparent: true,
-      depthTest : false,
-      depthWrite : false,
-      color: 0x000000,
-      opacity: 1.0
-    } ) );
-    outlineSprite.scale.set( g.radius * 2.2, g.radius * 2.2, g.radius * 2.2 );
-    outlineSprite.visible = false;
-    this._mesh.add( outlineSprite );
-    this._outlineSprite = outlineSprite;
 
     // guess hemisphere from freesurfer label
     if( !g.hemisphere || !['left', 'right'].includes( g.hemisphere ) ) {
@@ -150,7 +116,6 @@ class Sphere extends AbstractThreeBrainObject {
     }
 
     this._link_userData();
-    // this._canvas.outlineMesh.push( this._meshOutline );
   }
 
   _link_userData(){
@@ -200,31 +165,11 @@ class Sphere extends AbstractThreeBrainObject {
     } catch (e) {}
 
     try {
-      this._outlineSprite.removeFromParent();
-      this._outlineSprite.material.map.dispose();
-      this._outlineSprite.material.dispose();
-      this._outlineSprite.geometry.dispose();
-    } catch (e) {}
-
-    try {
       this._mesh.removeFromParent();
     } catch (e) {}
 
     this._mesh.material.dispose();
     this._mesh.geometry.dispose();
-
-    /*
-    try {
-      const idx = this._canvas.outlineMesh.indexOf( this._meshOutline );
-      if( idx > -1 ) {
-        this._canvas.outlineMesh.splice( idx, 1 );
-      }
-      this._meshOutline.removeFromParent();
-    } catch (e) {}
-
-    this._meshOutline.material.dispose();
-    this._meshOutline.geometry.dispose();
-    */
 
     try {
       this._canvas.$el.removeEventListener(
@@ -355,26 +300,6 @@ class Sphere extends AbstractThreeBrainObject {
     }else if( !active_test && mesh.material.isMeshBasicMaterial ){
       mesh.material = this._materials.MeshLambertMaterial;
     }
-
-    // also set this._outlineSprite visibility
-    switch ( this._canvas.get_state("outline_state") ) {
-      case 'on':
-        this._outlineSprite.visible = true;
-        break;
-
-      case 'off':
-        this._outlineSprite.visible = false;
-        break;
-
-      default:
-        // auto
-        if( active_test ) {
-          this._outlineSprite.visible = true;
-        } else {
-          this._outlineSprite.visible = false;
-        }
-    }
-
 
     // 4. set visibility
     const vis = canvas.get_state( 'electrode_visibility', 'all visible');
@@ -921,6 +846,9 @@ class Sphere extends AbstractThreeBrainObject {
   finish_init(){
 
     super.finish_init();
+
+    // switch back to spherical mesh as object
+    this.object = this._mesh;
 
     if( is_electrode( this.object ) ){
 
