@@ -34,6 +34,15 @@ class EnhancedGUI extends GUI {
     return this.controllersRecursive().some(c => { return c._isFocused2; } );
   }
 
+  blurAll() {
+    this.controllersRecursive().forEach(c => {
+      // selector cannot be blurred here (or the options will not appear)
+      if( !c._isSelector ) {
+        c.blur();
+      }
+    });
+  }
+
   _dispatchEvent ( event ) {
     event.folderPath = this._fullPaths.join(">");
     this.__eventDispather.dispatchEvent( event );
@@ -220,12 +229,39 @@ class EnhancedGUI extends GUI {
     let controller;
     if( isColor ) {
       controller = folder.addColor( controllerObject, controllerName );
+      controller._isColor = true;
     } else {
+      // need to guess controller types
       if( controllerArgs ) {
         controller = folder.add( controllerObject, controllerName, controllerArgs );
+        controller._isSelector = true;
       } else {
         controller = folder.add( controllerObject, controllerName );
+        switch ( typeof value ) {
+          case 'number':
+            controller._isNumber = true;
+            break;
+          case 'string':
+            controller._isString = true;
+            break;
+          case 'boolean':
+            controller._isBool = true;
+            break;
+          default:
+            controller._isFunction = true;
+        }
       }
+    }
+
+    controller.blur = function() {
+      this.$disable.blur();
+    }
+
+    if( controller._isSelector || controller._isBool || controller._isNumber ) {
+      // use function instead of => to alter "this"
+      controller.onFinishChange(function(v) {
+        this.blur();
+      })
     }
     // make sure the controller slider does not activate accidentally
     controller._sliderWheelEnabled = false;
@@ -323,7 +359,8 @@ class EnhancedGUI extends GUI {
       "Show Legend", "Show Time", "Highlight Box", "Info Text",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity", "Voxel Min", "Voxel Max",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
-      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
+      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift",
+      "Outlines"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {

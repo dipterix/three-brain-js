@@ -134,11 +134,18 @@ class MouseKeyboard extends ThrottledEventDispatcher {
     this.mouseLocation = MouseKeyboard.OFF_VIEWER;
   }
 
+  _blurController() {
+    if( this._app.controllerGUI ) {
+      this._app.controllerGUI.blurAll();
+    }
+  }
+
   _onViewerFocused = () => {
     this.mouseLocation = this.mouseLocation | MouseKeyboard.ON_VIEWER;
     this.dispatch( _enterViewerEvent );
   }
   _onViewerBlurred = () => {
+    this._blurController();
     this.mouseLocation = this.mouseLocation & MouseKeyboard.OFF_VIEWER;
     this.dispatch( _leaveViewerEvent );
   }
@@ -146,6 +153,7 @@ class MouseKeyboard extends ThrottledEventDispatcher {
     this.mouseLocation = this.mouseLocation | MouseKeyboard.ON_CONTROLLER;
   }
   _onControllerBlurred = () => {
+    this._blurController();
     this.mouseLocation = this.mouseLocation ^ MouseKeyboard.ON_CONTROLLER;
   }
   _onCoronalViewFocused = () => {
