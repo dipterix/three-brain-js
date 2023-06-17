@@ -240,6 +240,10 @@ class EnhancedGUI extends GUI {
         switch ( typeof value ) {
           case 'number':
             controller._isNumber = true;
+            // force turning off scrollbar (hack!!!)
+            Object.defineProperty(controller, '_hasScrollBar', {
+              get: function() { return true; }
+            });
             break;
           case 'string':
             controller._isString = true;
