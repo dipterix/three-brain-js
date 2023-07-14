@@ -4,7 +4,7 @@ import { to_array, get_or_default } from '../utils.js';
 import { Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
-         PlaneGeometry, Mesh, LineSegments } from 'three';
+         PlaneGeometry, Mesh, LineSegments, FloatType } from 'three';
 import { TextSprite, TextTexture } from '../ext/text_sprite.js';
 import { SliceShader } from '../shaders/SliceShader.js';
 import { Volume2dArrayShader_xy, Volume2dArrayShader_xz,
@@ -67,6 +67,7 @@ class DataCube extends AbstractThreeBrainObject {
           }
         })
       } else {
+        niftiData.normalize();
         this.cubeData = niftiData.image;
         dataTextureType = niftiData.imageDataType;
       }
@@ -274,7 +275,7 @@ class DataCube extends AbstractThreeBrainObject {
 
   get_track_data( track_name, reset_material ){}
 
-  pre_render(){}
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){}
 
   setCrosshair({ x, y, z } = {}) {
     if( x === undefined ) {

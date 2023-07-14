@@ -355,6 +355,13 @@ class DataCube2 extends AbstractThreeBrainObject {
     // only useful for VolumeCube2
     this._transform = new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1);
 
+    /**
+     * historical issue:
+     * threeBrain uses tkrRAS as world coordinate
+     * Default: `this._transform`: model -> tkrRAS
+     * Alternative: `this._transform`: scannerRAS -> tkrRAS
+     */
+    let transformSpaceFrom = g.trans_space_from || "model";
     if( Array.isArray(g.trans_mat) && g.trans_mat.length === 16 ) {
       this._transform.set(...g.trans_mat);
     } else {
@@ -374,10 +381,13 @@ class DataCube2 extends AbstractThreeBrainObject {
       // original g.trans_mat is nifti RAS to tkrRAS
       // this._transform = g.trans_mat * niftiData.model2RAS
       //   -> new transform from model center to tkrRAS
-      if( niftiData.model2tkrRAS && niftiData.model2tkrRAS.isMatrix4 ) {
+
+      if( transformSpaceFrom === "model" &&
+          niftiData.model2tkrRAS && niftiData.model2tkrRAS.isMatrix4 ) {
         // special:: this is MGH data and transfor is embedded
         this._transform.copy( niftiData.model2tkrRAS );
       } else {
+        // transformSpaceFrom is scannerRAS
         this._transform.multiply( niftiData.model2RAS );
       }
       this._originalData = niftiData;
@@ -486,9 +496,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     mesh.name = 'mesh_datacube_' + g.name;
 
     mesh.position.fromArray( g.position );
-    // TODO: need to check how threejs handle texture 3D to know why the s
 
-    mesh.userData.pre_render = () => { return( this.pre_render() ); };
     mesh.userData.dispose = () => { this.dispose(); };
 
     this._mesh = mesh;
@@ -574,8 +582,17 @@ class DataCube2 extends AbstractThreeBrainObject {
     }
   }
 
-  pre_render() {
-    super.pre_render();
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}) {
+    super.pre_render({ target : target });
+    if( target === CONSTANTS.RENDER_CANVAS.side ) {
+      // sliceInstance.sliceMaterial.depthWrite = false;
+      // if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
+      this.object.material.depthWrite = false;
+      this.object.material.uniforms.dithering.value = 0.0;
+    } else {
+      this.object.material.depthWrite = true;
+      this.object.material.uniforms.dithering.value = this._dithering ?? 1.0;
+    }
   }
 
 }

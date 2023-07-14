@@ -52,6 +52,31 @@ class NiftiImage {
     this.isNiftiImage = true;
 
     // IJK to RAS
+    // determine which matrix to use
+    // c(1, 4, 2, 5, 3, 0)
+    const preferred_code = [1, 4, 2, 5, 3, 0];
+    let sformRank = preferred_code.indexOf( this.header.sform_code );
+    if( sformRank < 0 ) { sformRank = 6; }
+    let qformRank = preferred_code.indexOf( this.header.qform_code );
+    if( qformRank < 0 ) { qformRank = 6; }
+
+    if( sformRank > qformRank ) {
+      /** A special case, use method 2
+        mat <- diag(c(nii@pixdim[seq(2,4)], 1))
+        mat[3, ] <- mat[3, ] * nii@pixdim[[1]]
+        mat[1, 4] <- nii@qoffset_x
+        mat[2, 4] <- nii@qoffset_y
+        mat[3, 4] <- nii@qoffset_z
+        code <- qform_code
+      this.affine = new Matrix4().set(
+        this.header.pixDims[1], 0, 0, ?,
+        0, this.header.pixDims[2], 0, ?,
+        0, 0, this.header.pixDims[0] * this.header.pixDims[3], ?,
+        0, 0, 0, 1
+      )
+      */
+      this.header.affine = this.header.getQformMat();
+    }
     this.affine = new Matrix4().set(
       this.header.affine[0][0],
       this.header.affine[0][1],
@@ -70,6 +95,7 @@ class NiftiImage {
       this.header.affine[3][2],
       this.header.affine[3][3]
     );
+
     this.shape = new Vector3(
       this.header.dims[1],
       this.header.dims[2],
@@ -91,6 +117,57 @@ class NiftiImage {
     // IJK to scanner RAS (of the image)
     this.model2RAS = this.affine.clone().multiply( shift );
 
+    // IJK to tkrRAS
+    this.model2tkrRAS = this.affine.clone().setPosition(0, 0, 0);
+    const tOrigTranslate = this.shape.clone()
+      .multiplyScalar( -0.5 )
+      .applyMatrix4( this.model2tkrRAS );
+    this.model2tkrRAS.setPosition(
+      tOrigTranslate.x,
+      tOrigTranslate.y,
+      tOrigTranslate.z,
+    );
+    this.model2tkrRAS.multiply( shift );
+
+  }
+
+  normalize () {
+    if( this.normalized ) { return; }
+    if( this.dataIsInt8 || this.dataIsUInt8 ) { return; }
+
+    // inplace since no enough memory
+    let maxV = -Infinity, minV = Infinity, tmpV = 0;
+    for( let ii = 0; ii < this.image.length; ii++ ) {
+      tmpV = this.image[ ii ];
+      if( tmpV > maxV ) {
+        maxV = tmpV;
+      }
+      if( tmpV < minV ) {
+        minV = tmpV;
+      }
+    }
+    let intercept = 0, slope = 1;
+    if( maxV < 0 || minV >= 1 ) {
+      intercept = -minV;
+      slope = 1.0 / (maxV - minV);
+    } else if ( maxV > 1 ) {
+      // only positive part
+      slope = 1.0 / maxV;
+    }
+
+    if( intercept != 0 || slope != 1 ) {
+      const newImage = new Float32Array( this.image.length );
+
+      for( let ii = 0; ii < this.image.length; ii++ ) {
+        newImage[ ii ] = ( this.image[ ii ] + intercept ) * slope;
+      }
+
+      this.image = newImage;
+      this.imageDataType = FloatType;
+      this.dataIsFloat32 = true;
+    }
+
+    this.normalized = true;
   }
 
   dispose () {

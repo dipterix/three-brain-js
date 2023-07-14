@@ -12,7 +12,7 @@ class FreeSurferMesh {
     const sig0 = reader.getUint32(0, false);
     const sig1 = reader.getUint32(4, false);
     if (sig0 !== 4294966883 || sig1 !== 1919246708) {
-      console.warn( "FreeSurferMesh: Cannot parse FreeSurfer surface data." );
+      // console.warn( "FreeSurferMesh: Cannot parse FreeSurfer surface data." );
     }
 
     let offset = 0;

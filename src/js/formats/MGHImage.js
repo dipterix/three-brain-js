@@ -176,6 +176,45 @@ class MGHImage {
 
   }
 
+  normalize () {
+    if( this.normalized ) { return; }
+    if( this.dataIsInt8 || this.dataIsUInt8 ) { return; }
+
+    // inplace since no enough memory
+    let maxV = -Infinity, minV = Infinity, tmpV = 0;
+    for( let ii = 0; ii < this.image.length; ii++ ) {
+      tmpV = this.image[ ii ];
+      if( tmpV > maxV ) {
+        maxV = tmpV;
+      }
+      if( tmpV < minV ) {
+        minV = tmpV;
+      }
+    }
+    let intercept = 0, slope = 1;
+    if( maxV < 0 || minV >= 1 ) {
+      intercept = -minV;
+      slope = 1.0 / (maxV - minV);
+    } else if ( maxV > 1 ) {
+      // only positive part
+      slope = 1.0 / maxV;
+    }
+
+    if( intercept != 0 || slope != 1 ) {
+      const newImage = new Float32Array( this.image.length );
+
+      for( let ii = 0; ii < this.image.length; ii++ ) {
+        newImage[ ii ] = ( this.image[ ii ] + intercept ) * slope;
+      }
+
+      this.image = newImage;
+      this.imageDataType = FloatType;
+      this.dataIsFloat32 = true;
+    }
+
+    this.normalized = true;
+  }
+
   dispose() {
     this._MGHHeader = NaN;
     this.header = NaN;
