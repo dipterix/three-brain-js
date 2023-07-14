@@ -12,6 +12,8 @@ const VolumeRenderShader1 = {
 
       stepSize: { value : 1.0 },
 
+      dithering: { value : 1.0 },
+
       maxRenderDistance: { value : 1000.0 },
 
       // lightDirection : { value : new Vector3() },
@@ -85,6 +87,7 @@ uniform float alpha;
 uniform float stepSize;
 uniform float maxRenderDistance;
 uniform vec3 scale_inv;
+uniform float dithering;
 // uniform vec3 lightDirection;
 uniform float bounding;
 vec4 fcolor;
@@ -221,6 +224,12 @@ void main(){
   float delta = min( inc.x, min( inc.y, inc.z ) ) * max( abs( stepSize ), 0.1 );
   // float delta = 0.5 / max( abs(rayDir.x), max( abs(rayDir.y), abs(rayDir.z) ) );
 
+  // Dithering ray
+  if( dithering != 0.0 ) {
+    // https://www.marcusbannerman.co.uk/articles/VolumeRendering.html
+    p += rayDir * delta * fract(sin(gl_FragCoord.x * 12.9898 + gl_FragCoord.y * 78.233 + dithering) * 43758.5453);
+  }
+
   int nn = 0;
   int valid_voxel = 0;
   float mix_factor = 1.0;
@@ -255,10 +264,36 @@ void main(){
 
           if( colorChannels > 1 ) {
             nmal = getNormal( p );
+
+            // lighting... both p and nmal are in model space
             if(nmal != vec3(0.0, 0.0, 0.0)) {
 
               // color.rgb *= pow(max( abs(dot(lightDirection, normalize(nmal))) , 1.0), 0.3);
-              color.rgb *= pow(max( abs(dot(rayDir, normalize(nmal - rayDir) )) , 0.25), 0.3);
+              // color.rgb *= pow(max( abs(dot(rayDir, normalize(nmal - rayDir) )) , 0.25), 0.3);
+
+              if ( dithering > 0.0 ) {
+                // t is lightDistance, rayDir is the light direction (emit from orthographical camera)
+                vec3 lightDirection = rayDir;
+
+                //if the normal has a zero length, illuminate it as though it was fully lit
+                float normal_length = length(nmal);
+                vec3 normal2 = normal_length == 0.0 ? -rayDir : nmal;
+                float lightNormDot = dot(normal2, lightDirection);
+
+                // ///////////////////////////
+                // Blinn Phong lighting calculation
+                // ///////////////////////////
+                vec3 ReflectedRay = reflect(-lightDirection, normal2);
+                vec3 eyeDirection = normalize(-rayDir);
+                float diffuse = clamp(lightNormDot, 0.0, 1.0);
+
+                //Light attenuation
+                color.rgb = color.rgb * 0.8 + vec3( 0.1 ) * (1.0 + diffuse * color.rgb);
+              } else {
+                color.rgb *= 0.7 + pow(max( abs(dot(rayDir, nmal)) , 0.25), 0.3) * 0.2;
+                color.rgb += 0.1;
+              }
+
             }
           }
 

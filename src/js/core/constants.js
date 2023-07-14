@@ -138,6 +138,7 @@ CONSTANTS.FOLDERS = {
   'sync-viewers'          : 'Default',
   'video-recorder'        : 'Default',
   'reset-main-camera'     : 'Default',
+  'copy-viewer-state'     : 'Default',
   'main-camera-position'  : 'Default',
   'toggle-helpper'        : 'Default',
   'toggle-side-panels'    : 'Volume Settings',
@@ -179,5 +180,9 @@ CONSTANTS.SINGLETONS = {
   "line-segments" : "line_segments_singleton"
 };
 
+CONSTANTS.RENDER_CANVAS = {
+  "main" : "main",
+  "side" : "side"
+}
 
 export { CONSTANTS };
