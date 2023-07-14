@@ -585,13 +585,27 @@ class LocElectrode {
     const inst = this.get_volume_instance();
     if( !inst ){ return; }
 
-    this._adjust({ radius : 1.0 });
-    this._adjust({ radius : 2.0 });
-    // this._adjust({ radius : 3.0 });
-    this._adjust({ radius : 4.0 });
+    let pos = this._adjust({ radius : 1.0 });
+    this._setPosition( pos );
+
+
+    pos = this._adjust({ radius : 2.0 });
+    this._setPosition( pos );
+
+    pos = this._adjust({ radius : 4.0 });
+    this._setPosition( pos );
 
     this.update_line();
     this.updateProjection();
+  }
+
+  _setPosition( pos ) {
+    if( !pos.isVector3 ) { return; }
+    const position = this.instance._params.position;
+    position[0] = pos.x;
+    position[1] = pos.y;
+    position[2] = pos.z;
+    this.object.position.copy( pos );
   }
 
   _adjust({ radius = 2.0 } = {}) {
@@ -615,15 +629,20 @@ class LocElectrode {
     const pos = new Vector3().set(1, 0, 0),
           pos0 = new Vector3().set(0, 0, 0).applyMatrix4(matrix_);
     // calculate voxel size and IJK delta
+    const voxDim = new Vector3().set(
+      pos.set(1, 0, 0).applyMatrix4(matrix_).sub(pos0).length(),
+      pos.set(0, 1, 0).applyMatrix4(matrix_).sub(pos0).length(),
+      pos.set(0, 0, 1).applyMatrix4(matrix_).sub(pos0).length()
+    )
     const delta = new Vector3().set(
-      1 / pos.set(1, 0, 0).applyMatrix4(matrix_).sub(pos0).length(),
-      1 / pos.set(0, 1, 0).applyMatrix4(matrix_).sub(pos0).length(),
-      1 / pos.set(0, 0, 1).applyMatrix4(matrix_).sub(pos0).length()
+      1 / voxDim.x,
+      1 / voxDim.y,
+      1 / voxDim.z
     );
 
     // default search nearest +-2mm voxels,
     // assuming electrodes are most likely to be contained
-    const max_step_size = radius;
+    const max_step_size = Math.max( radius, 2 * voxDim.length() );
 
 
     // get position
@@ -705,11 +724,7 @@ class LocElectrode {
     }
     */
 
-    position[0] = pos.x;
-    position[1] = pos.y;
-    position[2] = pos.z;
-
-    this.object.position.copy( pos );
+    return pos;
   }
 
 }
@@ -1142,7 +1157,7 @@ function register_controls_localization( ViewerControlCenter ){
       });
     const auto_refine = this.gui
       .addController(
-        'Auto Refine', true, {
+        'Auto Refine', false, {
           folderName: folderName
         })
       .onChange(v => {
