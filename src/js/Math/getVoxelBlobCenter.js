@@ -112,6 +112,8 @@ function initialBlob3d(x, dim, sliceDensity, startIdx) {
   const tmp = new Vector3();
   let stepSize, nsteps;
   let hit = false;
+  let voxDiameter = inc.set( 1 / sliceDensity.x, 1 / sliceDensity.y, 1 / sliceDensity.z ).length();
+  const maxSearchRadius = Math.max( 2, voxDiameter * 2 );
 
   for( i = 0; i < xlen; i++ ) {
     for( j = 0; j < ylen; j++ ) {
@@ -127,7 +129,7 @@ function initialBlob3d(x, dim, sliceDensity, startIdx) {
         inc.y /= sliceDensity.y;
         inc.z /= sliceDensity.z;
 
-        if( inc.length() > 2 ) {
+        if( inc.length() > maxSearchRadius ) {
           x_[ idx0 ] = 0;
         } else {
           x_[ idx0 ] = 1;
@@ -136,6 +138,41 @@ function initialBlob3d(x, dim, sliceDensity, startIdx) {
     }
   }
   return x_;
+}
+
+function geomCenter(mask, dim, initialCenter) {
+
+  const xlen = dim.x;
+  const ylen = dim.y;
+  const zlen = dim.z;
+
+  const ijk2Index = (i, j, k) => {
+    return i + xlen * (j + ylen * k);
+  }
+
+  let i, j, k, count = 0;
+  const tmp = new Vector3();
+  const center = new Vector3();
+
+  for( i = 0; i < xlen; i++ ) {
+    for( j = 0; j < ylen; j++ ) {
+      for( k = 0; k < zlen; k++ ) {
+        if( mask[ ijk2Index( i, j, k ) ] > 0 ) {
+          tmp.set(i, j, k).sub( initialCenter );
+          center.add( tmp );
+          console.log(center);
+          count++;
+        }
+      }
+    }
+  }
+  if( count > 0 ) {
+    center.multiplyScalar( 1.0 / count );
+  }
+  center.add(initialCenter);
+  console.log(center);
+  return center;
+
 }
 
 function getVoxelBlobCenter({
@@ -165,10 +202,15 @@ function getVoxelBlobCenter({
 
   let ijk = initial.clone();
 
+  let thred = threshold;
+
+  /*
   let thred = x[ ijk2Index( ijk ) ];
   if( typeof threshold === "number" && thred > threshold ) {
     thred = threshold;
   }
+  */
+
   // generate mask
   let x_ = new Uint8Array(x.length);
   let ii;
@@ -181,6 +223,10 @@ function getVoxelBlobCenter({
   }
   // console.log(x_.join(" "));
   const initialMask = initialBlob3d( x_, dim, sliceDensity, initial );
+
+  return geomCenter( initialMask, dim, initial );
+
+
   window.initialMask = initialMask;
   window.initialV = x;
   x_ = new Uint8Array( initialMask );
@@ -252,6 +298,8 @@ function getVoxelBlobCenter({
     }
     ijk.copy( ijk3 );
   }
+
+  return ijk;
 
   // the blob center is near ijk at sub-voxel level
   const mdx = Math.floor( sliceDensity.x * Math.max( maxSearch, 2 ) ),
