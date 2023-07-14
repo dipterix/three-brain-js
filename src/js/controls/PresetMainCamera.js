@@ -14,6 +14,38 @@ function registerPresetMainCamera( ViewerControlCenter ){
 
   };
 
+  ViewerControlCenter.prototype.addPreset_copyViewerState = function(){
+    const folderName = CONSTANTS.FOLDERS[ 'copy-viewer-state' ];
+    this.gui.addController("Copy Controller State", () => {
+      this.getControllerData({ saveToClipboard : true });
+    }, { folderName: folderName });
+
+    let stateText = "";
+
+    const ctrlApplyState = this.gui.addController("Paste to Set State", "", { folderName: folderName })
+      .onChange((v) => {
+        const currentText = v.trim();
+        stateText = currentText;
+
+        if( stateText !== "" ) {
+          setTimeout(() => {
+            if( stateText === "" || stateText !== currentText ) { return; }
+            try {
+              const data = JSON.parse( stateText );
+              if( typeof data === "object" && data !== null && data.isThreeBrainControllerData ) {
+                const controllerData = data.controllerData;
+                if( controllerData && typeof controllerData === "object") {
+                  this.gui.load( controllerData );
+                }
+              }
+              ctrlApplyState.setValue("");
+            } catch (e) {}
+          }, 500);
+        }
+      });
+
+  }
+
   ViewerControlCenter.prototype.initializeCameraPosition = function(){
     if( this.canvas.mainCamera.needsReset ){
       /**
@@ -56,6 +88,7 @@ function registerPresetMainCamera( ViewerControlCenter ){
     this.initializeCameraPosition();
 
   }
+
 
   return( ViewerControlCenter );
 }
