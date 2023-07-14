@@ -171,79 +171,6 @@ class ViewerControlCenter extends EventDispatcher {
       }
     })
 
-    // `Ctrl+C` to copy controller
-    this.bindKeyboard({
-      codes     : CONSTANTS.KEY_COPY_CONTROLLER_DATA,
-      shiftKey  : false,
-      ctrlKey   : true,
-      altKey    : false,
-      metaKey   : true,
-      metaIsCtrl: true,
-      callback  : ( event ) => {
-        const data = {
-          isThreeBrainControllerData : true,
-          controllerData : this.gui.save( true ),
-          sliceCrosshair : {}
-        };
-
-        // some extra information
-
-        const position = this.canvas.getSideCanvasCrosshairMNI305( new Vector3() );
-        const subject = this.canvas.get_state( "target_subject" );
-        const subjectData = this.canvas.shared_data.get( subject );
-
-        // position is in tkrRAS
-        data.sliceCrosshair.tkrRAS = vector3ToString( position ),
-
-        // position is in Scanner
-        position.applyMatrix4( subjectData.matrices.tkrRAS_Scanner );
-        data.sliceCrosshair.scannerRAS = vector3ToString( position ),
-
-        // position is in MNI-305
-        position.applyMatrix4( subjectData.matrices.xfm );
-        data.sliceCrosshair.mni305RAS = vector3ToString( position ),
-
-        // position is in MNI-152
-        position.applyMatrix4( new Matrix4().set(
-          0.9975,   -0.0073,  0.0176,   -0.0429,
-          0.0146,   1.0009,   -0.0024,  1.5496,
-          -0.0130,  -0.0093,  0.9971,   1.1840,
-          0,        0,        0,        1
-        ) );
-        data.sliceCrosshair.mni152RAS = vector3ToString( position ),
-
-        copyToClipboard( JSON.stringify( data ) );
-      }
-    });
-
-    // `Ctrl+V` to set controller from clipboard
-    this.bindKeyboard({
-      codes     : CONSTANTS.KEY_PASTE_CONTROLLER_DATA,
-      shiftKey  : false,
-      ctrlKey   : true,
-      altKey    : false,
-      metaKey   : true,
-      metaIsCtrl: true,
-      callback  : async () => {
-        try {
-          await navigator.permissions.query({ name: 'clipboard-read' });
-        } catch (e) {}
-        const clipText = await navigator.clipboard.readText();
-
-        const data = JSON.parse( clipText );
-        if( typeof data === "object" && data !== null && data.isThreeBrainControllerData ) {
-
-          const controllerData = data.controllerData;
-          if( controllerData && typeof controllerData === "object") {
-            // TODO: filter controllerData
-            this.gui.load( controllerData );
-          }
-
-        }
-
-      }
-    });
-
     // `z/Z` to zoom-in/out
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_ZOOM,
@@ -578,6 +505,44 @@ class ViewerControlCenter extends EventDispatcher {
     });
   }
 
+  getControllerData ({ saveToClipboard = false } = {}) {
+    const data = {
+      isThreeBrainControllerData : true,
+      controllerData : this.gui.save( true ),
+      sliceCrosshair : {}
+    };
+
+    // some extra information
+
+    const position = this.canvas.getSideCanvasCrosshairMNI305( new Vector3() );
+    const subject = this.canvas.get_state( "target_subject" );
+    const subjectData = this.canvas.shared_data.get( subject );
+
+    // position is in tkrRAS
+    data.sliceCrosshair.tkrRAS = vector3ToString( position );
+
+    // position is in Scanner
+    position.applyMatrix4( subjectData.matrices.tkrRAS_Scanner );
+    data.sliceCrosshair.scannerRAS = vector3ToString( position );
+
+    // position is in MNI-305
+    position.applyMatrix4( subjectData.matrices.xfm );
+    data.sliceCrosshair.mni305RAS = vector3ToString( position );
+
+    // position is in MNI-152
+    position.applyMatrix4( new Matrix4().set(
+      0.9975,   -0.0073,  0.0176,   -0.0429,
+      0.0146,   1.0009,   -0.0024,  1.5496,
+      -0.0130,  -0.0093,  0.9971,   1.1840,
+      0,        0,        0,        1
+    ) );
+    data.sliceCrosshair.mni152RAS = vector3ToString( position );
+
+    if( saveToClipboard ) {
+      copyToClipboard( JSON.stringify( data ) );
+    }
+    return data;
+  }
 }
 
 ViewerControlCenter = registerPresetBackground( ViewerControlCenter );
