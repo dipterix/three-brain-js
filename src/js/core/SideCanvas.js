@@ -531,9 +531,9 @@ class SideCanvas {
     const depthName = this.type + '_depth';
     let currentDepth = this.mainCanvas.get_state( depthName );
     if( evt.deltaY > 0 ){
-      currentDepth += 0.5;
+      currentDepth += evt.deltaY * 0.005;
     }else if( evt.deltaY < 0 ){
-      currentDepth -= 0.5;
+      currentDepth += evt.deltaY * 0.005;
     }
     this.mainCanvas.set_state( depthName, currentDepth );
 

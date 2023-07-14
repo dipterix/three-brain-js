@@ -520,10 +520,11 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.controlCenter = new ViewerControlCenter( this );
     // ---- Defaults -----------------------------------------------------------
     this.controlCenter.addPreset_background();
-    this.controlCenter.addPreset_recorder();
-    this.controlCenter.addPreset_resetCamera();
     this.controlCenter.addPreset_setCameraPosition2();
     this.controlCenter.addPreset_compass();
+    this.controlCenter.addPreset_recorder();
+    this.controlCenter.addPreset_resetCamera();
+    this.controlCenter.addPreset_copyViewerState();
     // this.controlCenter.addPreset_recorder();
 
     // ---- Side canvas --------------------------------------------------------
@@ -538,7 +539,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     // ---- Subject volume, surface, and electrodes ----------------------------
     this.controlCenter.addPreset_subject2();
     this.controlCenter.addPreset_surface_type2();
-    this.controlCenter.addPreset_hemisphere_material();
+    this.controlCenter.addPreset_surface_subcortical();
     this.controlCenter.addPreset_surface_color();
     this.controlCenter.addPreset_map_template();
     this.controlCenter.addPreset_electrodes();

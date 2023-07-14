@@ -356,6 +356,7 @@ class EnhancedGUI extends GUI {
       "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
       "Render Distance", "Surface Type", "Surface Material",
+      "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
       "Left Hemisphere", "Right Hemisphere", "Left Opacity", "Right Opacity",
       "Map Electrodes", "Surface Mapping", "Volume Mapping", "Visibility",
       "Display Data", "Display Range", "Threshold Data", "Threshold Range",

@@ -17,42 +17,12 @@ function registerPresetSurface( ViewerControlCenter ){
 
     const folderName = CONSTANTS.FOLDERS[ 'surface-selector' ],
           initialSurfaceType = this.canvas.get_state( 'surface_type' ) || 'pial',
-          surfaceTypeChoices = this.canvas.getAllSurfaceTypes(),
+          surfaceTypeChoices = this.canvas.getAllSurfaceTypes().cortical,
           initialMaterialType = this.canvas.get_state( 'surface_material_type' ) || 'MeshPhongMaterial',
-          materialChoices = ['MeshPhongMaterial', 'MeshLambertMaterial'];
+          materialChoices = ['MeshPhongMaterial', 'MeshLambertMaterial'],
+          corticalDisplay = ['normal', 'wireframe', 'hidden'];
 
     if( !Array.isArray( surfaceTypeChoices ) || surfaceTypeChoices.length === 0 ){ return; }
-
-    const controllerSurfaceType = this.gui
-      .addController( 'Surface Type' , "" ,
-                      {args : surfaceTypeChoices, folderName : folderName })
-      .onChange((v) => {
-        this.canvas.switch_subject( '/', { 'surface_type': v });
-        // this.fire_change({ 'surface_type' : v });
-        this.broadcast();
-        this.canvas.needsUpdate = true;
-      });
-    controllerSurfaceType.setValue( initialSurfaceType );
-    this.bindKeyboard({
-      codes     : CONSTANTS.KEY_CYCLE_SURFACE,
-      shiftKey  : false,
-      ctrlKey   : false,
-      altKey    : false,
-      metaKey   : false,
-      tooltip   : {
-        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE,
-        name    : 'Surface Type',
-        folderName : folderName,
-      },
-      callback  : ( event ) => {
-        const selectedType = controllerSurfaceType.getValue();
-        let selectedIndex = ( surfaceTypeChoices.indexOf( selectedType ) + 1 );
-        selectedIndex = selectedIndex % surfaceTypeChoices.length;
-        if( selectedIndex >= 0 ){
-          controllerSurfaceType.setValue( surfaceTypeChoices[ selectedIndex ] );
-        }
-      }
-    });
 
     const controllerSurfaceMaterial = this.gui
       .addController('Surface Material', "", {
@@ -85,16 +55,40 @@ function registerPresetSurface( ViewerControlCenter ){
       }
     });
 
-  };
+    const controllerSurfaceType = this.gui
+      .addController( 'Surface Type' , "" ,
+                      {args : surfaceTypeChoices, folderName : folderName })
+      .onChange((v) => {
+        this.canvas.switch_subject( '/', { 'surface_type': v });
+        // this.fire_change({ 'surface_type' : v });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    controllerSurfaceType.setValue( initialSurfaceType );
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_SURFACE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE,
+        name    : 'Surface Type',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        const selectedType = controllerSurfaceType.getValue();
+        let selectedIndex = ( surfaceTypeChoices.indexOf( selectedType ) + 1 );
+        selectedIndex = selectedIndex % surfaceTypeChoices.length;
+        if( selectedIndex >= 0 ){
+          controllerSurfaceType.setValue( surfaceTypeChoices[ selectedIndex ] );
+        }
+      }
+    });
 
-  // should call hemisphere type... but anyway
-  ViewerControlCenter.prototype.addPreset_hemisphere_material = function(){
-
-    const folderName = CONSTANTS.FOLDERS[ 'hemisphere-material' ],
-          options = ['normal', 'wireframe', 'hidden'];
 
     const ctrlLHStyle = this.gui
-      .addController('Left Hemisphere', 'normal', { args : options , folderName : folderName })
+      .addController('Left Hemisphere', 'normal', { args : corticalDisplay , folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'material_type_left': v });
         this.broadcast();
@@ -112,15 +106,15 @@ function registerPresetSurface( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : ( event ) => {
-        let styleIndex = (options.indexOf( ctrlLHStyle.getValue() ) + 1) % options.length;
+        let styleIndex = (corticalDisplay.indexOf( ctrlLHStyle.getValue() ) + 1) % corticalDisplay.length;
         if( styleIndex >= 0 ){
-          ctrlLHStyle.setValue( options[ styleIndex ] );
+          ctrlLHStyle.setValue( corticalDisplay[ styleIndex ] );
         }
       }
     });
 
     const ctrlRHStyle = this.gui
-      .addController('Right Hemisphere', 'normal', { args : options, folderName : folderName })
+      .addController('Right Hemisphere', 'normal', { args : corticalDisplay, folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'material_type_right': v });
         this.broadcast();
@@ -138,9 +132,9 @@ function registerPresetSurface( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : ( event ) => {
-        let styleIndex = (options.indexOf( ctrlRHStyle.getValue() ) + 1) % options.length;
+        let styleIndex = (corticalDisplay.indexOf( ctrlRHStyle.getValue() ) + 1) % corticalDisplay.length;
         if( styleIndex >= 0 ){
-          ctrlRHStyle.setValue( options[ styleIndex ] );
+          ctrlRHStyle.setValue( corticalDisplay[ styleIndex ] );
         }
       }
     });
@@ -198,6 +192,46 @@ function registerPresetSurface( ViewerControlCenter ){
     });
 
   };
+
+  ViewerControlCenter.prototype.addPreset_surface_subcortical = function(){
+
+    const folderName = CONSTANTS.FOLDERS[ 'surface-selector' ],
+          surfaceTypeChoices = this.canvas.getAllSurfaceTypes().subcortical,
+          subcorticalDisplay = ['none', 'both', 'left', "right"];
+
+    if( !Array.isArray( surfaceTypeChoices ) || surfaceTypeChoices.length === 0 ){ return; }
+
+    const controllerSubcorticalDisplay = this.gui
+      .addController( 'Subcortical Surface' , "both" ,
+                      {args : subcorticalDisplay, folderName : folderName })
+      .onChange((v) => {
+        this.canvas.set_state( "subcortical_display", v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.canvas.set_state( "subcortical_display", "both" );
+
+    this.gui
+      .addController('Sub-Left Opacity', 0.5, { folderName : folderName })
+      .min( 0.1 ).max( 1 ).decimals( 1 )
+      .onChange((v) => {
+        this.canvas.set_state( "subcortical_opacity_left", v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.canvas.set_state( "subcortical_opacity_left", 0.5 );
+
+    this.gui
+      .addController('Sub-Right Opacity', 0.5, { folderName : folderName })
+      .min( 0.1 ).max( 1 ).decimals( 1 )
+      .onChange((v) => {
+        this.canvas.set_state( "subcortical_opacity_right", v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.canvas.set_state( "subcortical_opacity_right", 0.5 );
+
+  }
 
   ViewerControlCenter.prototype.addPreset_surface_color = function(){
     const folderName = CONSTANTS.FOLDERS[ 'surface-selector' ],
