@@ -287,8 +287,8 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
     }
   }
 
-  pre_render() {
-    super.pre_render();
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}) {
+    super.pre_render({ target : target });
     this.updateResolutions();
   }
 

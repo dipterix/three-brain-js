@@ -2,7 +2,7 @@ import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3,
          MeshPhongMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
-         Data3DTexture } from 'three';
+         Data3DTexture, Color } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
@@ -33,7 +33,6 @@ class FreeMesh extends AbstractThreeBrainObject {
 
   _link_userData(){
     // register for compatibility
-    this._mesh.userData.pre_render = () => { return( this.pre_render() ); };
     this._mesh.userData.dispose = () => { this.dispose(); };
   }
 
@@ -311,16 +310,49 @@ class FreeMesh extends AbstractThreeBrainObject {
     } catch (e) {}
   }
 
-  pre_render(){
+  pre_render({ mainCameraPositionNormalized, target = CONSTANTS.RENDER_CANVAS.main } = {}){
     // check material
-    super.pre_render();
-    this._check_material( false );
+    super.pre_render({ target : target });
+
+    if( target !== CONSTANTS.RENDER_CANVAS.main ) { return; }
+
+    // If not showing this subject, hide
+    const sub = this._canvas.get_state("target_subject", "none");
+    if( sub !== this.subject_code ) {
+      this.object.visible = false;
+      return;
+    }
+
+    this.object.visible = false;
+
+    const surfaceType = this._canvas.get_state("surface_type", "none");
+    if( this.isSubcortical ) {
+      const subcorticalDisplay = this._canvas.get_state("subcortical_display");
+      if( subcorticalDisplay === "both" || subcorticalDisplay === this.hemisphere ) {
+        this.object.visible = true;
+        this.object.material.opacity = this._canvas.get_state(`subcortical_opacity_${ this.hemisphere }`, 1.0);
+      }
+    } else if( this.surface_type === surfaceType ) {
+      const materialType = this._canvas.get_state(`material_type_${ this.hemisphere }`, null);
+      if( materialType !== "hidden" ) {
+        this.object.visible = true;
+        this.set_display_mode( materialType );
+        // this.set_visibility( materialType !== 'hidden' );
+        this.object.material.wireframe = materialType === 'wireframe';
+        this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
+      }
+    }
 
     if( !this.object.visible ) { return; }
 
+    this._check_material( false );
+
+    // compute render order
+    this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius;
+
+
     // need to get current active datacube2
     const atlas_type = this._canvas.get_state("atlas_type", "none"),
-          sub = this._canvas.get_state("target_subject", "none"),
           inst = this._canvas.threebrain_instances.get(`Atlas - ${atlas_type} (${sub})`),
           ctype = this._canvas.get_state("surface_color_type", "vertices"),
           sigma = this._canvas.get_state("surface_color_sigma", 3.0),
@@ -475,6 +507,18 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._geometry.computeBoundingBox();
     this._geometry.computeBoundingSphere();
 
+    if( g.subcortical_info ) {
+      this.isSubcortical = true;
+      this.subcorticalInfo = g.subcortical_info;
+      this._materialColor = new Color().set( this.subcorticalInfo.Color );
+      this._materialColor.r = this._materialColor.r * 0.8 + 0.2;
+      this._materialColor.g = this._materialColor.g * 0.8 + 0.2;
+      this._materialColor.b = this._materialColor.b * 0.8 + 0.2;
+    } else {
+      this.isSubcortical = false;
+      this._materialColor = new Color().set( "#ffffff" );
+    }
+
 
     // STEP 3: mesh settings
     // For volume colors
@@ -522,9 +566,8 @@ class FreeMesh extends AbstractThreeBrainObject {
         this._material_options, this._canvas.main_renderer
       )
     };
-
-
-
+    this._materials.MeshPhongMaterial.color.copy( this._materialColor );
+    this._materials.MeshLambertMaterial.color.copy( this._materialColor );
 
     //gb.faces = faces;
 

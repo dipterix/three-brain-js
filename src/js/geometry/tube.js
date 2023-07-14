@@ -116,7 +116,7 @@ class TubeMesh extends AbstractThreeBrainObject {
   }
 
 
-  pre_render(){
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
     if( this.object ){
       this._targets.forEach( (v, ii) => {

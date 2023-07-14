@@ -7,7 +7,7 @@ import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
 
-const MATERIAL_PARAMS = { 'transparent' : false };
+const MATERIAL_PARAMS = { 'transparent' : true };
 
 class Sphere extends AbstractThreeBrainObject {
   constructor (g, canvas) {
@@ -69,6 +69,9 @@ class Sphere extends AbstractThreeBrainObject {
     mesh.userData.ani_all_names = Object.keys( mesh.userData.ani_params );
     mesh.userData.display_info = {};
 
+    // make sure not hidden by other objects;
+    mesh.renderOrder = -500;
+
     this._mesh = mesh;
     this.object = mesh;
 
@@ -126,7 +129,6 @@ class Sphere extends AbstractThreeBrainObject {
     this._mesh.userData.get_track_data = ( track_name, reset_material ) => {
       return( this.get_track_data( track_name, reset_material ) );
     };
-    this._mesh.userData.pre_render = () => { return( this.pre_render() ); };
     this._mesh.userData.dispose = () => { this.dispose(); };
   }
 
@@ -179,9 +181,11 @@ class Sphere extends AbstractThreeBrainObject {
     } catch (e) {}
   }
 
-  pre_render(){
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
-    super.pre_render();
+    super.pre_render({ target : target });
+
+    if( target !== CONSTANTS.RENDER_CANVAS.main ) { return; }
 
     const canvas = this._canvas,
           mesh = this._mesh;

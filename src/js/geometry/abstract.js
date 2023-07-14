@@ -74,13 +74,15 @@ class AbstractThreeBrainObject {
     this.warn('method get_track_data(track_name, reset_material) not implemented...');
   }
 
-  pre_render(){
-    this.get_world_position();
-    if( this.object && this.object.isMesh ){
-      if( this._visible && this._display_mode !== "hidden" ) {
-        this.object.visible = true;
-      } else {
-        this.object.visible = false;
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
+    if( target === CONSTANTS.RENDER_CANVAS.main ) {
+      this.get_world_position();
+      if( this.object && this.object.isMesh ){
+        if( this._visible && this._display_mode !== "hidden" ) {
+          this.object.visible = true;
+        } else {
+          this.object.visible = false;
+        }
       }
     }
   }
@@ -124,7 +126,6 @@ class AbstractThreeBrainObject {
 
       if( this.object.isObject3D ){
         this.object.userData.instance = this;
-        this.object.userData.pre_render = () => { return( this.pre_render() ); };
         this.object.userData.dispose = () => { this.dispose(); };
         this.object.renderOrder = CONSTANTS.RENDER_ORDER[ this.type ] || 0;
       }
