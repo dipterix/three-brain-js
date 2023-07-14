@@ -226,6 +226,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           up: 0,1,0 ( heads up )
     */
     this.mainCamera = new HauntedOrthographicCamera( this, width, height );
+    this._mainCameraPositionNormalized = new Vector3();
 
     // Add main camera to scene
     this.add_to_scene( this.mainCamera, true );
@@ -364,6 +365,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
 
   _onTrackballChanged = () => {
+    if( !this.activated ) {
+      this.activated = true;
+    }
     this.needsUpdate = true;
   }
 
@@ -938,7 +942,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
   get_state( key, missing = undefined ) {
-    return(get_or_default( this.state_data, key, missing ));
+    if( this.state_data ) {
+      return(get_or_default( this.state_data, key, missing ));
+    } else {
+      return( missing );
+    }
   }
 
   // Font size magnification
@@ -1558,11 +1566,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     //this.main_renderer.setClearColor( renderer_colors[0] );
     this.main_renderer.clear();
 
+    this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
     // Pre render all meshes
     this.mesh.forEach((m) => {
-      if( typeof m.userData.pre_render === 'function' ){
+      const inst = m.userData.instance;
+      if( inst && typeof inst === "object" && inst.isThreeBrainObject ) {
         try {
-          m.userData.pre_render();
+          inst.pre_render({ target : CONSTANTS.RENDER_CANVAS.main, mainCameraPositionNormalized : this._mainCameraPositionNormalized });
         } catch (e) {
           if( !this.__render_error ) {
             console.warn(e);
@@ -1615,24 +1625,25 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     if(this.sideCanvasEnabled){
 
-      // temporarily disable slice depthWrite property so electrodes can
-      // display properly
-      const datacubeInstance = this.state_data.get( "activeDataCube2Instance" );
-      const renderCube = datacubeInstance && datacubeInstance.isDataCube2;
-
-      if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
-        // sliceInstance.sliceMaterial.depthWrite = false;
-        datacubeInstance.object.material.depthWrite = false;
-      }
+      // Pre render all meshes
+      this.mesh.forEach((m) => {
+        const inst = m.userData.instance;
+        if( inst && typeof inst === "object" && inst.isThreeBrainObject ) {
+          try {
+            inst.pre_render({ target : CONSTANTS.RENDER_CANVAS.side });
+          } catch (e) {
+            if( !this.__render_error ) {
+              console.warn(e);
+              this.__render_error = true;
+            }
+          }
+        }
+      });
 
       this.sideCanvasList.coronal.render();
       this.sideCanvasList.axial.render();
       this.sideCanvasList.sagittal.render();
 
-      if( renderCube ) {
-        // sliceInstance.sliceMaterial.depthWrite = true;
-        datacubeInstance.object.material.depthWrite = true;
-      }
 
     }
 
@@ -2194,17 +2205,23 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   getAllSurfaceTypes(){
-    const re = { 'pial' : 1 }; // always put pials to the first one
+    const corticalSurfaces = { 'pial' : 1 }; // always put pials to the first one
+    const subCorticals = {};
 
-    this.group.forEach( (gp, g) => {
-      // let res = new RegExp('^Surface - ([a-zA-Z0-9_-]+) \\((.*)\\)$').exec(g);
-      const res = CONSTANTS.REGEXP_SURFACE_GROUP.exec(g);
-      if( res && res.length === 3 ){
-        re[ res[1] ] = 1;
+    this.threebrain_instances.forEach((inst, name) => {
+      if( inst.isFreeMesh ) {
+        if( inst.isSubcortical ) {
+          subCorticals[ inst.surface_type ] = 1;
+        } else {
+          corticalSurfaces[ inst.surface_type ] = 1;
+        }
       }
     });
 
-    return( Object.keys( re ) );
+    return({
+      cortical: Object.keys( corticalSurfaces ),
+      subcortical: Object.keys( subCorticals )
+    });
   }
 
   get_atlas_types(){
@@ -2322,16 +2339,20 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const tkRAS_MNI305 = subject_data.matrices.tkrRAS_MNI305;
     const MNI305_tkRAS = subject_data.matrices.MNI305_tkrRAS;
 
-    let anterior_commissure = state.get('anterior_commissure') || new Vector3();
-    anterior_commissure.set(0,0,0);
-    anterior_commissure.setFromMatrixPosition( MNI305_tkRAS );
+    let scannerCenter = subject_data.scanner_center;
+    if( !Array.isArray( scannerCenter ) || scannerCenter.length != 3) {
+      scannerCenter = [0, 0, 0];
+      subject_data.scanner_center = scannerCenter;
+    }
 
     this.switch_slices( target_subject, slice_type );
     this.switch_ct( target_subject, ct_type, ct_threshold );
     this.switch_atlas( target_subject, atlas_type );
+    /*
     this.switch_surface( target_subject, surface_type,
                           [surface_opacity_left, surface_opacity_right],
                           [material_type_left, material_type_right] );
+                          */
 
     if( map_template ){
       this.map_electrodes( target_subject, map_type_surface, map_type_volume );
@@ -2358,14 +2379,32 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     state.set( 'map_type_volume', map_type_volume );
     state.set( 'surface_opacity_left', surface_opacity_left );
     state.set( 'surface_opacity_right', surface_opacity_right );
-    state.set( 'anterior_commissure', anterior_commissure );
     state.set( 'tkRAS_MNI305', tkRAS_MNI305 );
 
     // reset origin to AC
     // this.origin.position.copy( anterior_commissure );
 
-    this.dispatch( _subjectStateChangedEvent );
+    // Re-calculate controls center so that rotation center is the center of mesh bounding box
+    const pialSurfaceGroup = this.group.get(`Surface - pial (${target_subject})`);
+    if( pialSurfaceGroup && pialSurfaceGroup.isObject3D ) {
+      this.bounding_box.setFromObject( pialSurfaceGroup );
+      this.bounding_box.geometry.computeBoundingBox();
+      const _b = this.bounding_box.geometry.boundingBox;
+      const newControlCenter = _b.min.clone()
+        .add( _b.max ).multiplyScalar( 0.5 );
+      newControlCenter.remember = true;
+      this.trackball.lookAt( newControlCenter );
+    } else {
+      this.trackball.lookAt({
+        x : scannerCenter[0],
+        y : scannerCenter[1],
+        z : scannerCenter[2],
+        remember : true
+      });
+    }
+    this.trackball.update();
 
+    this.dispatch( _subjectStateChangedEvent );
     this.needsUpdate = true;
 
   }
@@ -2385,6 +2424,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return(vec);
   }
 
+  /*
   switch_surface( target_subject, surface_type = 'pial', opacity = [1, 1], material_type = ['normal', 'normal'] ){
     // this.surfaces[ subject_code ][ g.name ] = m;
     // Naming - Surface         Standard 141 Right Hemisphere - pial (YAB)
@@ -2416,23 +2456,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
             // m.material.transparent = opacity[1] < 0.99;
           }
 
-
-          // Re-calculate controls center so that rotation center is the center of mesh bounding box
-          this.bounding_box.setFromObject( m.parent );
-          this.bounding_box.geometry.computeBoundingBox();
-          const _b = this.bounding_box.geometry.boundingBox;
-          const newControlCenter = _b.min.clone()
-            .add( _b.max ).multiplyScalar( 0.5 );
-
-          newControlCenter.remember = true;
-          this.trackball.lookAt( newControlCenter );
-          this.trackball.update();
-
         }
       }
     });
     this.start_animation( 0 );
   }
+  */
 
   switch_slices( target_subject, slice_type = 'T1' ){
 
