@@ -229,6 +229,7 @@ class RShinyDriver {
       const data = this.getObjectChosen();
       if( !data ) { return; }
 
+
       if( clickEvent.detail > 1 ) {
         this.dispatchToShiny('mouse_dblclicked', data, 'event');
       } else {
@@ -290,6 +291,7 @@ class RShinyDriver {
     // make sure shiny exists and is connected
     if( !this._shiny || !this._shiny.shinyapp.$socket ) { return; }
     const inputId = `${ this.containerID }_${ name }`;
+    console.debug(`Dispatching to shiny with priority ${ priority }: ${ name }`);
     this._shiny.setInputValue(inputId, value, { priority : priority });
   }
 

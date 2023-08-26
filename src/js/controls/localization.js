@@ -44,6 +44,15 @@ class LocElectrode {
     }
     const initialPositionAsArray = this.initialPosition.toArray();
 
+    // if auto refine is enabled
+    if( autoRefine === undefined ) {
+      autoRefine = this._canvas.get_state( "auto_refine_electrodes", false );
+    }
+    this._adjustRadiusBase = 1.0;
+    if( autoRefine && typeof autoRefine === "number" && autoRefine > 0 ) {
+      this._adjustRadiusBase = autoRefine;
+    }
+
     this.Hemisphere = canvas.get_state("newElectrodesHemisphere", "auto");
 
     // get fs Label
@@ -133,7 +142,8 @@ class LocElectrode {
       "hemisphere": this.Hemisphere,
       "vertex_number": -1,
       "sub_cortical": true,
-      "search_geoms": null
+      "search_geoms": null,
+      "custom_info" : autoRefine && this._adjustRadiusBase < 1 ? `Average spacing offset ${ this._adjustRadiusBase.toFixed(4) } mm (before refining)` : ""
     });
 
     this.instance = inst;
@@ -191,10 +201,6 @@ class LocElectrode {
     // update project->lepto->pial
     this.updateProjection();
 
-    // if auto refine is enabled
-    if( autoRefine === undefined ) {
-      autoRefine = this._canvas.get_state( "auto_refine_electrodes", false );
-    }
     if( autoRefine ) {
       this.adjust({ force: true });
     }
@@ -580,19 +586,28 @@ class LocElectrode {
     return;
   }
 
-  adjust({ force = false } = {}) {
+  adjust({ force = false, baseRadius = undefined } = {}) {
     if( !force && this.mode !== "CT/volume" ){ return; }
     const inst = this.get_volume_instance();
     if( !inst ){ return; }
 
-    let pos = this._adjust({ radius : 1.0 });
+    if( typeof baseRadius === "number" ) {
+      this._adjustRadiusBase = baseRadius;
+    } else {
+      baseRadius = this._adjustRadiusBase;
+    }
+    if( baseRadius > 1.0 ) {
+      baseRadius = 1.0;
+    }
+
+    let pos = this._adjust({ radius : 1.0 * baseRadius });
     this._setPosition( pos );
 
 
-    pos = this._adjust({ radius : 2.0 });
+    pos = this._adjust({ radius : 2.0 * baseRadius });
     this._setPosition( pos );
 
-    pos = this._adjust({ radius : 4.0 });
+    pos = this._adjust({ radius : 4.0 * baseRadius, force : true });
     this._setPosition( pos );
 
     this.update_line();
@@ -600,7 +615,7 @@ class LocElectrode {
   }
 
   _setPosition( pos ) {
-    if( !pos.isVector3 ) { return; }
+    if( !pos || typeof pos !== "object" || !pos.isVector3 ) { return; }
     const position = this.instance._params.position;
     position[0] = pos.x;
     position[1] = pos.y;
@@ -608,7 +623,7 @@ class LocElectrode {
     this.object.position.copy( pos );
   }
 
-  _adjust({ radius = 2.0 } = {}) {
+  _adjust({ radius = 2.0, force = false } = {}) {
 
     const inst = this.get_volume_instance();
 
@@ -642,8 +657,16 @@ class LocElectrode {
 
     // default search nearest +-2mm voxels,
     // assuming electrodes are most likely to be contained
-    const max_step_size = Math.max( radius, 2 * voxDim.length() );
 
+    // allowed radius is too small or the image is too , do not adjust
+    /*if( radius < voxDim.length() ) { return; }
+    let max_step_size = 2 * voxDim.length();
+    if ( max_step_size <= radius ) { max_step_size}
+    Math.max( radius,  );*/
+
+    // force = true means ignoring radius when too small
+    if( !force && radius < voxDim.length() ) { return; }
+    const max_step_size = Math.max(radius, 2 * voxDim.length())
 
     // get position
     const position = this.instance._params.position;
@@ -746,10 +769,19 @@ function electrode_from_slice( scode, canvas ){
   return( pos );
 }
 
-function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
+function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
+  /**
+   * settings = {
+        rawInput : "<this is the user input>",
+        strictSpacing : true,
+        spacings  : [1.1,1.2,1.1,1.1,1.2,1,1,1],
+        size      : spacings.length - 1, <- contacts to be interpolated
+        distance  : spacings.reduce((a, b) => { return a + b; }) <- total expected distance
+      };
+   */
   if( !inst ){ return; }
   if( electrodes.length < 2 ){ return; }
-  if( size <= 2 ){ return; }
+  if( !settings || settings.spacings.length < 2 ){ return; }
   const src = canvas.mainCamera.position;
 
   // position of starting point
@@ -760,10 +792,19 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
   const end = new Vector3();
   electrodes[electrodes.length - 1].object.getWorldPosition( end );
 
+  const direction = end.clone().sub( dst );
+
+  let remainingDistance = settings.distance;
+
+  // real vs expected spacing ratios
+  let distanceRatio = direction.length() / remainingDistance;
+  let totalLength = 0;
+  let spacingOffset = 0;
+
   // position of last localized electrode
   const prev = dst.clone();
 
-  const n = size - 1;
+  const n = settings.spacings.length - 1;
   const step = new Vector3();
   const tmp = new Vector3();
   const est = new Vector3();
@@ -772,15 +813,29 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
   const re = [];
 
   let added = false;
-  for( let ii = 1; ii < n; ii++ ){
+  for( let ii = 0; ii < n; ii++ ){
 
-    step.copy( prev ).sub( end ).multiplyScalar( 1 / (size - ii) );
-    tmp.copy( step ).multiplyScalar( n - ii );
+    const expectedSpacing = settings.spacings[ ii ];
+    step.copy( prev ).sub( end ).multiplyScalar( 1 / remainingDistance );
+    remainingDistance -= expectedSpacing;
+    tmp.copy( step ).multiplyScalar( remainingDistance );
     est.copy( end ).add( tmp );
     dir.copy( est ).sub( src ).normalize();
 
     // adjust
     added = false;
+    const stepLength = expectedSpacing * distanceRatio;
+
+    const res = getClosestVoxel( inst, est, stepLength * 1.0, prev, stepLength * 0.8);
+    if( isFinite( res.minDistance ) ) {
+      const actualSpacing = prev.distanceTo( res.minDistanceXYZ );
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+      totalLength += actualSpacing;
+      prev.copy( res.minDistanceXYZ );
+      re.push( res.minDistanceXYZ );
+      added = true;
+    }
+    /*
     for( let delta = 0.5; delta < step.length() / 2; delta += 0.5 ){
       const res = intersect_volume(src, dir, inst, canvas, delta, false);
       if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10 ){
@@ -798,34 +853,66 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, size ){
         added = true;
       }
     }
+    */
     if(!added) {
+      const actualSpacing = prev.distanceTo( est );
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+      totalLength += actualSpacing;
       prev.copy( est );
       re.push( est.clone() );
     }
+
   }
+
+  totalLength += prev.distanceTo( end );
+  spacingOffset += Math.abs( prev.distanceTo( end ) - settings.spacings[ n ] );
 
   return({
     positions : re,
-    direction : step
+    direction : direction,
+    strictSpacing : settings.strictSpacing,
+    distanceRatio : totalLength / settings.distance,
+    expectedSpacing : settings.distance,
+    averageOffset : spacingOffset / ( n + 1 )
   });
 }
 
-function extend_electrode_from_ct( inst, canvas, electrodes, size ){
+function extrapolate_electrode_from_ct( inst, canvas, electrodes, settings ){
+  /**
+   * settings = {
+        rawInput : "<this is the user input>",
+        strictSpacing : true,
+        spacings  : [1.1,1.2,1.1,1.1,1.2,1,1,1],
+        distance  : spacings.reduce((a, b) => { return a + b; }) <- total expected distance
+      };
+   */
   if( !inst ){ return; }
   if( electrodes.length < 2 ){ return; }
-  if( size <= 2 ){ return; }
+  if( !settings || settings.spacings.length < 2 ){ return; }
   const src = canvas.mainCamera.position;
   const dst = new Vector3();
   const prev = new Vector3();
-
-  electrodes[electrodes.length - 2].object.getWorldPosition( dst );
-
-  const n = size - 1;
-  const step = new Vector3();
+  const start = new Vector3()
+  electrodes[electrodes.length - 2].object.getWorldPosition( start );
   electrodes[electrodes.length - 1].object.getWorldPosition( prev );
-  step.copy( prev ).sub( dst );
+  dst.copy( start );
 
-  const step_length = step.length();
+  /**
+   * Unlike interpolate, the first two electrodes might be too far-away
+   * The distanceRatio should be calculated at the final stage.
+   *
+   * Also extrapolation require one less than interpolation
+   */
+  const n = settings.spacings.length - 1; // electrodes to extrapolate
+  const direction = prev.clone().sub( dst );
+
+  // calculate initial distanceRatio
+  const strictSpacing = settings.strictSpacing;
+  let distanceRatio = direction.length() / settings.spacings[ 0 ];
+  let totalLength = direction.length();
+  let spacingOffset = Math.abs( totalLength - settings.spacings[ 0 ] );
+
+  const step = direction.clone();
   const tmp = new Vector3();
   const est = new Vector3();
 
@@ -836,21 +923,24 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
   est.copy( prev );
   let added = false;
   let distanceToPrev;
-  for( let ii = 1; ii < n; ii++ ){
+  for( let ii = 1; ii <= n; ii++ ){
 
-    step.copy( prev ).sub( dst ).normalize().multiplyScalar(step_length);
+    const expectedSpacing = settings.spacings[ ii ];
+    const stepLength = (strictSpacing ? 1.0 : distanceRatio) * expectedSpacing;
+    step.copy( prev ).sub( dst ).normalize().multiplyScalar( stepLength );
     est.copy( prev ).add( step );
     dir.copy( est ).sub( src ).normalize();
 
     // adjust the est
     added = false
-    for( let delta = 0.5; delta < step_length * 0.3; delta += 0.5 ){
+    /*
+    for( let delta = 0.5; delta < stepLength * 0.3; delta += 0.5 ){
       const res = intersect_volume(src, dir, inst, canvas, delta, false);
       if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10){
         distanceToPrev = res.distanceTo( prev );
         if(
-          distanceToPrev > 0.7 * step_length &&
-            distanceToPrev < 1.3 * step_length
+          distanceToPrev > 0.7 * stepLength &&
+            distanceToPrev < 1.3 * stepLength
         ) {
           re.push( res.clone() );
           dst.copy( prev );
@@ -859,10 +949,15 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
           break;
         }
       }
-    }
+    }*/
     if( !added ) {
-      const res = getClosestVoxel( inst, est, step_length * 1.8, prev, step_length * 0.8);
+
+      const res = getClosestVoxel( inst, est, stepLength * 1.0, prev, stepLength * 0.8);
       if( isFinite( res.minDistance ) ) {
+        const actualSpacing = prev.distanceTo( res.minDistanceXYZ );
+        totalLength += actualSpacing;
+        spacingOffset += Math.abs( actualSpacing - stepLength );
+
         dst.copy( prev );
         prev.copy( res.minDistanceXYZ );
         re.push( res.minDistanceXYZ );
@@ -870,84 +965,124 @@ function extend_electrode_from_ct( inst, canvas, electrodes, size ){
       }
     }
     if( !added ) {
+      const actualSpacing = prev.distanceTo( est );
+      totalLength += actualSpacing;
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+
       dst.copy( prev );
       prev.copy( est );
       re.push( est.clone() );
     }
   }
 
+  direction.copy( prev ).sub( start );
+
   return({
     positions : re,
-    direction : step
+    direction : direction,
+    strictSpacing : settings.strictSpacing,
+    distanceRatio : totalLength / settings.distance,
+    expectedSpacing : settings.distance,
+    // only useful when strictSpacing is true
+    averageOffset : spacingOffset / ( n + 1 )
   });
 }
 
-function interpolate_electrode_from_slice( canvas, electrodes, size ){
+function interpolate_electrode_from_slice( canvas, electrodes, settings ){
+  /**
+   * settings = {
+        rawInput : "<this is the user input>",
+        strictSpacing : true,
+        spacings  : [1.1,1.2,1.1,1.1,1.2,1,1,1],
+        distance  : spacings.reduce((a, b) => { return a + b; }) <- total expected distance
+      };
+   */
   if( electrodes.length < 2 ){ return; }
-  if( size <= 2 ){ return; }
+  if( settings.spacings.length < 2 ){ return; }
 
-  const src = canvas.mainCamera.position;
   const dst = new Vector3();
-
-  canvas.mouseRaycaster.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
   electrodes[electrodes.length - 2].object.getWorldPosition( dst );
 
-  const n = size - 1;
-  const step = new Vector3();
-  electrodes[electrodes.length - 1].object.getWorldPosition( step );
-  step.sub( dst ).multiplyScalar( 1 / n );
-  const tmp = new Vector3();
+  const direction = new Vector3();
+  electrodes[electrodes.length - 1].object.getWorldPosition( direction );
+  direction.sub( dst );
+
+  const distanceRatio = direction.length() / settings.distance;
+
+  const n = settings.spacings.length - 1; // n to interpolate
+  const step = direction.clone();
   const est = new Vector3();
 
   let res;
   const re = [];
 
-  for( let ii = 1; ii < n; ii++ ){
+  let cumSpacing = 0;
+  for( let ii = 0; ii < n; ii++ ){
 
-    tmp.copy( step ).multiplyScalar( ii );
-    est.copy( dst ).add( tmp );
+    cumSpacing += settings.spacings[ ii ];
+    step.normalize().multiplyScalar( cumSpacing * distanceRatio );
+    est.copy( dst ).add( step );
 
-    re.push( new Vector3().copy(est) );
+    re.push( est.clone() );
   }
 
   return({
     positions : re,
-    direction : step
+    direction : direction,
+    strictSpacing : settings.strictSpacing,
+    distanceRatio : distanceRatio,
+    expectedSpacing : settings.distance,
+    averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
   });
 }
 
-function extend_electrode_from_slice( canvas, electrodes, size ){
+function extrapolate_electrode_from_slice( canvas, electrodes, settings ){
+  /**
+   * settings = {
+        rawInput : "<this is the user input>",
+        strictSpacing : true,
+        spacings  : [1.1,1.2,1.1,1.1,1.2,1,1,1],
+        distance  : spacings.reduce((a, b) => { return a + b; }) <- total expected distance
+      };
+   */
   if( electrodes.length < 2 ){ return; }
-  if( size <= 2 ){ return; }
+  if( settings.spacings.length < 2 ){ return; }
 
-  const src = canvas.mainCamera.position;
   const dst = new Vector3();
-
-  canvas.mouseRaycaster.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
   electrodes[electrodes.length - 2].object.getWorldPosition( dst );
 
-  const n = size - 1;
-  const step = new Vector3();
-  electrodes[electrodes.length - 1].object.getWorldPosition( step );
-  step.sub( dst );
-  dst.add( step );
-  const tmp = new Vector3();
-  const est = new Vector3();
+  const direction = new Vector3();
+  electrodes[electrodes.length - 1].object.getWorldPosition( direction );
+  direction.sub( dst );
+
+  const distanceRatio = direction.length() / settings.spacings[0];
+
+  const n = settings.spacings.length - 1; // n to interpolate
+  const step = direction.clone();
+  const est = dst.clone().add( step );
 
   let res;
   const re = [];
 
-  for( let ii = 1; ii < n; ii++ ){
+  let cumSpacing = settings.spacings[ 0 ];
+  for( let ii = 1; ii <= n; ii++ ){
 
-    tmp.copy( step ).multiplyScalar( ii );
-    est.copy( dst ).add( tmp );
+    cumSpacing += settings.spacings[ ii ];
+    step.normalize().multiplyScalar( cumSpacing * distanceRatio );
+    est.copy( dst ).add( step );
 
-    re.push( new Vector3().copy(est) );
+    re.push( est.clone() );
   }
+
+  direction.copy( est ).sub( dst );
 
   return({
     positions : re,
-    direction : step
+    direction : direction,
+    strictSpacing : settings.strictSpacing,
+    distanceRatio : distanceRatio,
+    expectedSpacing : settings.distance,
+    averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
   });
 }
 
@@ -1133,8 +1268,8 @@ function register_controls_localization( ViewerControlCenter ){
           refine_electrode = null;
         }
         this.gui.hideControllers([
-          '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
-          'Interpolate from Recently Added', 'Extend from Recently Added', 'Register from Crosshair',
+          '- tkrRAS', '- MNI305', '- T1 RAS', 'Interp Size',
+          'Interpolate', 'Extrapolate', 'Register from Crosshair',
           'Reset Highlighted', "Auto Refine",
           'Auto-Adjust Highlighted', 'Auto-Adjust All'
         ], folderName);
@@ -1147,11 +1282,18 @@ function register_controls_localization( ViewerControlCenter ){
         } else {
           this.gui.showControllers([
             '- tkrRAS', '- MNI305', '- T1 RAS', 'Auto Refine',
-            'Interpolate Size', 'Interpolate from Recently Added',
-            'Extend from Recently Added', 'Register from Crosshair'
+            'Interp Size', 'Interpolate',
+            'Extrapolate', 'Register from Crosshair'
           ], folderName);
+
+          if( v === "MRI slice" ) {
+            // disable Auto Refine
+            const ctlr = this.gui.getController( 'Auto Refine' );
+            ctlr.setValue( false );
+          }
         }
 
+        this.broadcast();
         this._update_canvas();
 
       });
@@ -1167,7 +1309,7 @@ function register_controls_localization( ViewerControlCenter ){
 
     const elec_size = this.gui
       .addController( 'Electrode Scale', 1.0, { folderName: folderName })
-      .min(0.5).max(2).decimals(1)
+      .min(0.2).max(2).decimals(1)
       .onChange((v) => {
 
         electrodes.forEach((el) => {
@@ -1283,14 +1425,69 @@ function register_controls_localization( ViewerControlCenter ){
     });
 
     // interpolate
-    const interpolate_size = this.gui.addController( 'Interpolate Size', 1, {
+    const interpolate_size = this.gui.addController( 'Interp Size', "1", {
       folderName: folderName
-    }).min(1).step(1);
+    }).onChange((v) => {
+      // let RAVE know!
+      this.broadcast();
+    });
+
+    const parseInterpolationSize = () => {
+      const v = interpolate_size.getValue();
+      const spacings = [];
+
+      let size = Math.round( v );
+      if( !isNaN(size) && size > 0 ) {
+        // equally spaced, add size + 1 spacing
+        for(let ii = 0; ii <= size; ii++ ) {
+          spacings.push(1);
+        }
+        return {
+          rawInput : v,
+          strictSpacing : false,
+          spacings  : spacings,
+          size      : spacings.length - 1,
+          distance  : spacings.reduce((a, b) => { return a + b; })
+        };
+      }
+
+      const vSplit = v.split(",");
+      for(let ii in vSplit) {
+        const item = vSplit[ ii ].trim();
+        // e.g. 1.2 x 2, 1.3, 1.4 x 3
+        const m1 = item.trim().match(/^([0-9\.]+)[ ]{0,}x[ ]{0,}([0-9]+)$/i);
+        const m2 = item.trim().match(/^([0-9\.]+)$/i);
+        if ( m1 ) {
+          const spacing = parseFloat(m1[1]);
+          const count = Math.round( m1[2] );
+          if( count && count > 0 ) {
+            if ( isNaN(spacing) || spacing <= 0 ) { return undefined; }
+            for(let jj = 0; jj < count; jj++ ) {
+              spacings.push( spacing );
+            }
+          }
+        } else if( m2 ) {
+          const spacing = parseFloat(m2[1]);
+          if ( isNaN(spacing) || spacing <= 0 ) { return undefined; }
+          spacings.push( spacing );
+        } else {
+          return undefined;
+        }
+      }
+
+      return {
+        rawInput : v,
+        strictSpacing : true,
+        spacings  : spacings,
+        size      : spacings.length - 1,
+        distance  : spacings.reduce((a, b) => { return a + b; })
+      };
+    }
 
     this.gui.addController(
-      'Interpolate from Recently Added',
+      'Interpolate',
       () => {
-        let v = Math.round( interpolate_size.getValue() );
+        let v = parseInterpolationSize();
         if( !v ){ return; }
         const mode = edit_mode.getValue();
         const scode = this.canvas.get_state("target_subject");
@@ -1308,13 +1505,17 @@ function register_controls_localization( ViewerControlCenter ){
 
         if( mode == "CT/volume" ){
           const inst = this.getActiveDataCube2();
-          res = interpolate_electrode_from_ct( inst, this.canvas, electrodes, v + 2 );
+          res = interpolate_electrode_from_ct( inst, this.canvas, electrodes, v );
         } else {
-          res = interpolate_electrode_from_slice( this.canvas, electrodes, v + 2 );
+          res = interpolate_electrode_from_slice( this.canvas, electrodes, v );
         }
         // return({
         //   positions : re,
-        //   direction : step
+        //   direction : direction,
+        //   strictSpacing : settings.strictSpacing,
+        //   distanceRatio : distanceRatio,
+        //   expectedSpacing : settings.distance,
+        //   averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
         // });
 
         if( res.positions.length ){
@@ -1324,10 +1525,16 @@ function register_controls_localization( ViewerControlCenter ){
             last_elec.instance._params.position
           ));
           last_elec.dispose();
+          let autoRefine = auto_refine.getValue();
+          if( autoRefine && res.strictSpacing &&
+              typeof res.distanceRatio === "number" ) {
+            autoRefine = res.averageOffset;
+            console.log(autoRefine);
+          }
 
           res.positions.forEach((pos) => {
             const el = new LocElectrode(
-              scode, electrodes.length + 1, pos, this.canvas, undefined,
+              scode, electrodes.length + 1, pos, this.canvas, autoRefine,
               elec_size.getValue());
             el.set_mode( mode );
             el.__interpolate_direction = res.direction.clone().normalize();
@@ -1347,9 +1554,9 @@ function register_controls_localization( ViewerControlCenter ){
     );
 
     this.gui.addController(
-      'Extend from Recently Added',
+      'Extrapolate',
       () => {
-        let v = Math.round( interpolate_size.getValue() );
+        let v = parseInterpolationSize();
         if( !v ){ return; }
         const mode = edit_mode.getValue();
         const scode = this.canvas.get_state("target_subject");
@@ -1367,16 +1574,31 @@ function register_controls_localization( ViewerControlCenter ){
 
         if( mode == "CT/volume" ){
           const inst = this.getActiveDataCube2();
-          res = extend_electrode_from_ct( inst, this.canvas, electrodes, v + 2 );
+          res = extrapolate_electrode_from_ct( inst, this.canvas, electrodes, v );
         } else {
-          res = extend_electrode_from_slice( this.canvas, electrodes, v + 2, true );
+          res = extrapolate_electrode_from_slice( this.canvas, electrodes, v );
         }
+        // return({
+        //   positions : re,
+        //   direction : direction,
+        //   strictSpacing : settings.strictSpacing,
+        //   distanceRatio : distanceRatio,
+        //   expectedSpacing : settings.distance,
+        //   averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
+        // });
 
         if( res.positions.length ){
           res.direction.normalize();
+          let autoRefine = auto_refine.getValue();
+          if( autoRefine && res.strictSpacing &&
+              typeof res.distanceRatio === "number" ) {
+            autoRefine = res.averageOffset;
+            console.log( autoRefine );
+          }
+
           res.positions.forEach((pos) => {
             const el = new LocElectrode(
-              scode, electrodes.length + 1, pos, this.canvas, undefined,
+              scode, electrodes.length + 1, pos, this.canvas, autoRefine,
               elec_size.getValue());
             el.set_mode( mode );
             electrodes.push( el );
@@ -1593,8 +1815,8 @@ function register_controls_localization( ViewerControlCenter ){
     this.gui.openFolder( CONSTANTS.FOLDERS[ 'atlas' ] , false );
 
     this.gui.hideControllers([
-      '- tkrRAS', '- MNI305', '- T1 RAS', 'Interpolate Size',
-      'Interpolate from Recently Added', 'Extend from Recently Added',
+      '- tkrRAS', '- MNI305', '- T1 RAS', 'Interp Size',
+      'Interpolate', 'Extrapolate',
       'Auto-Adjust Highlighted', 'Auto-Adjust All', 'Reset Highlighted',
       'Auto Refine', 'Register from Crosshair'
     ], folderName);

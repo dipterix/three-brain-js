@@ -17,6 +17,7 @@ class AnimationParameters extends EventDispatcher {
     this.threshold = '[None]';
 
     this._clock = new Clock();
+    this._onChange = undefined;
     this.oldTime = 0;
     this.clockDelta = 0;
 
@@ -94,11 +95,22 @@ class AnimationParameters extends EventDispatcher {
     // update time
     if( this.play ) {
       this.time = this.oldTime + this.clockDelta * this.speed;
+
+      if( typeof this._onChange === "function" ) {
+        this._onChange( this.trackPosition, this.max - this.min );
+      }
       return true;
     }
     return false;
 
 
+  }
+
+  onChange( callback ) {
+    this._onChange = undefined;
+    if( typeof callback === "function" ) {
+      this._onChange = callback;
+    }
   }
 
 }

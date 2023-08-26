@@ -617,9 +617,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
 
-    this.canvas.update();
     // needs to incrementTime after update so chosen object information can be up to date
     this.canvas.incrementTime();
+    this.canvas.update();
 
     if( this.controlCenter ) {
       this.controlCenter.update();

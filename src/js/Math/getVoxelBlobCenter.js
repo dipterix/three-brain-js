@@ -160,7 +160,6 @@ function geomCenter(mask, dim, initialCenter) {
         if( mask[ ijk2Index( i, j, k ) ] > 0 ) {
           tmp.set(i, j, k).sub( initialCenter );
           center.add( tmp );
-          console.log(center);
           count++;
         }
       }
@@ -170,7 +169,6 @@ function geomCenter(mask, dim, initialCenter) {
     center.multiplyScalar( 1.0 / count );
   }
   center.add(initialCenter);
-  console.log(center);
   return center;
 
 }

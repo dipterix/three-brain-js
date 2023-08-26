@@ -185,6 +185,8 @@ class Sphere extends AbstractThreeBrainObject {
 
     super.pre_render({ target : target });
 
+    this.object.material.transparent = target !== CONSTANTS.RENDER_CANVAS.main;
+
     if( target !== CONSTANTS.RENDER_CANVAS.main ) { return; }
 
     const canvas = this._canvas,

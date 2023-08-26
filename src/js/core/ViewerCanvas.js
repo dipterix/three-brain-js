@@ -503,11 +503,88 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.group.set( g.name, gp );
     this.add_to_scene(gp);
 
+    // special case, if group name is "__global_data",
+    // or starts with "_internal_group_data_", then set group variable
+    const isGlobalGroup = g.name === '__global_data' && g.group_data;
+    const isSubjectGroup = g.name.startsWith("_internal_group_data_") && g.group_data;
+    if( isGlobalGroup ) {
+      for( let _n in g.group_data ){
+        this.shared_data.set(_n.substring(15), g.group_data[ _n ]);
+      }
+      // check if ".subject_codes" is in the name
+      const subject_codes = asArray( this.shared_data.get(".subject_codes") );
+      if( subject_codes.length > 0 ){
+
+        // generate transform matrices
+        subject_codes.forEach((scode) => {
+
+          let subject_data = this.shared_data.get(scode);
+          if( subject_data && typeof(subject_data) === "object" ){
+            const Norig = as_Matrix4( subject_data.Norig );
+            const Torig = as_Matrix4( subject_data.Torig );
+            const xfm = as_Matrix4( subject_data.xfm );
+            const tkrRAS_MNI305 = as_Matrix4( subject_data.vox2vox_MNI305 );
+            const MNI305_tkrRAS = new Matrix4()
+              .copy(tkrRAS_MNI305).invert();
+            const tkrRAS_Scanner = new Matrix4()
+              .copy(Norig)
+              .multiply(
+                new Matrix4()
+                  .copy(Torig)
+                  .invert()
+              );
+            subject_data.matrices = {
+              Norig : Norig,
+              Torig : Torig,
+              xfm : xfm,
+              tkrRAS_MNI305 : tkrRAS_MNI305,
+              MNI305_tkrRAS : MNI305_tkrRAS,
+              tkrRAS_Scanner: tkrRAS_Scanner
+            };
+          }
+
+        });
+
+      }
+    } else if ( isSubjectGroup ) {
+      // check subject code
+      let scode = g.name.substr("_internal_group_data_".length);
+      if ( typeof( g.group_data.subject_code ) === "string" ) {
+        scode = g.group_data.subject_code;
+      }
+      let subject_data = g.group_data.subject_data;
+      if( subject_data && typeof(subject_data) === "object" ){
+        const Norig = as_Matrix4( subject_data.Norig );
+        const Torig = as_Matrix4( subject_data.Torig );
+        const xfm = as_Matrix4( subject_data.xfm );
+        const tkrRAS_MNI305 = as_Matrix4( subject_data.vox2vox_MNI305 );
+        const MNI305_tkrRAS = new Matrix4()
+          .copy(tkrRAS_MNI305).invert();
+        const tkrRAS_Scanner = new Matrix4()
+          .copy(Norig)
+          .multiply(
+            new Matrix4()
+              .copy(Torig)
+              .invert()
+          );
+        subject_data.matrices = {
+          Norig : Norig,
+          Torig : Torig,
+          xfm : xfm,
+          tkrRAS_MNI305 : tkrRAS_MNI305,
+          MNI305_tkrRAS : MNI305_tkrRAS,
+          tkrRAS_Scanner: tkrRAS_Scanner
+        };
+        this.shared_data.set(scode, subject_data);
+      }
+    }
+
     // Async loading group cached data
 
     const cached_items = asArray( g.cached_items );
 
     const loadGroups = async () => {
+      // Async loading cached items
       for( let ii in cached_items ) {
         const nm = cached_items[ ii ];
         const cache_info = g.group_data[nm];
@@ -543,47 +620,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       // special case, if group name is "__global_data", then set group variable
       if( g.name === '__global_data' && g.group_data ){
+        // this has to be done again to make sure cached data are set properly
         for( let _n in g.group_data ){
           this.shared_data.set(_n.substring(15), g.group_data[ _n ]);
-        }
-
-        // check if ".subject_codes" is in the name
-        const subject_codes = asArray( this.shared_data.get(".subject_codes") );
-        if( subject_codes.length > 0 ){
-
-          // generate transform matrices
-          subject_codes.forEach((scode) => {
-
-            let subject_data = this.shared_data.get(scode);
-            if( !subject_data ){
-              subject_data = {};
-              this.shared_data.set(scode, subject_data);
-            }
-
-            const Norig = as_Matrix4( subject_data.Norig );
-            const Torig = as_Matrix4( subject_data.Torig );
-            const xfm = as_Matrix4( subject_data.xfm );
-            const tkrRAS_MNI305 = as_Matrix4( subject_data.vox2vox_MNI305 );
-            const MNI305_tkrRAS = new Matrix4()
-              .copy(tkrRAS_MNI305).invert();
-            const tkrRAS_Scanner = new Matrix4()
-              .copy(Norig)
-              .multiply(
-                new Matrix4()
-                  .copy(Torig)
-                  .invert()
-              );
-            subject_data.matrices = {
-              Norig : Norig,
-              Torig : Torig,
-              xfm : xfm,
-              tkrRAS_MNI305 : tkrRAS_MNI305,
-              MNI305_tkrRAS : MNI305_tkrRAS,
-              tkrRAS_Scanner: tkrRAS_Scanner
-            };
-
-          });
-
         }
 
         const media_content = this.shared_data.get(".media_content");

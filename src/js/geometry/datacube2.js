@@ -1,11 +1,10 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { Vector3, Matrix4, Data3DTexture, NearestFilter, FloatType,
-         RGBAFormat, RedFormat, UnsignedByteType, LinearFilter, UniformsUtils,
-         RawShaderMaterial, BackSide, Mesh,
+         RGBAFormat, RedFormat, UnsignedByteType, LinearFilter, Mesh,
          BoxGeometry } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
-import { VolumeRenderShader1 } from '../shaders/VolumeShader.js';
+import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
 
 class DataCube2 extends AbstractThreeBrainObject {
 
@@ -82,6 +81,16 @@ class DataCube2 extends AbstractThreeBrainObject {
           }
         }
       }
+
+      /*
+      if( this.lutAutoRescale ) {
+        this.object.material.uniforms.singleChannelColorRangeLB.value =
+          (dataLB - this.__dataLB) * data2ColorKeySlope / (this.lutMaxColorID - this.lutMinColorID);
+
+        this.object.material.uniforms.singleChannelColorRangeUB.value =
+          (dataUB - this.__dataLB) * data2ColorKeySlope / (this.lutMaxColorID - this.lutMinColorID);
+      }
+      */
     } else {
 
       // voxel RGBA value
@@ -144,6 +153,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       ),
       0.5
     );
+
     this.object.material.uniformsNeedUpdate = true;
 
     this.colorTexture.needsUpdate = true;
@@ -465,26 +475,23 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.colorTexture.needsUpdate = true;
 
-    // Material
-    const shader = VolumeRenderShader1;
 
-
-    const uniforms = UniformsUtils.clone( shader.uniforms );
-    this._uniforms = uniforms;
+    // const uniforms = UniformsUtils.clone( shader.uniforms );
+    // this._uniforms = uniforms;
     // uniforms.map.value = data_texture;
-    uniforms.cmap.value = this.colorTexture;
-    uniforms.colorChannels.value = this.nColorChannels;
-    uniforms.alpha.value = -1.0;
-    uniforms.scale_inv.value.set(1 / this.modelShape.x, 1 / this.modelShape.y, 1 / this.modelShape.z);
-    uniforms.bounding.value = 0.5;
+    // uniforms.cmap.value = this.colorTexture;
+    // uniforms.colorChannels.value = this.nColorChannels;
+    // uniforms.alpha.value = -1.0;
+    // uniforms.scale_inv.value.set(1 / this.modelShape.x, 1 / this.modelShape.y, 1 / this.modelShape.z);
+    // uniforms.bounding.value = 0.5;
 
-    let material = new RawShaderMaterial( {
-      uniforms: uniforms,
-      vertexShader: shader.vertexShader,
-      fragmentShader: shader.fragmentShader,
-      side: BackSide, // The volume shader uses the backface as its "reference point"
-      transparent : true
-    } );
+    // Material
+    let material = new RayMarchingMaterial( {
+      cmap          : this.colorTexture,
+      cmapShape     : this.modelShape,
+      colorChannels : this.nColorChannels,
+      nColors       : this.nColorChannels > 1 ? 4 : 128
+    });
 
     const geometry = new BoxGeometry(
       this.modelShape.x,
