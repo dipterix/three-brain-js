@@ -21,6 +21,7 @@ module.exports = {
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
+    chunkFormat: "module",
     filename: "threebrain.js",
     publicPath: "/",
     clean : true,

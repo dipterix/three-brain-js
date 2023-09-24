@@ -12,6 +12,7 @@ const compile_free_material = ( material, options, target_renderer ) => {
     shader.uniforms.mapping_type = options.mapping_type;
     shader.uniforms.volume_map = options.volume_map;
     shader.uniforms.scale_inv = options.scale_inv;
+    shader.uniforms.volumeMatrixInverse = options.volumeMatrixInverse;
     shader.uniforms.shift = options.shift;
     shader.uniforms.sampler_bias = options.sampler_bias;
     shader.uniforms.sampler_step = options.sampler_step;
@@ -43,6 +44,7 @@ uniform float elec_active_size;
 uniform sampler3D volume_map;
 uniform sampler2D elec_cols;
 uniform sampler2D elec_locs;
+uniform mat4 volumeMatrixInverse;
 uniform vec3 scale_inv;
 uniform vec3 shift;
 uniform float sampler_bias;
@@ -57,37 +59,60 @@ vec3 zeros = vec3( 0.0 );
 vec4 sample1(vec3 p) {
   vec4 re = vec4( 0.0, 0.0, 0.0, 0.0 );
   vec3 threshold = vec3( 0.007843137, 0.007843137, 0.007843137 );
+  vec3 ijk = (volumeMatrixInverse * vec4(p, 1.0)).xyz + vec3(0.5);
   if( sampler_bias > 0.0 ){
     vec3 dta = vec3( 0.0 );
-    vec4 tmp = vec4( 0.0 );
-    float count = 0.0;
-    for(dta.x = -sampler_bias; dta.x <= sampler_bias; dta.x+=sampler_step){
-      for(dta.y = -sampler_bias; dta.y <= sampler_bias; dta.y+=sampler_step){
-        for(dta.z = -sampler_bias; dta.z <= sampler_bias; dta.z+=sampler_step){
-          tmp = texture( volume_map, p + dta * scale_inv );
-          if(
-            tmp.a > 0.0 &&
-            (tmp.r > threshold.r ||
-            tmp.g > threshold.g ||
-            tmp.b > threshold.b)
-          ){
-            if( count == 0.0 ){
-              re = tmp;
-            } else {
-              re = mix( re, tmp, 1.0 / count );
+
+    float max_bias = max(sampler_bias, 1.0);
+    float step = max(sampler_step, 1.0);
+
+    for(float bias = 0.0; bias <= max_bias; bias += step) {
+
+      if( bias < 0.5 ) {
+        re = texture( volume_map, ijk.xyz * scale_inv );
+        if(
+          re.a > 0.0 &&
+          (
+            re.r > threshold.r ||
+            re.g > threshold.g ||
+            re.b > threshold.b
+          )
+        ){
+          return( re );
+        }
+      } else {
+        dta.xyz = vec3( 0.0 );
+
+        for(dta.x = -bias; dta.x <= bias; dta.x+=bias){
+          for(dta.y = -bias; dta.y <= bias; dta.y+=bias){
+            for(dta.z = -bias; dta.z <= bias; dta.z+=bias){
+              re = texture( volume_map, (ijk.xyz + dta) * scale_inv );
+              if(
+                re.a > 0.0 &&
+                (
+                  re.r > threshold.r ||
+                  re.g > threshold.g ||
+                  re.b > threshold.b
+                )
+              ){
+                return( re );
+              }
+
             }
-            count += 1.0;
           }
         }
       }
+
     }
+
   } else {
-    re = texture( volume_map, p );
+    re = texture( volume_map, ijk.xyz * scale_inv );
   }
   if( re.a == 0.0 ){
     re.r = 1.0;
     re.g = 1.0;
     re.b = 1.0;
+    re.a = 1.0;
   }
   return( re );
 }
@@ -134,13 +159,7 @@ if( mapping_type == 1 ){
       vColor.rgb = mix( vColor.rgb, track_color.rgb, blend_factor );
     }
 } else if( mapping_type == 2 ){
-  // vec3 data_position = (position + shift) * scale_inv + 0.5;
-  // data_color0 = sample1(
-  //   data_position -
-  //   scale_inv * vec3(0.5,-0.5,0.5)
-  // );
-  vec3 data_position = position + shift - vec3(0.5,-0.5,0.5);
-  data_color0 = sample1( data_position * scale_inv + 0.5 );
+  data_color0 = sample1( position );
 
 #if defined( USE_COLOR_ALPHA )
   vColor.rgb = mix( max(vec3( 1.0 ) - vColor.rgb / 2.0, vColor.rgb), data_color0.rgb, blend_factor );

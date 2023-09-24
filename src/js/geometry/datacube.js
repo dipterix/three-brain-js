@@ -138,8 +138,8 @@ class DataCube extends AbstractThreeBrainObject {
   	this.crosshairGroup = new Object3D();
   	const crosshairGeometryLR = new BufferGeometry()
   	  .setFromPoints([
-  	    new Vector3( -256, 0, 0 ), new Vector3( -4, 0, 0 ),
-  	    new Vector3( 4, 0, 0 ), new Vector3( 256, 0, 0 )
+  	    new Vector3( -256, 0, 0 ), new Vector3( -1, 0, 0 ),
+  	    new Vector3( 1, 0, 0 ), new Vector3( 256, 0, 0 )
   	  ]);
   	const crosshairMaterialLR = new LineBasicMaterial({
       color: 0x00ff00, transparent: true, depthTest : false
@@ -152,8 +152,8 @@ class DataCube extends AbstractThreeBrainObject {
 
     const crosshairGeometryPA = new BufferGeometry()
   	  .setFromPoints([
-  	    new Vector3( 0, -256, 0 ), new Vector3( 0, -4, 0 ),
-  	    new Vector3( 0, 4, 0 ), new Vector3( 0, 256, 0 )
+  	    new Vector3( 0, -256, 0 ), new Vector3( 0, -1, 0 ),
+  	    new Vector3( 0, 1, 0 ), new Vector3( 0, 256, 0 )
   	  ]);
   	const crosshairMaterialPA = new LineBasicMaterial({
       color: 0x00ff00, transparent: true, depthTest : false
@@ -166,8 +166,8 @@ class DataCube extends AbstractThreeBrainObject {
 
     const crosshairGeometryIS = new BufferGeometry()
   	  .setFromPoints([
-  	    new Vector3( 0, 0, -256 ), new Vector3( 0, 0, -4 ),
-  	    new Vector3( 0, 0, 4 ), new Vector3( 0, 0, 256 )
+  	    new Vector3( 0, 0, -256 ), new Vector3( 0, 0, -1 ),
+  	    new Vector3( 0, 0, 1 ), new Vector3( 0, 0, 256 )
   	  ]);
   	const crosshairMaterialIS = new LineBasicMaterial({
       color: 0x00ff00, transparent: true, depthTest : false
@@ -275,7 +275,15 @@ class DataCube extends AbstractThreeBrainObject {
 
   get_track_data( track_name, reset_material ){}
 
-  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){}
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
+
+    if( target === CONSTANTS.RENDER_CANVAS.main ) {
+      this._uniforms.threshold.value = 0.0;
+    } else {
+      this._uniforms.threshold.value = -1.0;
+    }
+
+  }
 
   setCrosshair({ x, y, z } = {}) {
     if( x === undefined ) {
@@ -358,9 +366,12 @@ class DataCube extends AbstractThreeBrainObject {
     }
 
     // update
-    this.coronalTextSprite.text = crosshairText;
-    this.axialTextSprite.text = crosshairText;
-    this.sagittalTextSprite.text = crosshairText;
+    // this.coronalTextSprite.text = crosshairText;
+    // this.axialTextSprite.text = crosshairText;
+    // this.sagittalTextSprite.text = crosshairText;
+    this._canvas.sideCanvasList.coronal.setFooter( crosshairText );
+    this._canvas.sideCanvasList.axial.setFooter( crosshairText );
+    this._canvas.sideCanvasList.sagittal.setFooter( crosshairText );
 
     // Calculate MNI305 positions
     const crosshairMNI = this._canvas.getSideCanvasCrosshairMNI305(

@@ -53,30 +53,23 @@ class NiftiImage {
 
     // IJK to RAS
     // determine which matrix to use
-    // c(1, 4, 2, 5, 3, 0)
-    const preferred_code = [1, 4, 2, 5, 3, 0];
-    let sformRank = preferred_code.indexOf( this.header.sform_code );
-    if( sformRank < 0 ) { sformRank = 6; }
-    let qformRank = preferred_code.indexOf( this.header.qform_code );
-    if( qformRank < 0 ) { qformRank = 6; }
 
-    if( sformRank > qformRank ) {
-      /** A special case, use method 2
-        mat <- diag(c(nii@pixdim[seq(2,4)], 1))
-        mat[3, ] <- mat[3, ] * nii@pixdim[[1]]
-        mat[1, 4] <- nii@qoffset_x
-        mat[2, 4] <- nii@qoffset_y
-        mat[3, 4] <- nii@qoffset_z
-        code <- qform_code
-      this.affine = new Matrix4().set(
-        this.header.pixDims[1], 0, 0, ?,
-        0, this.header.pixDims[2], 0, ?,
-        0, 0, this.header.pixDims[0] * this.header.pixDims[3], ?,
-        0, 0, 0, 1
-      )
-      */
+    /* WHY 3 METHODS?
+     --------------
+     Method 1 is provided only for backwards compatibility.  The intention
+     is that Method 2 (qform_code > 0) represents the nominal voxel locations
+     as reported by the scanner, or as rotated to some fiducial orientation and
+     location.  Method 3, if present (sform_code > 0), is to be used to give
+     the location of the voxels in some standard space.  The sform_code
+     indicates which standard space is present.  Both methods 2 and 3 can be
+     present, and be useful in different contexts (method 2 for displaying the
+     data on its original grid; method 3 for displaying it on a standard grid).
+    */
+
+    if ( this.header.sform_code <= 0 ) {
       this.header.affine = this.header.getQformMat();
     }
+
     this.affine = new Matrix4().set(
       this.header.affine[0][0],
       this.header.affine[0][1],

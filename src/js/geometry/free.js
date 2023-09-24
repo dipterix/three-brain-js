@@ -1,6 +1,6 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, BufferAttribute, DataTexture, NearestFilter,
-         LinearFilter, RGBAFormat, UnsignedByteType, Vector3,
+         LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
          MeshPhongMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
          Data3DTexture, Color } from 'three';
 import { CONSTANTS } from '../core/constants.js';
@@ -174,6 +174,10 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     this._volume_texture.image = m.colorTexture.image;
 
+    // world to IJK
+    this._material_options.volumeMatrixInverse.value.copy(
+      m._originalData.ijk2tkrRAS
+    ).invert();
 
     this._material_options.scale_inv.value.set(
       1 / m.modelShape.x,
@@ -503,6 +507,35 @@ class FreeMesh extends AbstractThreeBrainObject {
     // gb.setAttribute( 'color', new Float32BufferAttribute( vertex_colors, 3 ) );
     // gb.setAttribute( 'normal', new Float32BufferAttribute( normals, 3 ) );
 
+    // register sphere positions
+    if( this.surface_type === "pial" ) {
+      const hemAsTitle = this.hemisphere[0].toUpperCase() + this.hemisphere.substring(1);
+      const sphereName = `FreeSurfer ${ hemAsTitle } Hemisphere - sphere (${this.subject_code})`;
+      const sphereGroupName = `Surface - sphere (${this.subject_code})`;
+      const sphereData = this._canvas.get_data(
+        'free_vertices_' + sphereName,
+        sphereName, sphereGroupName);
+      if ( sphereData ) {
+        if( sphereData.isFreeSurferMesh ) {
+          if( this.__nvertices === sphereData.nVertices ) {
+            this._geometry.setAttribute( 'spherePosition', new BufferAttribute(sphereData.position, 3) );
+          }
+        } else {
+          if( this.__nvertices === sphereData.length ) {
+
+            const sphereVertices = new Float32Array( this.__nvertices * 3 );
+            sphereData.forEach((v, ii) => {
+              sphereVertices[ ii * 3 ] = v[0];
+              sphereVertices[ ii * 3 + 1 ] = v[1];
+              sphereVertices[ ii * 3 + 2 ] = v[2];
+            });
+            this._geometry.setAttribute( 'spherePosition', new BufferAttribute(sphereVertices, 3) );
+
+          }
+        }
+      }
+    }
+
     this._geometry.computeVertexNormals();
     this._geometry.computeBoundingBox();
     this._geometry.computeBoundingSphere();
@@ -529,7 +562,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       this._volume_array, 2, 2, 2
     );
     this._volume_texture.minFilter = NearestFilter;
-    this._volume_texture.magFilter = LinearFilter;
+    this._volume_texture.magFilter = NearestFilter;
     this._volume_texture.format = RGBAFormat;
     this._volume_texture.type = UnsignedByteType;
     this._volume_texture.unpackAlignment = 1;
@@ -538,6 +571,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._material_options = {
       'mapping_type'      : { value : CONSTANTS.DEFAULT_COLOR },
       'volume_map'        : { value : this._volume_texture },
+      'volumeMatrixInverse':{ value : new Matrix4() },
       'scale_inv'         : {
         value : new Vector3(
           1 / this._volume_margin_size, 1 / this._volume_margin_size,

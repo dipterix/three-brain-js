@@ -315,7 +315,7 @@ function registerPresetSurface( ViewerControlCenter ){
     // ---------- for voxel-color ---------------
 
     const map_delta = this.gui
-      .addController("Sigma", 2, { folderName : folderName }).min( 0 ).max( 10 )
+      .addController("Sigma", 1, { folderName : folderName }).min( 0 ).max( 10 )
       .onChange((v) => {
         if( v !== undefined ){
           if( v < 0 ){ v = 0; }

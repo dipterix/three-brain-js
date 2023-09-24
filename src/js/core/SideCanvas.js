@@ -187,6 +187,13 @@ class SideCanvas {
 
   }
 
+  setFooter( footer ) {
+    if(!footer) {
+      footer = "";
+    }
+    this.$footer.innerHTML = footer;
+  }
+
   _calculateCrosshair( event ) {
     const mouseX = event.clientX;
     const mouseY = event.clientY;
@@ -232,6 +239,7 @@ class SideCanvas {
   }
 
   setBackground( color ) {
+    color = "#000000";
     this._backgroundColor = color;
     this.renderer.setClearColor( color );
     this.$el.style.backgroundColor = color;
@@ -370,6 +378,13 @@ class SideCanvas {
 		this.$canvas.style.position = 'absolute';
 		this.$el.appendChild( this.$canvas );
 		this.context = this.$canvas.getContext('webgl2');
+
+		// Add footer
+		this.$footer = document.createElement('div');
+    this.$footer.innerText = "";
+    this.$footer.className = 'THREEBRAIN-SIDE-FOOTER';
+    this.$footer.id = this._container_id + '__' + type + 'footer';
+    this.$el.appendChild( this.$footer );
 
 		this.renderer = new WebGLRenderer({
     	  antialias: false, alpha: true,
