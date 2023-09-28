@@ -133,13 +133,35 @@ function registerPresetElectrodes( ViewerControlCenter ){
     });
 
     this.canvas.set_state("outline_state", "auto");
-    this.gui.addController( 'Outlines', "auto",
-                      { args : ["auto", "on", "off"], folderName : folderName } )
+
+    const outlineOptions = ["auto", "on", "off"];
+    const controllerElectrodeOutline = this.gui.addController( 'Outlines', "auto",
+                      { args : outlineOptions, folderName : folderName } )
       .onChange(( v ) => {
         this.canvas.set_state("outline_state", v);
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_ELEC_OUTLINE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_OUTLINE,
+        name    : 'Outlines',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        const v = controllerElectrodeOutline.getValue();
+        controllerElectrodeTextVisible.setValue( !v );
+        let selectedIndex = ( outlineOptions.indexOf( controllerElectrodeOutline.getValue() ) + 1) % outlineOptions.length;
+        if( selectedIndex >= 0 ){
+          controllerElectrodeOutline.setValue( outlineOptions[ selectedIndex ] );
+        }
+      }
+    });
 
     this.canvas.set_state('electrode_label', { scale : 2, visible : false });
     this.gui

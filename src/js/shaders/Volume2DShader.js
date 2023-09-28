@@ -1,25 +1,27 @@
 import { Vector3 } from 'three';
+import { remove_comments } from '../utils.js';
 
 const Volume2dArrayShader_xy = {
   uniforms: {
+    image: { value : null },
     diffuse: { value: null },
 		depth: { value: 0 },
 		size: { value: new Vector3( 256, 256, 256 ) },
 		threshold: { value : 0.0 },
 		renderDepth: { value : 1.0 }
 	},
-	vertexShader: [
-    // '#version 300 es',
-    'uniform vec3 size;',
-    'out vec2 vUv;',
-    'void main() {',
-    'gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );',
+	vertexShader: remove_comments(`
+	  uniform vec3 size;
+	  out vec2 vUv;
 
-    // Convert position.xy to 1.0-0.0
-    'vUv.xy = position.xy / size.xy + 0.5;',
-    // 'vUv.y = 1.0 - vUv.y;', // original data is upside down // No, it's not, it's the orientation thing, do not do it here
-    '}'
-	].join( '\n' ),
+	  void main() {
+
+	    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+	    // Convert position.xy to 1.0-0.0
+      vUv.xy = position.xy / size.xy + 0.5;
+
+	  }
+  `),
   fragmentShader: [
     // '#version 300 es',
 

@@ -54,6 +54,8 @@ const mouseDoubleClickEvent = { type : "viewerApp.mouse.doubleClick" };
 const keyDownEvent = { type : "viewerApp.keyboad.keydown" };
 const animationFrameUpdateEvent = { type : "viewerApp.animationFrame.update" };
 
+const tmpVec3 = new Vector3();
+
 class ViewerControlCenter extends EventDispatcher {
 
   /**
@@ -231,6 +233,12 @@ class ViewerControlCenter extends EventDispatcher {
         controller.updateDisplay();
       }
     }
+    // Calculate MNI305 positions
+    const crosshairMNI = this.canvas.getSideCanvasCrosshairMNI305( tmpVec3 );
+    const displayText = `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}`
+
+    const controller = this.gui.getController( "Intersect MNI305" );
+    controller.setValue( displayText );
   }
 
   _onDriveController = ( event ) => {

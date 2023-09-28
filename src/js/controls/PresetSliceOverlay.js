@@ -12,7 +12,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'toggle-side-panels' ];
     const initialDisplay = this.settings.side_display || false;
 
-    const controller = this.gui.addController(
+    this.gui.addController(
       'Show Panels', true, { folderName: folderName })
       .onChange((v) => {
         if( v ){
@@ -26,6 +26,45 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       })
       .setValue( initialDisplay );
 
+    const sliceModeOptions = ["anatomical view", "first-person view"];
+    let defaultVal = "anatomical view";
+    if( this.canvas.get_state("sideCameraTrackMainCamera", false) ) {
+      defaultVal = "first-person view";
+    }
+
+    const controllerSliceMode = this.gui
+      .addController( 'Slice Mode', defaultVal, {
+        args: sliceModeOptions, folderName: folderName
+      })
+      .onChange((v) => {
+        if( v === "first-person view" ){
+          this.canvas.set_state("sideCameraTrackMainCamera", true);
+        }else{
+          this.canvas.set_state("sideCameraTrackMainCamera", false);
+        }
+        this.canvas.needsUpdate = true;
+        this.broadcast();
+      })
+      .setValue( initialDisplay );
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_SLICE_MODE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SLICE_MODE,
+        name    : 'Slice Mode',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let selectedIndex = ( sliceModeOptions.indexOf( controllerSliceMode.getValue() ) + 1) % sliceModeOptions.length;
+        if( selectedIndex >= 0 ){
+          controllerSliceMode.setValue( sliceModeOptions[ selectedIndex ] );
+        }
+      }
+    });
   };
 
   ViewerControlCenter.prototype.addPreset_resetSidePanel = function(){
@@ -223,7 +262,6 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     this.gui.addController('Render Distance', 1.0, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
-        // this.canvas.updateElectrodeVisibilityOnSideCanvas( v );
         this.canvas.setVoxelRenderDistance({
           distance : v
         });

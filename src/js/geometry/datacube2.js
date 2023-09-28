@@ -6,6 +6,9 @@ import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
 
+const tmpVec3 = new Vector3();
+const tmpMat4 = new Matrix4();
+
 class DataCube2 extends AbstractThreeBrainObject {
 
   _filterDataContinuous( dataLB, dataUB, timeSlice ) {
@@ -601,6 +604,43 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.object.material.uniforms.dithering.value = this._dithering ?? 1.0;
     }
   }
+
+  getCrosshairValue({ x, y, z }) {
+    let crosshairText = "";
+    tmpMat4.copy( this.object.matrixWorld ).invert();
+    tmpVec3.set( x, y, z ).applyMatrix4( tmpMat4 );
+    tmpVec3.x += (this.modelShape.x -1) / 2;
+    tmpVec3.y += (this.modelShape.y-1) / 2;
+    tmpVec3.z += (this.modelShape.z-1) / 2;
+
+    const idx = Math.floor(
+      Math.round(tmpVec3.x) +
+      this.modelShape.x * (
+        Math.round(tmpVec3.y) + Math.round(tmpVec3.z) * this.modelShape.y
+      )
+    );
+
+    if( idx >= 0 && idx < this.voxelData.length ) {
+      const voxelValue = this.voxelData[ idx ];
+
+      if( typeof voxelValue === "number" ) {
+        if( this.lut.mapDataType === "discrete" ) {
+          const cinfo = this.lut.map[ voxelValue ];
+          if( typeof cinfo === "object" ) {
+            crosshairText = cinfo.Label;
+          } else {
+            crosshairText = "";
+          }
+        } else {
+          crosshairText = voxelValue.toFixed(1);
+        }
+      }
+    }
+
+    return crosshairText;
+
+  }
+
 
 }
 

@@ -6,7 +6,8 @@ import {
   Raycaster, ArrowHelper, BoxHelper,
   LoadingManager, FileLoader, FontLoader,
   AnimationClip, AnimationMixer, Clock,
-  Mesh, MeshBasicMaterial, SubtractiveBlending
+  Mesh, MeshBasicMaterial, SubtractiveBlending,
+  BufferGeometry, LineBasicMaterial, LineSegments
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -154,9 +155,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // action event listener functions and dispose flags
     this._disposed = false;
-    this.set_state( 'coronal_depth', 0 );
-    this.set_state( 'axial_depth', 0 );
-    this.set_state( 'sagittal_depth', 0 );
 
     // for global usage
     this.shared_data = new Map();
@@ -212,6 +210,58 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.origin = new Object3D();
     this.origin.position.copy( CONSTANTS.VEC_ORIGIN );
     this.scene.add( this.origin );
+
+    // Add crosshair for side-canvas
+    // generate crosshair
+  	this.crosshairGroup = new Object3D();
+  	const crosshairGeometryLR = new BufferGeometry()
+  	  .setFromPoints([
+  	    new Vector3( -256, 0, 0 ), new Vector3( - CONSTANTS.GEOMETRY["crosshair-gap-half"], 0, 0 ),
+  	    new Vector3( CONSTANTS.GEOMETRY["crosshair-gap-half"], 0, 0 ), new Vector3( 256, 0, 0 )
+  	  ]);
+  	const crosshairMaterialLR = new LineBasicMaterial({
+      color: 0x00ff00, transparent: true, depthTest : false
+    });
+    const crosshairLR = new LineSegments( crosshairGeometryLR, crosshairMaterialLR );
+    crosshairLR.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
+    crosshairLR.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
+    crosshairLR.layers.enable( CONSTANTS.LAYER_SYS_AXIAL_10 );
+    this.crosshairGroup.add( crosshairLR );
+    this.crosshairGroup.LR = crosshairLR;
+
+    const crosshairGeometryPA = new BufferGeometry()
+  	  .setFromPoints([
+  	    new Vector3( 0, -256, 0 ), new Vector3( 0, - CONSTANTS.GEOMETRY["crosshair-gap-half"], 0 ),
+  	    new Vector3( 0, CONSTANTS.GEOMETRY["crosshair-gap-half"], 0 ), new Vector3( 0, 256, 0 )
+  	  ]);
+  	const crosshairMaterialPA = new LineBasicMaterial({
+      color: 0x00ff00, transparent: true, depthTest : false
+    });
+    const crosshairPA = new LineSegments( crosshairGeometryPA, crosshairMaterialPA );
+    crosshairPA.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
+    crosshairPA.layers.set( CONSTANTS.LAYER_SYS_AXIAL_10 );
+    crosshairPA.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
+    this.crosshairGroup.add( crosshairPA );
+    this.crosshairGroup.PA = crosshairPA;
+
+    const crosshairGeometryIS = new BufferGeometry()
+  	  .setFromPoints([
+  	    new Vector3( 0, 0, -256 ), new Vector3( 0, 0, - CONSTANTS.GEOMETRY["crosshair-gap-half"] ),
+  	    new Vector3( 0, 0, CONSTANTS.GEOMETRY["crosshair-gap-half"] ), new Vector3( 0, 0, 256 )
+  	  ]);
+  	const crosshairMaterialIS = new LineBasicMaterial({
+      color: 0x00ff00, transparent: true, depthTest : false
+    });
+    const crosshairIS = new LineSegments( crosshairGeometryIS, crosshairMaterialIS );
+    crosshairIS.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
+    crosshairIS.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
+    crosshairIS.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
+    this.crosshairGroup.add( crosshairIS );
+    this.crosshairGroup.IS = crosshairIS;
+
+    // Add crosshair text
+    this.scene.add( this.crosshairGroup );
+    this._crosshairPosition = new Vector3();
 
     /* Main camera
         Main camera is initialized at 500,0,0. The distance is stayed at 500 away from
@@ -799,9 +849,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.singletons.clear();
 
     // set default values
-    this.set_state( 'coronal_depth', 0 );
-    this.set_state( 'axial_depth', 0 );
-    this.set_state( 'sagittal_depth', 0 );
+    this._crosshairPosition.set( 0, 0, 0 );
 
   }
 
@@ -821,28 +869,51 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   setSliceCrosshair({x, y, z, immediate = true, centerCrosshair = false} = {}) {
+
+    // set sagittal
+    if( typeof x === "number" ) {
+      if( x > 128 ) { x = 128; }
+      if( x < -128 ) { x = -128; }
+      this._crosshairPosition.x = x;
+    }
+
+    // set coronal
+    if( typeof y === "number" ) {
+      if( y > 128 ) { y = 128; }
+      if( y < -128 ) { y = -128; }
+      this._crosshairPosition.y = y;
+    }
+
+    // set axial
+    if( typeof z === "number" ) {
+      if( z > 128 ) { z = 128; }
+      if( z < -128 ) { z = -128; }
+      this._crosshairPosition.z = z;
+    }
+    this.crosshairGroup.position.copy( this._crosshairPosition );
+
+    // Calculate datacube2 crosshair label/values
+    // get active datacube2
+    let crosshairText = "";
+    const datacube2Instance = this.get_state( "activeDataCube2Instance" )
+    if( datacube2Instance && datacube2Instance.isDataCube2 ) {
+      crosshairText = datacube2Instance.getCrosshairValue( this._crosshairPosition );
+    }
+
+    // this.sideCanvasList.coronal.setFooter( crosshairText );
+    // this.sideCanvasList.axial.setFooter( crosshairText );
+    // this.sideCanvasList.sagittal.setFooter( crosshairText );
+
     this.dispatch({
       type : "viewerApp.canvas.setSliceCrosshair",
       data : {
-        x : x, y : y, z : z
+        x : x, y : y, z : z,
+        center: centerCrosshair,
+        text: crosshairText
       },
       immediate : true
     });
-    this.sideCanvasList.coronal._updateRenderThreshold();
-    this.sideCanvasList.axial._updateRenderThreshold();
-    this.sideCanvasList.sagittal._updateRenderThreshold();
-    if( centerCrosshair === true ) {
-      this.sideCanvasList.coronal.zoom();
-      this.sideCanvasList.axial.zoom();
-      this.sideCanvasList.sagittal.zoom();
-    } else if ( Array.isArray( centerCrosshair ) ) {
-      centerCrosshair.forEach((v) => {
-        const sideCanvas = this.sideCanvasList[ v ];
-        if( sideCanvas ) {
-          sideCanvas.zoom();
-        }
-      });
-    }
+    this.needsUpdate = true;
   }
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
@@ -1606,6 +1677,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_renderer.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
+
+    // Set crosshair quaternion and positions
+    if( this.get_state("sideCameraTrackMainCamera", false) ) {
+      this.crosshairGroup.position.set( 0, 0, 0 );
+      this.crosshairGroup.quaternion.copy( this.mainCamera.quaternion );
+
+      this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+      this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    } else {
+      this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
+      this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+      this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    }
+    this.crosshairGroup.position.copy( this._crosshairPosition );
+
     // Pre render all meshes
     this.mesh.forEach((m) => {
       const inst = m.userData.instance;
@@ -2690,49 +2776,6 @@ mapped = false,
 
   }
 
-  // Only show electrodes near 3 planes
-  updateElectrodeVisibilityOnSideCanvas( distance ){
-    if( typeof distance !== 'number' ){
-      distance = this.get_state( 'threshold_electrode_plane', Infinity);
-    }else{
-      this.set_state( 'threshold_electrode_plane', distance );
-    }
-    const _x = this.get_state( 'sagittal_depth', 0);
-    const _y = this.get_state( 'coronal_depth', 0);
-    const _z = this.get_state( 'axial_depth', 0);
-    const plane_pos = new Vector3().set( _x, _y, _z );
-    const diff = new Vector3();
-
-    this.electrodes.forEach((li, subcode) => {
-
-      for( let ename in li ){
-        const e = li[ ename ];
-
-        // Make sure layer 8 (main camera can see these electrodes)
-        e.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        e.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
-
-        // get offsets
-        e.getWorldPosition( diff ).sub( plane_pos );
-
-        // Check visibility
-        if( Math.abs( diff.x ) <= distance ){
-          e.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
-        }
-        if( Math.abs( diff.y ) <= distance ){
-          e.layers.enable( CONSTANTS.LAYER_SYS_CORONAL_9 );
-        }
-        if( Math.abs( diff.z ) <= distance ){
-          e.layers.enable( CONSTANTS.LAYER_SYS_AXIAL_10 );
-        }
-      }
-
-    });
-
-  }
-
-
-
   // ------------------------------ Drivers -----------------------------------
   setBackground({ color } = {}) {
     if( color === undefined || color === null ) { return; }
@@ -2773,11 +2816,7 @@ mapped = false,
   }
   getSideCanvasCrosshairMNI305( m ) {
     // MNI 305 position of the intersection
-    const ints_z = this.get_state( 'axial_depth' ) || 0,
-          ints_y = this.get_state( 'coronal_depth' ) || 0,
-          ints_x = this.get_state( 'sagittal_depth' ) || 0;
-    m.set( ints_x , ints_y , ints_z );
-    return this.calculate_mni305( m );
+    return this.calculate_mni305( m.copy( this._crosshairPosition ) );
   }
 
 }

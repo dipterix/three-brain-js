@@ -2,13 +2,11 @@ import { AbstractThreeBrainObject } from './abstract.js';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, get_or_default } from '../utils.js';
 import { Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
-         LinearFilter, NearestFilter, SpriteMaterial, Matrix4,
+         LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType } from 'three';
 import { TextSprite, TextTexture } from '../ext/text_sprite.js';
 import { SliceShader } from '../shaders/SliceShader.js';
-import { Volume2dArrayShader_xy, Volume2dArrayShader_xz,
-         Volume2dArrayShader_yz } from '../shaders/Volume2DShader.js';
 
 
 /* WebGL doesn't take transparency into consideration when calculating depth
@@ -26,7 +24,9 @@ parts will show.
 */
 
 const tmpVec3 = new Vector3();
+const tmpNormal = new Vector3();
 const tmpMat4 = new Matrix4();
+const tmpQuaternion = new Quaternion();
 
 class DataCube extends AbstractThreeBrainObject {
   constructor(g, canvas){
@@ -107,7 +107,7 @@ class DataCube extends AbstractThreeBrainObject {
       depthWrite: true
     } );
     this.sliceMaterial = sliceMaterial;
-    const sliceGeometryXY = new PlaneGeometry( 256, 256 );
+    const sliceGeometryXY = new PlaneGeometry( 512, 512 );
     this.sliceGeometryXY = sliceGeometryXY;
     const sliceMeshXY = new Mesh( sliceGeometryXY, sliceMaterial );
     sliceMeshXY.renderOrder = -1;
@@ -115,18 +115,37 @@ class DataCube extends AbstractThreeBrainObject {
     sliceMeshXY.name = 'mesh_datacube__axial_' + g.name;
 
 
-    const sliceGeometryXZ = new PlaneGeometry( 256, 256 );
+    const sliceGeometryXZ = new PlaneGeometry( 512, 512 );
+    /*
+    sliceGeometryXZ.applyMatrix4(new Matrix4(
+      1, 0, 0, 0,
+      0, 0, 1, 0,
+      0, -1, 0, 0,
+      0, 0, 0, 1
+    ));
+    */
+    sliceGeometryXZ.attributes.position.array = new Float32Array([
+      -256, 0, -256,
+      256, 0, -256,
+      -256, 0, 256,
+      256, 0, 256
+    ]);
     this.sliceGeometryXZ = sliceGeometryXZ;
     const sliceMeshXZ = new Mesh( sliceGeometryXZ, sliceMaterial );
-    sliceMeshXZ.rotateX( Math.PI / 2 );
     sliceMeshXZ.renderOrder = -1;
     sliceMeshXZ.position.copy( CONSTANTS.VEC_ORIGIN );
     sliceMeshXZ.name = 'mesh_datacube__coronal_' + g.name;
 
-    const sliceGeometryYZ = new PlaneGeometry( 256, 256 );
+    const sliceGeometryYZ = new PlaneGeometry( 512, 512 );
+    sliceGeometryYZ.attributes.position.array = new Float32Array([
+      0, -256, -256,
+      0, 256, -256,
+      0, -256, 256,
+      0, 256, 256
+    ]);
     this.sliceGeometryYZ = sliceGeometryYZ;
     const sliceMeshYZ = new Mesh( sliceGeometryYZ, sliceMaterial );
-    sliceMeshYZ.rotateY( Math.PI / 2 ).rotateZ( Math.PI / 2 );
+    // sliceMeshYZ.rotateY( Math.PI / 2 ).rotateZ( Math.PI / 2 );
     sliceMeshYZ.renderOrder = -1;
     sliceMeshYZ.position.copy( CONSTANTS.VEC_ORIGIN );
     sliceMeshYZ.name = 'mesh_datacube__sagittal_' + g.name;
@@ -134,100 +153,10 @@ class DataCube extends AbstractThreeBrainObject {
 
   	this.object = [ sliceMeshXZ, sliceMeshXY, sliceMeshYZ ];
 
-  	// generate crosshair
-  	this.crosshairGroup = new Object3D();
-  	const crosshairGeometryLR = new BufferGeometry()
-  	  .setFromPoints([
-  	    new Vector3( -256, 0, 0 ), new Vector3( -1, 0, 0 ),
-  	    new Vector3( 1, 0, 0 ), new Vector3( 256, 0, 0 )
-  	  ]);
-  	const crosshairMaterialLR = new LineBasicMaterial({
-      color: 0x00ff00, transparent: true, depthTest : false
-    });
-    this.crosshairLR = new LineSegments( crosshairGeometryLR, crosshairMaterialLR );
-    this.crosshairLR.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
-    this.crosshairLR.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
-    this.crosshairLR.layers.enable( CONSTANTS.LAYER_SYS_AXIAL_10 );
-    this.crosshairGroup.add( this.crosshairLR );
-
-    const crosshairGeometryPA = new BufferGeometry()
-  	  .setFromPoints([
-  	    new Vector3( 0, -256, 0 ), new Vector3( 0, -1, 0 ),
-  	    new Vector3( 0, 1, 0 ), new Vector3( 0, 256, 0 )
-  	  ]);
-  	const crosshairMaterialPA = new LineBasicMaterial({
-      color: 0x00ff00, transparent: true, depthTest : false
-    });
-    this.crosshairPA = new LineSegments( crosshairGeometryPA, crosshairMaterialPA );
-    this.crosshairPA.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
-    this.crosshairPA.layers.set( CONSTANTS.LAYER_SYS_AXIAL_10 );
-    this.crosshairPA.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
-    this.crosshairGroup.add( this.crosshairPA );
-
-    const crosshairGeometryIS = new BufferGeometry()
-  	  .setFromPoints([
-  	    new Vector3( 0, 0, -256 ), new Vector3( 0, 0, -1 ),
-  	    new Vector3( 0, 0, 1 ), new Vector3( 0, 0, 256 )
-  	  ]);
-  	const crosshairMaterialIS = new LineBasicMaterial({
-      color: 0x00ff00, transparent: true, depthTest : false
-    });
-    this.crosshairIS = new LineSegments( crosshairGeometryIS, crosshairMaterialIS );
-    this.crosshairIS.renderOrder = CONSTANTS.RENDER_ORDER.DataCube;
-    this.crosshairIS.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
-    this.crosshairIS.layers.enable( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
-    this.crosshairGroup.add( this.crosshairIS );
-
-    // Add crosshair text
-    this.coronalTextSprite = new TextSprite(
-      "                           ",
-      {
-        textHeight  : 17,
-        color       : "white",
-        shadowColor : "black"
-      }
-    );
-    this.coronalTextSprite.material.depthTest = false;
-    this.coronalTextSprite.material.transparent = true;
-    this.coronalTextSprite.position.z = this.coronalTextSprite.scale.y / 2 + 4;
-    this.coronalTextSprite.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
-    this.crosshairGroup.add( this.coronalTextSprite );
-
-    this.axialTextSprite = new TextSprite(
-      "                           ",
-      {
-        textHeight  : 17,
-        color       : "white",
-        shadowColor : "black"
-      }
-    );
-    this.axialTextSprite.material.depthTest = false;
-    this.axialTextSprite.material.transparent = true;
-    this.axialTextSprite.position.y = this.axialTextSprite.scale.y / 2 + 4;
-    this.axialTextSprite.layers.set( CONSTANTS.LAYER_SYS_AXIAL_10 );
-    this.crosshairGroup.add( this.axialTextSprite );
-
-    this.sagittalTextSprite = new TextSprite(
-      "                           ",
-      {
-        textHeight  : 17,
-        color       : "white",
-        shadowColor : "black"
-      }
-    );
-    this.sagittalTextSprite.material.depthTest = false;
-    this.sagittalTextSprite.material.transparent = true;
-    this.sagittalTextSprite.position.z = this.sagittalTextSprite.scale.y / 2 + 4;
-    this.sagittalTextSprite.layers.set( CONSTANTS.LAYER_SYS_SAGITTAL_11 );
-    this.crosshairGroup.add( this.sagittalTextSprite );
-
-
     sliceMeshXY.userData.dispose = () => {
   	  sliceMaterial.dispose();
   	  sliceGeometryXY.dispose();
       this.dataTexture.dispose();
-      this.crosshairIS.geometry.dispose();
-      this.crosshairIS.material.dispose();
     };
     sliceMeshXY.userData.instance = this;
     this.sliceXY = sliceMeshXY;
@@ -236,8 +165,6 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryXZ.dispose();
       this.dataTexture.dispose();
-      this.crosshairPA.geometry.dispose();
-      this.crosshairPA.material.dispose();
     };
     sliceMeshXZ.userData.instance = this;
     this.sliceXZ = sliceMeshXZ;
@@ -246,26 +173,14 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryYZ.dispose();
       this.dataTexture.dispose();
-      this.crosshairLR.geometry.dispose();
-      this.crosshairLR.material.dispose();
     };
     sliceMeshYZ.userData.instance = this;
     this.sliceYZ = sliceMeshYZ;
 
-
-
-    // set up events
-    this._canvas.$el.addEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
   }
 
+
   dispose(){
-    this._canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
-    this.crosshairLR.geometry.dispose();
-    this.crosshairLR.material.dispose();
-    this.crosshairPA.geometry.dispose();
-    this.crosshairPA.material.dispose();
-    this.crosshairIS.geometry.dispose();
-    this.crosshairIS.material.dispose();
     this.sliceMaterial.dispose();
     this.sliceGeometryXY.dispose();
     this.sliceGeometryXZ.dispose();
@@ -277,113 +192,24 @@ class DataCube extends AbstractThreeBrainObject {
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
+    if( this._canvas.get_state("sideCameraTrackMainCamera", false) ) {
+      if( this.dataTexture.magFilter !== LinearFilter ) {
+        this.dataTexture.magFilter = LinearFilter;
+        this.dataTexture.needsUpdate = true;
+      }
+    } else {
+      if( this.dataTexture.magFilter !== NearestFilter ) {
+        this.dataTexture.magFilter = NearestFilter;
+        this.dataTexture.needsUpdate = true;
+      }
+    }
+
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
       this._uniforms.threshold.value = 0.0;
     } else {
       this._uniforms.threshold.value = -1.0;
     }
 
-  }
-
-  setCrosshair({ x, y, z } = {}) {
-    if( x === undefined ) {
-      x = this._canvas.get_state( 'sagittal_depth', 0 );
-    }
-    // set sagittal
-    if( x > 128 ) { x = 128; }
-    if( x < -128 ) { x = -128; }
-    this.sliceYZ.position.x = x;
-    this.crosshairGroup.position.x = x;
-    this._canvas.set_state( 'sagittal_depth', x );
-
-    if( y === undefined ) {
-      y = this._canvas.get_state( 'coronal_depth', 0 );
-    }
-    // set coronal
-    if( y > 128 ) { y = 128; }
-    if( y < -128 ) { y = -128; }
-    this.sliceXZ.position.y = y;
-    this.crosshairGroup.position.y = y;
-    this._canvas.set_state( 'coronal_depth', y );
-
-    if( z === undefined ) {
-      z = this._canvas.get_state( 'axial_depth', 0 );
-    }
-    // set axial
-    if( z > 128 ) { z = 128; }
-    if( z < -128 ) { z = -128; }
-    this.sliceXY.position.z = z;
-    this.crosshairGroup.position.z = z;
-    this._canvas.set_state( 'axial_depth', z );
-
-    // this._canvas.updateElectrodeVisibilityOnSideCanvas();
-    this._canvas.setVoxelRenderDistance();
-
-    // get active datacube2
-    let crosshairText = "";
-    const datacube2Instance = this._canvas.get_state( "activeDataCube2Instance" )
-    if( datacube2Instance && datacube2Instance.isDataCube2 ) {
-
-      tmpMat4.copy( datacube2Instance.object.matrixWorld ).invert();
-      tmpVec3.set( x, y, z ).applyMatrix4( tmpMat4 );
-      tmpVec3.x += datacube2Instance.modelShape.x / 2;
-      tmpVec3.y += datacube2Instance.modelShape.y / 2;
-      tmpVec3.z += datacube2Instance.modelShape.z / 2;
-
-      const idx = Math.floor(
-        Math.round(tmpVec3.x) +
-        datacube2Instance.modelShape.x * (
-          Math.round(tmpVec3.y) + Math.round(tmpVec3.z) * datacube2Instance.modelShape.y
-        )
-      );
-
-      crosshairText = "";
-      if( idx >= 0 ) {
-        const voxelValue = datacube2Instance.voxelData[ idx ];
-
-        if( typeof voxelValue === "number" ) {
-          if( datacube2Instance.lut.mapDataType === "discrete" ) {
-            const cinfo = datacube2Instance.lut.map[ voxelValue ];
-            if( typeof cinfo === "object" ) {
-              crosshairText = cinfo.Label;
-            } else {
-              crosshairText = "";
-            }
-          } else {
-            crosshairText = voxelValue.toFixed(1);
-          }
-        }
-      }
-
-      this.coronalTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.coronal.zoomLevel;
-      this.axialTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.axial.zoomLevel;
-      this.sagittalTextSprite._textHeight = 17.0 / this._canvas.sideCanvasList.sagittal.zoomLevel;
-
-      this.coronalTextSprite.position.z = this.coronalTextSprite._textHeight / 2 + 4;
-      this.axialTextSprite.position.y = this.axialTextSprite._textHeight / 2 + 4;
-      this.sagittalTextSprite.position.z = this.sagittalTextSprite._textHeight / 2 + 4;
-
-    }
-
-    // update
-    // this.coronalTextSprite.text = crosshairText;
-    // this.axialTextSprite.text = crosshairText;
-    // this.sagittalTextSprite.text = crosshairText;
-    this._canvas.sideCanvasList.coronal.setFooter( crosshairText );
-    this._canvas.sideCanvasList.axial.setFooter( crosshairText );
-    this._canvas.sideCanvasList.sagittal.setFooter( crosshairText );
-
-    // Calculate MNI305 positions
-    const crosshairMNI = this._canvas.getSideCanvasCrosshairMNI305(
-      this.crosshairGroup.position.clone() );
-    const displayText = `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}`
-
-    this._canvas.setControllerValue({
-      name : "Intersect MNI305",
-      value: displayText
-    });
-    // Animate on next refresh
-    this._canvas.start_animation( 0 );
   }
 
   showSlices( which ) {
@@ -404,9 +230,7 @@ class DataCube extends AbstractThreeBrainObject {
       this._canvas.set_state( 'axial_overlay', true );
       this.axialActive = true;
     }
-    // update crosshair to latest version
-    this.setCrosshair();
-    // this._canvas.start_animation( 0 );
+    this._canvas.needsUpdate = true;
   }
 
   hideSlices( which ) {
@@ -452,8 +276,7 @@ class DataCube extends AbstractThreeBrainObject {
     let gp = this.get_group_object();
     // Move gp to global scene as its center is always 0,0,0
     this._canvas.origin.remove( gp );
-    gp.add( this.crosshairGroup );
-    this._canvas.scene.add( gp );
+    this._canvas.crosshairGroup.add( gp );
 
     // set layer, add tp group
     this.object.forEach((plane) => {
@@ -467,17 +290,6 @@ class DataCube extends AbstractThreeBrainObject {
 
     this.register_object( ['slices'] );
 
-
-    this.setCrosshair();
-    // reset side camera positions
-    // this.origin.position.set( -cube_center[0], -cube_center[1], -cube_center[2] );
-    // this.reset_side_cameras( CONSTANTS.VEC_ORIGIN, Math.max(...cube_half_size) * 2 );
-
-
-  }
-
-  _onSetSliceCrosshair = ( event ) => {
-    this.setCrosshair( event.detail );
   }
 
 }

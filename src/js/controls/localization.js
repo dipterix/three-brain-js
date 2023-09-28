@@ -1624,11 +1624,7 @@ function register_controls_localization( ViewerControlCenter ){
           mode == "refine" ||
           !scode || scode === ""
       ){ return; }
-      const tkrRAS = new Vector3().set(
-        this.canvas.get_state("sagittal_depth", 0.0),
-        this.canvas.get_state("coronal_depth", 0.0),
-        this.canvas.get_state("axial_depth", 0.0)
-      );
+      const tkrRAS = new Vector3().copy( this.canvas._crosshairPosition );
       const el = new LocElectrode(
               scode, electrodes.length + 1, tkrRAS, this.canvas,
               false, elec_size.getValue());
@@ -1754,8 +1750,17 @@ function register_controls_localization( ViewerControlCenter ){
       const mode = edit_mode.getValue();
       if( mode !== "refine" ){ return; }
 
-      refine_electrode.object.position[ axis ] += step;
-      refine_electrode.object.userData.construct_params.position[ xyzTo123[ axis ] ] += step;
+      pos.set(0, 0, 0);
+      pos[ axis ] = step;
+      pos.applyQuaternion( this.canvas.crosshairGroup.quaternion );
+
+      refine_electrode.object.position.add( pos );
+
+      // refine_electrode.object.position[ axis ] += step;
+      // refine_electrode.object.userData.construct_params.position[ xyzTo123[ axis ] ] += step;
+      refine_electrode.object.userData.construct_params.position[0] = refine_electrode.object.position.x
+      refine_electrode.object.userData.construct_params.position[1] = refine_electrode.object.position.y
+      refine_electrode.object.userData.construct_params.position[2] = refine_electrode.object.position.z
       refine_electrode.update_line();
       refine_electrode.updateProjection();
       this.broadcast({

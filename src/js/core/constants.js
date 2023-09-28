@@ -49,6 +49,7 @@ CONSTANTS.VEC_ANAT_I = new Vector3( 0, 0, -1 );
 // You can only change which key is pressed. However, you cannot change shift & ctrl or alt
 // To do that you must go into the code
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
+CONSTANTS.KEY_CYCLE_SLICE_MODE        = "KeyM";         // `m` - cycle through slice mode
 CONSTANTS.KEY_CYCLE_LEFT              = "BracketLeft";  // `[` - cycle through left hemisphere material
 CONSTANTS.KEY_CYCLE_RIGHT             = "BracketRight"; // `]` - cycle through right hemisphere material
 CONSTANTS.KEY_CYCLE_LEFT_OPACITY      = "BracketLeft";  // `⇧[` - cycle through left hemisphere opacity
@@ -58,6 +59,7 @@ CONSTANTS.KEY_CYCLE_ELECTRODES_NEXT   = "Period";       // `.` - choosing next e
 CONSTANTS.KEY_CYCLE_ELECTRODES_PREV   = "Comma";        // `,` - choosing previous electrodes
 CONSTANTS.KEY_CYCLE_ELEC_VISIBILITY   = "KeyV";         // `v` - toggle electrode visibility
 CONSTANTS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "KeyV";  // `⇧V` - toggle electrode label visibility
+CONSTANTS.KEY_CYCLE_ELEC_OUTLINE      = "KeyO";         // `o` - cycle through outline options
 CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `p` - cycle through surfaces types
 CONSTANTS.KEY_CYCLE_MATERIAL          = "KeyM";         // `⇧M` - change surface material types (lighting model)
 CONSTANTS.KEY_CYCLE_ATLAS_MODE        = "KeyL";         // `l` - cycle through voxel display mode
@@ -80,6 +82,7 @@ CONSTANTS.KEY_CYCLE_REMOVE_EDITOR     = "KeyR";         // `r` - remove editor k
 
 CONSTANTS.TOOLTIPS = {};
 CONSTANTS.TOOLTIPS.KEY_ZOOM                    = "z/Z";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_SLICE_MODE        = "m";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT              = "[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT             = "]";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_OPACITY      = "⇧[";
@@ -88,6 +91,7 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_NEXT   = ".";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_PREV   = ",";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_VISIBILITY   = "v";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "⇧V";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_OUTLINE      = "o";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE           = "p";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR     = "k";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_MATERIAL          = "⇧M";
@@ -179,6 +183,10 @@ CONSTANTS.SINGLETONS = {
 CONSTANTS.RENDER_CANVAS = {
   "main" : "main",
   "side" : "side"
-}
+};
+
+CONSTANTS.GEOMETRY = {
+  "crosshair-gap-half" : 0
+};
 
 export { CONSTANTS };
