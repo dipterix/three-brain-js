@@ -1,4 +1,5 @@
-import { to_array, get_or_default } from '../utils.js';
+import { get_or_default } from '../utils.js';
+import { asArray } from '../utility/asArray.js';
 import { CONSTANTS } from '../core/constants.js';
 import { set_visibility } from '../utils.js';
 
@@ -30,60 +31,61 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
 
   }
 
+
   ViewerControlCenter.prototype.changeAnimClip = function( clipName ){
-    this.canvas.generate_animation_clips( clipName, true, (cmap) => {
 
-      // update time_range
-      this.canvas.update_time_range();
-      this.ctrlAnimTime.min( this.animParameters.min ).max( this.animParameters.max )
-        .onChange(v => { this._update_canvas(); });
+    const cmap = this.canvas.switchColorMap( clipName );
 
-      // update video playback speed FIXME?
-      // const playbackSpeed = this.ctrlAnimSpeed.getValue() || 1;
-
-      if( !cmap ){
-        this.ctrlLegendVisible.setValue( false );
-        this.ctrlRenderTimestamp.setValue( false );
-        if( clipName === '[None]' ){
-          this.canvas.electrodes.forEach((_d) => {
-            for( let _kk in _d ){
-              // _d[ _kk ].visible = true;
-              set_visibility( _d[ _kk ], true );
-            }
-          });
-        }
-      }else{
-
-        this.animParameters.time = this.animParameters.min;
-        this.ctrlLegendVisible.setValue(true);
-
-        // If inactive electrodes are hidden, re-calculate visibility
-        this.updateElectrodeVisibility();
-        // reset color-range
-        if( cmap.value_type === 'continuous' ){
-
-          this.ctrlDisplayRange.setValue( this.__display_range_continuous || '' );
-
-          /*
-           this.ctrlDisplayRange.setValue(
-             `${cmap.lut.minV.toPrecision(5)},${cmap.lut.maxV.toPrecision(5)}`
-           );
-          */
-          this.ctrlDisplayRange.show();
-        }else{
-          this.ctrlDisplayRange.setValue(',');
-          this.ctrlDisplayRange.hide();
-        }
-
+    // this.canavs.switch_media( clipName );
+    this.canvas.threebrain_instances.forEach( (inst) => {
+      if( inst && typeof inst.switchTrack === "function" ) {
+        inst.switchTrack( clipName );
       }
-      this._update_canvas();
     });
+
+    // time range is updated
+    // this.canvas.updateTimeRange();
+    this.ctrlAnimTime.min( this.animParameters.min ).max( this.animParameters.max )
+      // .onChange(v => { this._update_canvas(); });
+
+    // update video playback speed FIXME?
+    // const playbackSpeed = this.ctrlAnimSpeed.getValue() || 1;
+
+    if( !cmap ){
+      this.ctrlLegendVisible.setValue( false );
+      this.ctrlRenderTimestamp.setValue( false );
+      this.ctrlDisplayRange.setValue( "" );
+      if( clipName === '[None]' ){
+        this.canvas.electrodes.forEach((_d) => {
+          for( let _kk in _d ){
+            // _d[ _kk ].visible = true;
+            set_visibility( _d[ _kk ], true );
+          }
+        });
+      }
+    } else {
+
+      this.animParameters.time = this.animParameters.min;
+      this.ctrlLegendVisible.setValue(true);
+
+      // If inactive electrodes are hidden, re-calculate visibility
+      this.updateElectrodeVisibility();
+      // reset color-range
+      if( cmap.isContinuous ) {
+        this.ctrlDisplayRange.setValue( `${cmap._softMinV.toPrecision(4)},${cmap._softMaxV.toPrecision(4)}` );
+        this.ctrlDisplayRange.show();
+      } else {
+        this.ctrlDisplayRange.setValue("");
+        this.ctrlDisplayRange.hide();
+      }
+      this.canvas.needsUpdate = true;
+    }
   }
 
   ViewerControlCenter.prototype.addPreset_animation = function(){
 
     // Check if animation is needed
-    if( to_array( this.settings.color_maps ).length === 0 ){ return; }
+    if( asArray( this.settings.color_maps ).length === 0 ){ return; }
 
     const controllerData = this.animParameters.object;
 
@@ -137,6 +139,12 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         'Display Range', '',
         { folderName : folderName , object : this.animParameters.object })
       .onChange((v) => {
+
+        const dataName = this.ctrlClipName.getValue();
+        const cmap = this.canvas.switchColorMap( dataName, false );
+
+        if( !cmap || !cmap.isContinuous ) { return; }
+
         let ss = v;
         v = v.split(',').map(x => {
           return( parseFloat(x) );
@@ -152,44 +160,18 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
           }else{
             v2 = v[1];
           }
-
-          // Set cmap value range
-          this.__display_range_continuous = ss;
-          this.canvas.switch_colormap( undefined, [v1, v2] );
-          // reset animation tracks
-
+          cmap.setMin( v1 );
+          cmap.setMax( v2 );
         } else {
-          const cmap = this.canvas.switch_colormap();
-          if( cmap && cmap.value_type === 'continuous' ){
-            this.__display_range_continuous = '';
-            this.canvas.switch_colormap( undefined, [
-              cmap.value_range[0],
-              cmap.value_range[1]
-            ] );
+          cmap.resetMin();
+          cmap.resetMax();
+        }
+        this.canvas.threebrain_instances.forEach( (inst) => {
+          if( inst && typeof inst.switchTrack === "function" ) {
+            inst.switchTrack( dataName );
           }
+        });
 
-        }
-        /*
-        if( v.match(/[^0-9,-.eE~]/) ){
-          // illegal chars
-          ss = Array.from(v).map((s) => {
-            return( '0123456789.,-eE~'.indexOf(s) === -1 ? '' : s );
-          }).join('');
-        }
-        let vr = ss.split(/[,~]/);
-        if( vr.length === 2 ){
-          vr[0] = parseFloat( vr[0] );
-          vr[1] = parseFloat( vr[1] );
-        }
-
-        if( !isNaN( vr[0] ) && !isNaN( vr[1] ) ){
-          // Set cmap value range
-          this.canvas.switch_colormap( undefined, vr );
-          // reset animation tracks
-          this.canvas.generate_animation_clips( this.ctrlClipName.getValue() , true );
-        }
-        */
-        this.canvas.generate_animation_clips( this.ctrlClipName.getValue() , true );
         this.broadcast();
         this.canvas.needsUpdate = true;
 
@@ -200,7 +182,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         'Threshold Data', '[None]',
         { folderName : folderName, args : names , object : this.animParameters.object })
       .onChange((v) => {
-        const cmap = this.canvas.color_maps.get(v);
+        const cmap = this.canvas.colorMaps.get(v);
         if(!cmap){
           // this is not a value we can refer to
           this.ctrlThresholdRange.setValue('');
@@ -215,7 +197,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         this.canvas.set_state('threshold_active', true);
         this.canvas.set_state('threshold_variable', v);
 
-        if(cmap.value_type === 'continuous'){
+        if( cmap.isContinuous ){
           this.canvas.set_state('threshold_type', 'continuous');
           this.gui.showControllers( 'Threshold Method', folderName );
 
@@ -226,7 +208,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         }else{
           // '' means no threshold
           this.canvas.set_state('threshold_type', 'discrete');
-          this.ctrlThresholdRange.setValue(cmap.value_names.join('|'));
+          this.ctrlThresholdRange.setValue( cmap._map.join('|') );
           this.gui.hideControllers( 'Threshold Method' , folderName);
         }
         this.broadcast();
@@ -239,6 +221,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         { folderName : folderName , object : this.animParameters.object })
       .onChange((v) => {
         const is_continuous = this.canvas.get_state( 'threshold_type', 'discrete') == 'continuous';
+        v = `${ v }`;
         let candidates = v.split(/[\|,]/).map((x) => { return(x.trim()); });
 
         if(is_continuous){
@@ -332,8 +315,8 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         const currentTime = this.animParameters.time;
         if( Math.abs( currentTime - v ) >= 0.001 ) {
           this.animParameters.time = v;
-          this.canvas.needsUpdate = true;
         }
+        this.canvas.needsUpdate = true;
       });
 
     // Add keyboard shortcut

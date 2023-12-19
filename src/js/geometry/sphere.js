@@ -1,8 +1,12 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial,
-         SphereGeometry, Mesh, Vector3, Matrix4 } from 'three';
+import {
+  MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial, InterpolateDiscrete,
+  SphereGeometry, Mesh, Vector3, Matrix4, Color,
+  ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer
+} from 'three';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { to_array, get_or_default } from '../utils.js';
+import { asArray } from '../utility/asArray.js';
 import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
@@ -16,26 +20,45 @@ class Sphere extends AbstractThreeBrainObject {
     this.type = 'Sphere';
     this.isSphere = true;
     this.isElectrode = false;
+    this.animationActive = false;
+    this._animationName = "[None]";
+    this._currentValue = undefined;
+    this._currentThresholdValue = undefined;
+
+    this.animationKeyFrames = {};
+
+    // Register g.keyframes
+    this._material_type = 'MeshLambertMaterial';
+    for( let frameName in g.keyframes ) {
+      const kf = g.keyframes[ frameName ];
+      const times = asArray( kf.time );
+      const values = asArray( kf.value );
+
+      if( values.length > 0 ) {
+        if( times.length === 0 ) {
+          times.push( 0 );
+        }
+        const timeValuePairs = times.map((t, i) => {
+          return( [ t , values[ i ] ] );
+        })
+        timeValuePairs.sort( (e1, e2) => { return( e1[0] - e2[0] ) });
+        this.animationKeyFrames[ frameName ] = timeValuePairs;
+
+        // Make material based on value
+        this._material_type = 'MeshBasicMaterial';
+      }
+    }
 
     this._materials = {
       'MeshBasicMaterial' : new MeshBasicMaterial( MATERIAL_PARAMS ),
       'MeshLambertMaterial': new MeshLambertMaterial( MATERIAL_PARAMS )
     };
 
-    const gb = new SphereGeometry( g.radius, g.width_segments, g.height_segments ),
-          values = g.keyframes,
-          n_keyframes = to_array( g.keyframes ).length;
+    const gb = new SphereGeometry( g.radius, g.width_segments, g.height_segments );
     this._geometry = gb;
 
     gb.name = 'geom_sphere_' + g.name;
 
-    // Make material based on value
-    if( n_keyframes > 0 ){
-      // Use the first value
-      this._material_type = 'MeshBasicMaterial';
-    }else{
-      this._material_type = 'MeshLambertMaterial';
-    }
 
     const mesh = new Mesh(gb, this._materials[ this._material_type ]);
     mesh.name = 'mesh_sphere_' + g.name;
@@ -60,14 +83,6 @@ class Sphere extends AbstractThreeBrainObject {
     if(!linked){
       mesh.position.fromArray(g.position);
     }
-    if( n_keyframes > 0 ){
-      mesh.userData.ani_exists = true;
-    }
-    mesh.userData.ani_active = false;
-    mesh.userData.ani_params = {...values};
-    mesh.userData.ani_name = 'default';
-    mesh.userData.ani_all_names = Object.keys( mesh.userData.ani_params );
-    mesh.userData.display_info = {};
 
     // make sure not hidden by other objects;
     mesh.renderOrder = -500;
@@ -123,13 +138,17 @@ class Sphere extends AbstractThreeBrainObject {
 
   _link_userData(){
     // register for compatibility
-    this._mesh.userData.add_track_data = ( track_name, data_type, value, time_stamp = 0 ) => {
-      return( this.add_track_data( track_name, data_type, value, time_stamp ) );
-    };
-    this._mesh.userData.get_track_data = ( track_name, reset_material ) => {
-      return( this.get_track_data( track_name, reset_material ) );
-    };
+    // this._mesh.userData.get_track_data = ( track_name, reset_material ) => {
+    //   return( this.get_track_data( track_name, reset_material ) );
+    // };
     this._mesh.userData.dispose = () => { this.dispose(); };
+  }
+
+  get hasAnimationTracks () {
+    for( let k in this.animationKeyFrames ) {
+      return true;
+    }
+    return false;
   }
 
   get label() {
@@ -181,163 +200,169 @@ class Sphere extends AbstractThreeBrainObject {
     } catch (e) {}
   }
 
+  switchTrack( dataName ) {
+    if( typeof dataName !== "string" ) {
+      dataName = "[None]";
+    }
+    this._animationName = dataName;
+    if( !this.hasAnimationTracks ) {
+      this._mesh.material = this._materials.MeshLambertMaterial;
+      this.animationActive = false;
+      return;
+    }
+
+    if( this.animationKeyFrames[ dataName ] ) {
+      this._mesh.material = this._materials.MeshBasicMaterial;
+      this.animationActive = true;
+    } else {
+      this._mesh.material = this._materials.MeshLambertMaterial;
+      this.animationActive = false;
+    }
+
+    this.update();
+    this._canvas.needsUpdate = true;
+  }
+
+  update() {
+    if( !this.hasAnimationTracks ) { return; }
+
+    // kf = [ [ time, value], ... ], time is sorted
+    const time = this._canvas.animParameters.time;
+    let idx;
+
+    this._currentValue = undefined;
+    if( this.animationActive ) {
+      const kf = this.animationKeyFrames[ this._animationName ];
+      if( kf ) {
+        for( idx = 0 ; idx < kf.length - 1 ; idx++ ) {
+          if( kf[ idx + 1 ][0] > time && kf[ idx ][0] <= time ) { break; }
+        }
+        if( idx >= kf.length ) { idx = kf.length - 1; }
+        this._currentValue = kf[ idx ][1];
+      }
+    }
+
+    // check threshold
+    this._currentThresholdValue = undefined;
+    const thresholdName = this._canvas.get_state('threshold_variable');
+    this._thresholdName = thresholdName;
+    if( this._canvas.get_state( 'threshold_active', false) ) {
+      if( typeof thresholdName === "string" ) {
+        const kfThreshold = this.animationKeyFrames[ thresholdName ];
+        if( kfThreshold ) {
+          for( idx = 0 ; idx < kfThreshold.length - 1 ; idx++ ) {
+            if( kfThreshold[ idx + 1 ][0] > time && kfThreshold[ idx ][0] <= time ) { break; }
+          }
+          if( idx >= kfThreshold.length ) { idx = kfThreshold.length - 1; }
+          this._currentThresholdValue = kfThreshold[ idx ][1];
+        }
+      }
+    }
+
+  }
+
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
     super.pre_render({ target : target });
-
     this.object.material.transparent = target !== CONSTANTS.RENDER_CANVAS.main;
 
     if( target !== CONSTANTS.RENDER_CANVAS.main ) { return; }
 
-    const canvas = this._canvas,
-          mesh = this._mesh;
-
     // 0. check if raw position is 0,0,0
-    const const_pos = mesh.userData.construct_params.position;
-    if( is_electrode(mesh) && const_pos[0] === 0 && const_pos[1] === 0 && const_pos[2] === 0 ){
-      mesh.visible = false;
+    const origPos = this.object.userData.construct_params.position;
+    if( this.isElectrode && origPos[0] === 0 && origPos[1] === 0 && origPos[2] === 0 ) {
+      this.object.visible = false;
       return ;
     }
 
     // 1. whether passed threshold
-    let threshold_test = true;
-    let current_value;
-    const track_name = canvas.get_state('threshold_variable');
+    const cmap = this._canvas.currentColorMap();
+    const currentValue = this._currentValue;
+    let thresholdTestPassed = true;
 
-    if( canvas.get_state( 'threshold_active', false) ){
-      // need to check the threshold
-      threshold_test = false;
+    if( this._currentThresholdValue !== undefined ) {
+      thresholdTestPassed = false;
+      const currentThresholdValue = this._currentThresholdValue;
+      const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
+      const operators = this._canvas.get_state('threshold_method');
+      if( this._canvas.get_state('threshold_type') === "continuous" ) {
+        // '|v| < T1', '|v| >= T1', 'v < T1',
+        // 'v >= T1', 'v in [T1, T2]', 'v not in [T1,T2]'
+        if(
+          thresholdRanges.length > 0 && operators >= 0 &&
+          operators < CONSTANTS.THRESHOLD_OPERATORS.length
+        ){
+          const opstr = CONSTANTS.THRESHOLD_OPERATORS[ operators ]
+          let t1 = thresholdRanges[0];
 
-      const track = this.get_track_data(track_name, false);
-
-      if(track){
-
-        // obtain current threshold value
-        if( Array.isArray(track.time) && track.time.length > 1 && Array.isArray(track.value) ){
-          // need to get the value at current time
-          const ani_params = this._canvas.animParameters;
-
-          for(let idx in track.time){
-            if(track.time[idx] >= ani_params.time){
-              current_value = track.value[ idx ];
-              break;
-            }
-          }
-
-        }else{
-          if(Array.isArray(track.value)){
-            current_value = track.value[0];
-          }else{
-            current_value = track.value;
-          }
-        }
-
-        // get threshold criteria
-        if(current_value !== undefined){
-          const ranges = to_array(canvas.get_state('threshold_values'));
-          const opers = canvas.get_state('threshold_method');
-          if( canvas.get_state( 'threshold_type', 'continuous') === 'continuous' ){
-            // contunuous
-            threshold_test = false;
-
-            // '|v| < T1', '|v| >= T1', 'v < T1',
-            // 'v >= T1', 'v in [T1, T2]', 'v not in [T1,T2]'
-            if( ranges.length > 0 && opers >= 0 && opers < CONSTANTS.THRESHOLD_OPERATORS.length ){
-              const opstr = CONSTANTS.THRESHOLD_OPERATORS[ opers ]
-              let t1 = ranges[0];
-
-              if( opstr === 'v = T1' && current_value == t1 ){
-                threshold_test = true;
-              } else if( opstr === '|v| < T1' && Math.abs(current_value) < t1 ){
-                threshold_test = true;
-              } else if( opstr === '|v| >= T1' && Math.abs(current_value) >= t1 ){
-                threshold_test = true;
-              } else if( opstr === 'v < T1' && current_value < t1 ){
-                threshold_test = true;
-              } else if( opstr === 'v >= T1' && current_value >= t1 ){
-                threshold_test = true;
-              } else {
-                let t2 = Math.abs(t1);
-                if( ranges.length === 1 ){
-                  t1 = -t2
-                } else {
-                  t2 = ranges[1];
-                  if( t1 > t2 ){
-                    t2 = t1;
-                    t1 = ranges[1];
-                  }
-                }
-                if( opstr === 'v in [T1, T2]' && current_value <= t2 && current_value >= t1 ){
-                  threshold_test = true;
-                } else if( opstr === 'v not in [T1,T2]' && ( current_value > t2 || current_value < t1 ) ){
-                  threshold_test = true;
-                }
-              }
-
+          if( opstr === 'v = T1' && currentThresholdValue == t1 ){
+            thresholdTestPassed = true;
+          } else if( opstr === '|v| < T1' && Math.abs(currentThresholdValue) < t1 ){
+            thresholdTestPassed = true;
+          } else if( opstr === '|v| >= T1' && Math.abs(currentThresholdValue) >= t1 ){
+            thresholdTestPassed = true;
+          } else if( opstr === 'v < T1' && currentThresholdValue < t1 ){
+            thresholdTestPassed = true;
+          } else if( opstr === 'v >= T1' && currentThresholdValue >= t1 ){
+            thresholdTestPassed = true;
+          } else {
+            let t2 = Math.abs(t1);
+            if( thresholdRanges.length === 1 ){
+              t1 = -t2;
             } else {
-              threshold_test = true;
-            }
-
-
-            /*
-            ranges.forEach((r) => {
-              if(Array.isArray(r) && r.length === 2){
-                if(!threshold_test && r[1] >= current_value && r[0] <= current_value){
-                  threshold_test = true;
-                }
+              t2 = thresholdRanges[1];
+              if( t1 > t2 ){
+                t2 = t1;
+                t1 = thresholdRanges[1];
               }
-            });
-            */
-          }else{
-            // discrete
-            threshold_test = ranges.includes( current_value );
+            }
+            if( opstr === 'v in [T1, T2]' && currentThresholdValue <= t2 && currentThresholdValue >= t1 ){
+              thresholdTestPassed = true;
+            } else if( opstr === 'v not in [T1,T2]' && ( currentThresholdValue > t2 || currentThresholdValue < t1 ) ){
+              thresholdTestPassed = true;
+            }
           }
-        }
-      }
 
+        } else {
+          thresholdTestPassed = true;
+        }
+      } else {
+        // discrete
+        thresholdTestPassed = thresholdRanges.includes( currentThresholdValue );
+      }
     }
 
     // 2. check if active
-    let active_test = threshold_test & mesh.userData.ani_active;
+    const isActive = thresholdTestPassed && this.animationActive && currentValue !== undefined;
 
     // 3. change material, don't use switch_material as that's heavy
-    if( active_test && mesh.material.isMeshLambertMaterial ){
-      mesh.material = this._materials.MeshBasicMaterial;
-    }else if( !active_test && mesh.material.isMeshBasicMaterial ){
-      mesh.material = this._materials.MeshLambertMaterial;
+    if( isActive && this.object.material.isMeshLambertMaterial ){
+      this.object.material = this._materials.MeshBasicMaterial;
+    }else if( !isActive && this.object.material.isMeshBasicMaterial ){
+      this.object.material = this._materials.MeshLambertMaterial;
+    }
+    if( isActive ) {
+      cmap.getColor( currentValue , this.object.material.color );
     }
 
     // 4. set visibility
-    const vis = canvas.get_state( 'electrode_visibility', 'all visible');
+    const vis = this._canvas.get_state( 'electrode_visibility', 'all visible');
 
     switch (vis) {
       case 'all visible':
-        mesh.visible = true;
+        this.object.visible = true;
         break;
       case 'hidden':
-        mesh.visible = false;
+        this.object.visible = false;
         break;
       case 'hide inactives':
         // The electrode has no value, hide
-        if( active_test ){
-          mesh.visible = true;
+        if( isActive ){
+          this.object.visible = true;
         }else{
-          mesh.visible = false;
+          this.object.visible = false;
         }
         break;
-    }
-    // 5. check if mixer exists, update
-    if( mesh.userData.ani_mixer ){
-      // mesh.userData.ani_mixer.update( results.current_time_delta - mesh.userData.ani_mixer.time );
-      mesh.userData.ani_mixer.update( this._canvas.animParameters.trackPosition - mesh.userData.ani_mixer.time );
-
-    }
-
-    // 6. if the object is chosen, display information
-    if( mesh === canvas.object_chosen ){
-      mesh.userData.display_info.threshold_name = track_name;
-      mesh.userData.display_info.threshold_value = current_value;
-      mesh.userData.display_info.display_name = canvas.get_state('display_variable') || '[None]';
     }
 
   }
@@ -349,12 +374,12 @@ class Sphere extends AbstractThreeBrainObject {
       this._mesh.material = _m;
       this._mesh.material.needsUpdate = true;
       if( update_canvas ){
-        this._canvas.start_animation( 0 );
+        this._canvas.needsUpdate = true;
       }
     }
   }
 
-
+  /*
   add_track_data( track_name, data_type, value, time_stamp = 0 ){
     let first_value = value, track_value = value;
     if(Array.isArray(time_stamp)){
@@ -378,34 +403,32 @@ class Sphere extends AbstractThreeBrainObject {
       "target"    : ".material.color",
       "cached"    : false
     };
-    if( !Array.isArray( this._mesh.userData.ani_all_names ) ){
-      this._mesh.userData.ani_all_names = [];
-    }
-    if(!this._mesh.userData.ani_all_names.includes( track_name )){
-      this._mesh.userData.ani_all_names.push( track_name );
+    if(!this._animationAllNames.includes( track_name )){
+      this._animationAllNames.push( track_name );
     }
   }
 
   get_track_data( track_name, reset_material ){
     let re;
 
-    if( this._mesh.userData.ani_exists ){
-      if( track_name === undefined ){ track_name = this._mesh.userData.ani_name; }
+    if( this.hasAnimationTracks ){
+      if( track_name === undefined ){ track_name = this._animationName; }
       re = this._mesh.userData.ani_params[ track_name ];
     }
 
     if( reset_material ){
       if( re && re.value !== null ){
         this._mesh.material = this._materials.MeshBasicMaterial;
-        this._mesh.userData.ani_active = true;
+        this.animationActive = true;
       }else{
         this._mesh.material = this._materials.MeshLambertMaterial;
-        this._mesh.userData.ani_active = false;
+        this.animationActive = false;
       }
     }
 
     return( re );
   }
+  */
 
   get_summary({
     reset_fs_index = false,
@@ -1084,4 +1107,4 @@ function is_electrode(e) {
   }
 }
 
-export { gen_sphere, add_electrode, is_electrode, add_electrode2 };
+export { gen_sphere, is_electrode };

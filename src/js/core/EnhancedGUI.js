@@ -353,7 +353,7 @@ class EnhancedGUI extends GUI {
   setFromDictionary( args ){
     const keys = [
       "Background Color", "Camera Position", "Display Coordinates", "Show Panels",
-      "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
+      "Slice Mode", "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
       "Render Distance", "Surface Type", "Surface Material",
       "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
@@ -365,7 +365,7 @@ class EnhancedGUI extends GUI {
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity", "Voxel Min", "Voxel Max",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
       "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift",
-      "Outlines"
+      "Outlines", "Left Mesh Clipping", "Right Mesh Clipping"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {
@@ -374,7 +374,11 @@ class EnhancedGUI extends GUI {
         const controller = this.getController( k, "", false );
         if( !controller.isfake ) {
           console.debug(`Initialize setting ${ k } -> ${ value }`);
-          controller.setValue( value );
+          try {
+            controller.setValue( value );
+          } catch (e) {
+            console.warn(`Cannot initialize settings ${ k } -> ${ value }. \n${e}`);
+          }
         }
       }
     });

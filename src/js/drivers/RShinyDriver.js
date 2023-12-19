@@ -160,11 +160,8 @@ class RShinyDriver {
 
     const colorMapName = this.canvas.get_state( 'color_map' );
     if( typeof colorMapName === "string" ) {
-      data.color_map = this.canvas.color_maps.get( colorMapName )
-    }
-
-    if( this.app.controlCenter && this.app.controlCenter.ctrlClipName ) {
-      data.current_clip = this.app.controlCenter.ctrlClipName.getValue();
+      data.current_clip = colorMapName;
+      data.color_map = this.canvas.currentColorMap();
     } else {
       data.current_clip = "[none]";
     }

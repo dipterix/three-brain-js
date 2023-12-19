@@ -74,6 +74,8 @@ class AbstractThreeBrainObject {
     this.warn('method get_track_data(track_name, reset_material) not implemented...');
   }
 
+  update() {}
+
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
       this.get_world_position();
@@ -130,7 +132,7 @@ class AbstractThreeBrainObject {
         this.object.renderOrder = CONSTANTS.RENDER_ORDER[ this.type ] || 0;
       }
 
-      if( this.object.isMesh ){
+      if( this.object.isMesh || this.object.isSprite ){
         if( Array.isArray(this._params.trans_mat) &&
             this._params.trans_mat.length === 16 ) {
           let trans = new Matrix4();

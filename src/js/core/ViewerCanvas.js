@@ -31,15 +31,15 @@ import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
-import { generate_animation_default } from '../Math/animations.js';
 import { Compass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
+import { NamedLut } from './NamedLut.js';
 
 // Utility
 import { asArray } from '../utility/asArray.js';
 import { asColor, invertColor, colorLuma } from '../utility/color.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
-import { Lut, addToColorMapKeywords } from '../jsm/math/Lut2.js';
+import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
 import { gen_sphere, is_electrode } from '../geometry/sphere.js';
 import { gen_datacube } from '../geometry/datacube.js';
@@ -99,6 +99,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     super( el );
 
+    this._tmpVec3 = new Vector3();
+    this._tmpMat4 = new Matrix4();
+
     this.isViewerCanvas = true;
     this.debug = debug;
     this.debugVerbose('Debug Mode: ON.');
@@ -121,6 +124,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         position: new Vector3()
       }
     };
+    this.timeChanged = true;
     // Is system supporting WebGL2? some customized shaders might need this feature
     // As of 08-2019, only chrome, firefox, and opera support full implementation of WebGL.
     this.has_webgl2 = has_webgl2;
@@ -189,7 +193,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // If there exists animations, this will control the flow;
     this.animation_clips = new Map();
-    this.color_maps = new Map();
+    this.colorMaps = new Map();
     this.animParameters = new AnimationParameters();
 
     // Set pixel ratio, separate settings for main and side renderers
@@ -642,7 +646,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           !cache_info || typeof(cache_info) !== "object" ||
           typeof cache_info.file_name !== "string"
         ) { continue; }
-        const path = cache_folder + g.cache_name + '/' + cache_info.file_name;
+        const path = (cache_folder + g.cache_name + '/' + cache_info.file_name).replaceAll(/[\\\/]+/g, "/");
         this.debugVerbose(`Loading group [${ g.name }] data: [${ path }]`);
         const item = this.fileLoader.read( path );
         if( item && !item.data ) {
@@ -680,7 +684,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           for(let video_name in media_content){
             const content = media_content[video_name];
             if( !content.is_url ){
-              content.url = cache_folder + g.cache_name + '/' + content.url;
+              content.url = (cache_folder + g.cache_name + '/' + content.url).replaceAll(/[\\\/]+/g, "/");
               content.is_url = true;
               const blob = await fetch(content.url).then(r => r.blob());
               content.url = URL.createObjectURL(blob);
@@ -817,7 +821,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.state_data.clear();
     this.shared_data.clear();
-    this.color_maps.clear();
+    this.colorMaps.clear();
     // this._mouse_click_callbacks['side_viewer_depth'] = undefined;
 
     this.debugVerbose('TODO: Need to dispose animation clips');
@@ -1187,14 +1191,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.object_chosen = m;
       this._last_object_chosen = m;
       this.highlight( this.object_chosen, false );
+      this.animParameters.updateFocusedInstance( m.userData.instance );
       this.debugVerbose('object selected ' + m.name);
 
 
-    }else{
+    } else {
       if( auto_unfocus ){
         if( this.object_chosen ) {
           this.highlight( this.object_chosen, true );
+          this.animParameters.updateFocusedInstance( undefined );
           this.object_chosen = undefined;
+          this.instanceChosen = undefined;
         }
       }
     }
@@ -1235,141 +1242,79 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   /*---- Colors, animations, media ------------------------------------------*/
-  add_colormap( name, alias, value_type, value_names, value_range, time_range,
-                color_keys, color_vals, n_levels, hard_range ){
+  createColorMap({
+    dataName,           // data value
+    displayName,        // display name
+    controlColors,      // array of colors (key colors) or color name
+    isContinuous = true,
+    timeRange = null,   // time range where the color map is valid
 
-    const color_name = name + '--'  + this.container_id;
+    valueRange = null,  // for continuous
+    hardRange = null,   // for continuous values that have theoretical boundaries
 
-    // Step 1: register to ColorMapKeywords
-    const cmap_keys = [];
+    valueKeys = null,   // for discrete  values
+  } = {}){
 
-    // n_color is number of colors in Lut, not the true levels of colors
-    const n_color = Math.max( 2 , asArray( color_keys ).length );
+    if( typeof dataName !== "string" ) { return; }
 
-    // Step 2:
-    for( let ii=0; ii < n_color; ii++ ){
-      cmap_keys.push([ ii / (n_color-1) , color_vals[ii] ]);
+    const cmap = new NamedLut({
+      colormap    : controlColors,
+      continuous  : isContinuous,
+      name        : typeof displayName === "string" ? displayName : dataName
+    })
+
+    if( Array.isArray( timeRange ) && timeRange.length > 0 ) {
+      cmap.setTimeRange( timeRange[0], timeRange[1] );
+    } else {
+      cmap.setTimeRange( timeRange );
     }
 
-    addToColorMapKeywords(
-      color_name,
-      cmap_keys
-    );
-
-    const lut = new Lut( color_name , n_color );
-
-    // min and max cannot be the same, otherwise colors will not be rendered
-    if( value_type === 'continuous' ){
-      lut.setMin( value_range[0] );
-      if( value_range[1] === value_range[0] ){
-        lut.setMax( value_range[0] + 1 );
-      }else{
-        lut.setMax( value_range[1] );
+    if( cmap.isContinuous ) {
+      if( Array.isArray( hardRange ) && hardRange.length == 2 ) {
+        cmap.setDataMin( hardRange[0] );
+        cmap.setDataMax( hardRange[1] );
       }
-    }else{
-      lut.setMin( 0 );
-      lut.setMax( Math.max( n_levels - 1, 1) );
+      cmap._defaultMinV = valueRange[0];
+      cmap._defaultMaxV = valueRange[1];
+      cmap.setMin( valueRange[0] );
+      cmap.setMax( valueRange[1] );
+    } else {
+      cmap.setKeys( valueKeys );
     }
 
-    // step 3: register hard range
-    let theoretical_range;
-    if( Array.isArray(hard_range) && hard_range.length == 2 ){
-      theoretical_range = [hard_range[0], hard_range[1]];
-    }
-
-    // step 4: set alias
-    let alt_name = alias;
-    if( typeof alt_name !== 'string' || alt_name === '' ){
-      alt_name = name;
-    }
-
-    this.color_maps.set( name, {
-      lut               : lut,
-      name              : name,
-      alias             : alt_name,
-      value_type        : value_type,
-      value_names       : asArray( value_names ),
-      time_range        : time_range,
-      n_levels          : n_levels,
-      // Used for back-up
-      value_range       : [ lut.minV, lut.maxV ],
-      theoretical_range : theoretical_range
-    });
+    this.colorMaps.set( dataName, cmap );
 
   }
 
-  switch_colormap( name, value_range = [] ){
-    let cmap;
-    if( name ){
-      this.set_state( 'color_map', name );
+  switchColorMap( dataName, updateTimeRange = true ) {
 
-      cmap = this.color_maps.get( name );
+    this.needsUpdate = true;
 
-      // also need to query surface & datacube2 to check the time range
+    let cmap = undefined;
+    if( dataName ) {
+      this.set_state( 'color_map', dataName );
+      cmap = this.colorMaps.get( dataName );
 
-      if( cmap ){
-        this.set_state( 'time_range_min', cmap.time_range[0] );
-        this.set_state( 'time_range_max', cmap.time_range[1] );
-      }else{
+      if( cmap && cmap.hasTimeRange ){
+        this.set_state( 'time_range_min', cmap.minTime );
+        this.set_state( 'time_range_max', cmap.maxTime );
+      } else {
         this.set_state( 'time_range_min', 0 );
         this.set_state( 'time_range_max', 1 );
       }
-
-    }else{
-      name = this.get_state( 'color_map', '' );
-      cmap = this.color_maps.get( name );
-      // return( this.color_maps.get( name ) );
-    }
-    if( cmap && value_range.length === 2 && value_range[0] < value_range[1] &&
-        // Must be continuous color map
-        cmap.value_type === 'continuous' ){
-      // Check hard ranges
-      const hard_range = cmap.theoretical_range;
-      let minv = value_range[0],
-          maxv = value_range[1];
-      if( Array.isArray(hard_range) && hard_range.length == 2 ){
-        if( minv < hard_range[0] ){
-          minv = hard_range[0];
-          if( maxv < minv ){
-            maxv = minv + 1e-100;
-          }
-        }
-        if( maxv > hard_range[1] ){
-          maxv = hard_range[1];
-          if( maxv < minv ){
-            minv = maxv - 1e-100;
-          }
-        }
-      }
-
-      // set cmap value_range
-      cmap.lut.setMax( maxv );
-      cmap.lut.setMin( minv );
-      // Legend needs to be updated
-      this.start_animation( 0 );
+    } else {
+      cmap = this.colorMaps.get( this.get_state( 'color_map', '' ) );
     }
 
-    this.update_time_range();
-    if( cmap ){
-      cmap.time_range[0] = this.animParameters.min;
-      cmap.time_range[1] = this.animParameters.max;
+    if( updateTimeRange ) {
+      this.updateTimeRange();
     }
-    return( cmap );
+
+    return cmap;
   }
 
-  get_color(v, name){
-    let cmap;
-    if( name ){
-      cmap = this.color_maps.get( name );
-    }else{
-      cmap = this.color_maps.get( this.get_state( 'color_map', '' ) );
-    }
-
-    if(cmap === undefined){
-      return('#e2e2e2');
-    }else{
-      return(cmap.lut.getColor(v));
-    }
+  currentColorMap() {
+    return this.colorMaps.get( this.get_state( 'color_map', '' ) );
   }
 
   switch_media( name ){
@@ -1426,162 +1371,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
-  // Generate animation clips and mixes
-  generate_animation_clips( animation_name = 'Value', set_current=true,
-                            callback = (e) => {} ){
-
-    if( animation_name === undefined ){
-      animation_name = this.shared_data.get('animation_name') || 'Value';
-    }else{
-      this.shared_data.set('animation_name', animation_name);
-    }
-
-    this.switch_media( animation_name );
-
-    // TODO: make sure cmap exists or use default lut
-    const cmap = this.switch_colormap( animation_name );
-    // this.color_maps
-
-    this.mesh.forEach( (m, k) => {
-      if( !m.isMesh || !m.userData.get_track_data ){ return(null); }
-
-      if( !m.userData.ani_exists ){ return(null); }
-
-      // keyframe is not none, generate animation clip(s)
-      /**
-       * Steps to make an animation
-       *
-       * 1. get keyframes, here is "ColorKeyframeTrack"
-       *        new ColorKeyframeTrack( '.material.color', time_key, color_value, InterpolateDiscrete )
-       *    keyframe doesn't specify which object, it also can only change one attribute
-       * 2. generate clip via "AnimationClip"
-       *        new AnimationClip( clip_name , this.time_range_max - this.time_range_min, keyframes );
-       *    animation clip combines multiple keyframe, still, doesn't specify which object
-       * 3. mixer via "AnimationMixer"
-       *        new AnimationMixer( m );
-       *    A mixer specifies an object
-       * 4. combine mixer with clips via "action = mixer.clipAction( clip );"
-       *    action.play() will play the animation clips
-       */
-
-      // Step 0: get animation time_stamp start time
-      // lut: lut,
-      // value_type: value_type,
-      // value_names: value_names, time_range: time_range
-
-      // Obtain mixer, which will be used in multiple places
-      let keyframe;
-
-      // Step 1: Obtain keyframe tracks
-      // if animation_name exists, get tracks, otherwise reset to default material
-      const track_data = m.userData.get_track_data( animation_name, true );
-
-      // no keyframe tracks, remove animation
-      if( !track_data ){
-
-        // If action is going, stop them all
-        if( m.userData.ani_mixer ){ m.userData.ani_mixer.stopAllAction(); }
-        return( null );
-
-      }
-
-      if( typeof m.userData.generate_animation === 'function'){
-        keyframe = m.userData.generate_animation(track_data, cmap, this.animation_clips, m.userData.ani_mixer );
-      }else{
-        keyframe = generate_animation_default(m, track_data, cmap, this.animation_clips, m.userData.ani_mixer );
-      }
-      if( !keyframe ){ return; }
-
-      const _time_min = cmap.time_range[0],
-            _time_max = cmap.time_range[1];
-
-      const clip_name = 'action_' + m.name + '__' + track_data.name;
-      let clip = this.animation_clips.get( clip_name ), new_clip = false;
-
-      if( !clip ){
-        clip = new AnimationClip( clip_name, _time_max - _time_min, [keyframe] );
-        this.animation_clips.set( clip_name, clip );
-        new_clip = true;
-      }else{
-        clip.duration = _time_max - _time_min;
-        clip.tracks[0].name = keyframe.name;
-        clip.tracks[0].times = keyframe.times;
-        clip.tracks[0].values = keyframe.values;
-      }
-
-      // Step 3: create mixer
-      if( m.userData.ani_mixer ){
-        m.userData.ani_mixer.stopAllAction();
-      }
-      m.userData.ani_mixer = new AnimationMixer( m );
-      m.userData.ani_mixer.stopAllAction();
-
-      // Step 4: combine mixer with clip
-      const action = m.userData.ani_mixer.clipAction( clip );
-      action.play();
-
-
-    });
-
-
-
-    callback( cmap );
-  }
-
-
   /*---- Update function at each animationframe -----------------------------*/
 
   // Animation-related:
   incrementTime(){
-
-    this.animParameters.incrementTime();
-    const objectInfo = this.animParameters.userData.objectFocused;
-
-    // set chosen object to show mesh info
-    if(this.object_chosen !== undefined && this.object_chosen.userData ){
-
-      objectInfo.enabled = true;
-
-      const objectUserData = this.object_chosen.userData;
-      const objectConstructParams = objectUserData.construct_params;
-      this.object_chosen.getWorldPosition( objectInfo.position );
-
-      objectInfo.name = objectConstructParams.name;
-      objectInfo.customInfo = objectConstructParams.custom_info;
-      objectInfo.isElectrode = objectConstructParams.is_electrode || false;
-      objectInfo.MNI305Position = objectUserData.MNI305_position;
-
-      objectInfo.templateMapping.mapped = objectUserData._template_mapped || false;
-      objectInfo.templateMapping.shift = objectUserData._template_shift || 0;
-      objectInfo.templateMapping.space = objectUserData._template_space || 'original';
-      objectInfo.templateMapping.surface = objectUserData._template_surface || 'NA';
-      objectInfo.templateMapping.hemisphere = objectUserData._template_hemisphere || 'NA';
-      objectInfo.templateMapping.mni305 = objectUserData._template_mni305;
-
-
-      // show mesh value info
-      objectInfo.currentDataValue = undefined;
-      if( this.object_chosen.userData.ani_exists ){
-
-        const track_type = this.get_state("color_map");
-        const track_data = objectUserData.get_track_data( track_type );
-
-        if( track_data ){
-          const time_stamp = asArray( track_data.time );
-          const values = asArray( track_data.value );
-          const currentTime = this.animParameters.time;
-          let _tmp = - Infinity;
-          for( let ii in time_stamp ){
-            if(time_stamp[ ii ] <= currentTime && time_stamp[ ii ] > _tmp){
-              objectInfo.currentDataValue = values[ ii ];
-              _tmp = time_stamp[ ii ];
-            }
-          }
-        }
-      }
-    } else {
-      objectInfo.enabled = false;
-    }
+    this.timeChanged = this.animParameters.incrementTime();
   }
 
   // set renderer's flag (persistLevel):
@@ -1644,6 +1438,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.trackball.update();
     this.compass.update();
 
+    // check if time has timeChanged
+    this.threebrain_instances.forEach((inst) => {
+      inst.update();
+    });
   }
 
   // re-render canvas to display additional information without 3D
@@ -1810,7 +1608,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   }
 
-  update_time_range(){
+  updateTimeRange(){
     let min_t0 = this.get_state( 'time_range_min0' );
     let max_t0 = this.get_state( 'time_range_max0' );
     let min_t = this.get_state( 'time_range_min', 0 );
@@ -1873,24 +1671,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
-  renderTimestamp( x = 10, y = 10, w = 100, h = 100, context_wrapper = undefined  ){
+  renderTimestamp( x = 10, y = 10, w = 100, h = 100, contextWrapper = undefined  ){
 
     if( !this.animParameters.exists ) { return; }
 
-    if( !context_wrapper ){
-      context_wrapper = this.domContextWrapper;
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
     }
 
     this._lineHeight_normal = this._lineHeight_normal || Math.round( 25 * this.pixel_ratio[0] );
     this._fontSize_normal = this._fontSize_normal || Math.round( 15 * this.pixel_ratio[0] );
 
-    context_wrapper._lineHeight_normal = this._lineHeight_normal;
-    context_wrapper._fontSize_normal = this._fontSize_normal;
+    contextWrapper._lineHeight_normal = this._lineHeight_normal;
+    contextWrapper._fontSize_normal = this._fontSize_normal;
 
     // Add current time to bottom right corner
     if( this.animParameters.renderTimestamp ) {
-      context_wrapper.set_font( this._fontSize_normal, this._fontType );
-      context_wrapper.fill_text(
+      contextWrapper.set_font( this._fontSize_normal, this._fontType );
+      contextWrapper.fill_text(
         // Current clock time
         `${ this.animParameters.time.toFixed(3) } s`,
 
@@ -1899,275 +1697,71 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
-  renderLegend( x = 10, y = 10, w = 100, h = 100, context_wrapper = undefined ){
+  renderLegend( x = 10, y = 10, w = 100, h = 100, contextWrapper = undefined ){
 
-    const cmap = this.switch_colormap();
+    const cmap = this.currentColorMap();
 
     // whether to draw legend
     if( !this.animParameters.renderLegend ) { return; }
-    if( !(cmap && (cmap.lut.n !== undefined)) ) { return; }
-
-    if( !context_wrapper ){
-      context_wrapper = this.domContextWrapper;
+    if( !cmap ) { return; }
+    if( !cmap.lut.length ) { return; }
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
     }
 
     // Added: if info text is disabled, then legend should not display
     // correspoding value
-    let info_disabled = true;
+    let hideInfoFocused = true;
     let currentValue;
-    if( this.animParameters.userData.objectFocused.enabled && !this.get_state( 'info_text_disabled') ) {
-      info_disabled = false;
-      currentValue = this.animParameters.userData.objectFocused.currentDataValue;
+    if( this.animParameters.hasObjectFocused && !this.get_state( 'info_text_disabled') ) {
+      hideInfoFocused = false;
+      currentValue = this.animParameters.objectFocused.currentDataValue;
     }
-    const lut = cmap.lut,
-          color_type = cmap.value_type,
-          color_names = cmap.value_names,
-          legend_title = cmap.alias || '',
-          actual_range = asArray( cmap.value_range );
 
     this._lineHeight_legend = this._lineHeight_legend || Math.round( 15 * this.pixel_ratio[0] );
     this._fontSize_legend = this._fontSize_legend || Math.round( 10 * this.pixel_ratio[0] );
 
-    let legend_width = 25 * this.pixel_ratio[0],
-        legend_offset = this._fontSize_legend * 7 + legend_width, // '__-1.231e+5__', more than 16 chars
-        title_offset = Math.ceil(
-          legend_title.length * this._fontSize_legend * 0.42 -
-          legend_width / 2 + legend_offset
-        );
-
-    // Get color map from lut
-    const continuous_cmap = color_type === 'continuous' && lut.n > 1;
-    const discrete_cmap = color_type === 'discrete' && lut.n > 0 && Array.isArray(color_names);
-
-    let legend_height = 0.50,                  // Legend takes 60% of the total heights
-        legend_start = 0.30;                  // Legend starts at 20% of the height
-
-    if( continuous_cmap ){
-      // Create a linear gradient map
-      const grd = this.domContext.createLinearGradient( 0 , 0 , 0 , h );
-
-      // Determine legend coordinates and steps
-      let legend_step = legend_height / ( lut.n - 1 );
-
-      // Starts from legend_start of total height (h)
-      grd.addColorStop( 0, this.background_color );
-      grd.addColorStop( legend_start - 4 / h, this.background_color );
-      for( let ii in lut.lut ){
-        grd.addColorStop( legend_start + legend_step * ii,
-            '#' + lut.lut[lut.n - 1 - ii].getHexString());
+    const pixelRatio = this.pixel_ratio[0];
+    cmap.renderLegend(
+      contextWrapper, w, h,
+      {
+        legendWidth       : 25 * pixelRatio,
+        // legendHeightRatio : 0.5,
+        offsetTopRatio    : 0.3,
+        offsetRight       : 0,
+        lineHeight        : this._lineHeight_legend,
+        fontSize          : this._fontSize_legend,
+        fontType          : this._fontType,
+        highlightValue    : currentValue,
+        foreground        : this.foreground_color,
+        background        : this.background_color
       }
-      grd.addColorStop( legend_height + legend_start + 4 / h, this.background_color );
-
-      // Fill with gradient
-      context_wrapper.fill_gradient(  grd, w - legend_offset ,
-                                      legend_start * h ,
-                                      legend_width , legend_height * h );
-      //this.domContext.fillStyle = grd;
-      //this.domContext.fillRect( w - legend_offset , legend_start * h , legend_width , legend_height * h );
-
-      // Add value labels and title
-      let legent_ticks = [];
-      let zero_height = ( legend_start + lut.maxV * legend_height /
-                          (lut.maxV - lut.minV)) * h,
-          minV_height = (legend_height + legend_start) * h,
-          maxV_height = legend_start * h;
-      //  For ticks
-      let text_offset = Math.round( legend_offset - legend_width ),
-          text_start = Math.round( w - text_offset + this._fontSize_legend ),
-          text_halfheight = Math.round( this._fontSize_legend * 0.21 );
-
-      // title. It should be 2 lines above legend grid
-      context_wrapper.set_font( this._fontSize_legend, this._fontType );
-      context_wrapper.set_font_color( this.foreground_color );
-
-      // console.log(`${w - legend_offset}, ${maxV_height - this._lineHeight_legend * 3 + text_halfheight}, ${this.domContext.font}, ${legend_title}`);
-      context_wrapper.fill_text( legend_title, w - title_offset,
-          maxV_height - this._lineHeight_legend * 2 + text_halfheight );
-
-      if( actual_range.length == 2 ){
-        let vrange = `${actual_range[0].toPrecision(4)} ~ ${actual_range[1].toPrecision(4)}`;
-        vrange = vrange.replace(/\.[0]+\ ~/, ' ~')
-                       .replace(/\.[0]+$/, '').replace(/\.[0]+e/, 'e');
-        context_wrapper.fill_text( `[${vrange}]`, w - Math.ceil( legend_offset * 1.2 ),
-          minV_height + this._lineHeight_legend * 2 + text_halfheight );
-      }
-
-
-      // ticks
-      let draw_zero = lut.minV < 0 && lut.maxV > 0;
-
-      if( typeof( currentValue ) === 'number' ){
-        // There is a colored object rendered, display it
-        let value_height = ( legend_start + (lut.maxV - currentValue) * legend_height / (lut.maxV - lut.minV)) * h;
-
-        // Decide whether to draw 0 and current object value
-        // When max and min is too close, hide 0, otherwise it'll be jittered
-        if( Math.abs( zero_height - value_height ) <= this._fontSize_legend ){
-          draw_zero = false;
-        }
-        if(Math.abs( value_height - minV_height) > this._fontSize_legend){
-          legent_ticks.push([lut.minV.toPrecision(4), minV_height, 0]);
-        }
-        if( value_height - minV_height > this._lineHeight_legend ){
-          value_height = minV_height + this._lineHeight_legend;
-        }
-        if(Math.abs( value_height - maxV_height) > this._fontSize_legend){
-          legent_ticks.push([lut.maxV.toPrecision(4), maxV_height, 0]);
-        }
-        if( maxV_height - value_height > this._lineHeight_legend ){
-          value_height = maxV_height - this._lineHeight_legend;
-        }
-
-        legent_ticks.push([
-          currentValue.toPrecision(4), value_height, 1 ]);
-      } else {
-        legent_ticks.push([lut.minV.toPrecision(4), minV_height, 0]);
-        legent_ticks.push([lut.maxV.toPrecision(4), maxV_height, 0]);
-      }
-
-      if( draw_zero ){
-        legent_ticks.push(['0', zero_height, 0]);
-      }
-
-
-      // Draw ticks
-      context_wrapper.set_font( this._fontSize_legend, this._fontType );
-      context_wrapper.set_font_color( this.foreground_color );
-
-      // Fill text
-      legent_ticks.forEach((tick) => {
-        if( tick[2] === 1 ){
-          context_wrapper.set_font( this._fontSize_legend, this._fontType, true );
-          context_wrapper.fill_text( tick[0], text_start, tick[1] + text_halfheight );
-          context_wrapper.set_font( this._fontSize_legend, this._fontType, false );
-        }else{
-          context_wrapper.fill_text( tick[0], text_start, tick[1] + text_halfheight );
-        }
-
-      });
-
-      // Fill ticks
-      // this.domContext.strokeStyle = this.foreground_color;  // do not set state of stroke if color not changed
-      // this.domContext.beginPath();
-      context_wrapper.start_draw_line();
-
-      legent_ticks.forEach((tick) => {
-        if( tick[2] === 0 ){
-          context_wrapper.draw_line([
-            [ w - text_offset , tick[1] ],
-            [ w - text_offset + text_halfheight , tick[1] ]
-          ]);
-          // this.domContext.moveTo( w - text_offset , tick[1] );
-          // this.domContext.lineTo( w - text_offset + text_halfheight , tick[1] );
-        }else if( tick[2] === 1 ){
-          context_wrapper.draw_line([
-            [ w - text_offset , tick[1] ],
-            [ w - text_offset + text_halfheight , tick[1] - 2 ],
-            [ w - text_offset + text_halfheight , tick[1] + 2 ],
-            [ w - text_offset , tick[1] ]
-          ]);
-          // this.domContext.moveTo( w - text_offset , tick[1] );
-          // this.domContext.lineTo( w - text_offset + text_halfheight , tick[1] - 2 );
-          // this.domContext.lineTo( w - text_offset + text_halfheight , tick[1] + 2 );
-          // this.domContext.lineTo( w - text_offset , tick[1] );
-        }
-      });
-      // this.domContext.stroke();
-      context_wrapper.stroke_line();
-
-
-    }else if( discrete_cmap ){
-      // color_names must exists and length must be
-      const n_factors = cmap.n_levels; // Not color_names.length;
-      let _text_length = 1;
-
-      color_names.forEach((_n)=>{
-        if( _text_length < _n.length ){
-          _text_length = _n.length;
-        }
-      });
-
-      legend_offset = Math.ceil( this._fontSize_legend * 0.42 * ( _text_length + 7 ) + legend_width );
-
-      // this._lineHeight_legend * 2 = 60 px, this is the default block size
-      legend_height = ( ( n_factors - 1 ) * this._lineHeight_legend * 2 ) / h;
-      legend_height = legend_height > 0.60 ? 0.60: legend_height;
-
-      let legend_step = n_factors == 1 ? 52 : (legend_height / ( n_factors - 1 ));
-      let square_height = Math.floor( legend_step * h ) - 2;
-      square_height = square_height >= 50 ? 50 : Math.max(square_height, 4);
-
-
-      let text_offset = Math.round( legend_offset - legend_width ),
-          text_start = Math.round( w - text_offset + this._fontSize_legend ),
-          text_halfheight = Math.round( this._fontSize_legend * 0.21 );
-
-
-      context_wrapper.set_font( this._fontSize_legend, this._fontType );
-      context_wrapper.set_font_color( this.foreground_color );
-
-      // Draw title. It should be 1 lines above legend grid
-      context_wrapper.fill_text( legend_title, w - title_offset, legend_start * h - 50 );
-
-      // Draw Ticks
-      for(let ii = 0; ii < n_factors; ii++ ){
-        let square_center = (legend_start + legend_step * ii) * h;
-        context_wrapper.fill_rect(
-          '#' + lut.getColor(ii).getHexString(),
-          w - legend_offset , square_center - square_height / 2 ,
-          legend_width , square_height
-        );
-
-        /*
-        this.domContext.beginPath();
-        this.domContext.moveTo( w - text_offset , square_center );
-        this.domContext.lineTo( w - text_offset + text_halfheight , square_center );
-        this.domContext.stroke();
-        */
-        context_wrapper.set_font_color( this.foreground_color );
-
-        if( !info_disabled && currentValue === color_names[ii]){
-          context_wrapper.set_font( this._fontSize_legend, this._fontType, true );
-          context_wrapper.fill_text(color_names[ii],
-            text_start, square_center + text_halfheight, w - text_start - 1
-          );
-          context_wrapper.set_font( this._fontSize_legend, this._fontType, false );
-        }else{
-          context_wrapper.fill_text(color_names[ii],
-            text_start, square_center + text_halfheight, w - text_start - 1
-          );
-        }
-
-      }
-
-
-    }
+    );
   }
 
   renderSelectedObjectInfo(
     x = 10, y = 10, w = 100, h = 100,
-    context_wrapper = undefined, force_left = false ){
-
-    const objectInfo = this.animParameters.userData.objectFocused;
+    contextWrapper = undefined, force_left = false ){
 
     // Add selected object information, or if not showing is set
-    if( !objectInfo.enabled || this.get_state( 'info_text_disabled') ){
+    if( !this.animParameters.hasObjectFocused || this.get_state( 'info_text_disabled') ){
       // no object selected, discard
       return;
     }
 
-    if( !context_wrapper ){
-      context_wrapper = this.domContextWrapper;
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
     }
 
+    const objectInfo = this.animParameters.objectFocused;
 
     this._lineHeight_normal = this._lineHeight_normal || Math.round( 25 * this.pixel_ratio[0] );
     this._lineHeight_small = this._lineHeight_small || Math.round( 15 * this.pixel_ratio[0] );
     this._fontSize_normal = this._fontSize_normal || Math.round( 15 * this.pixel_ratio[0] );
     this._fontSize_small = this._fontSize_small || Math.round( 10 * this.pixel_ratio[0] );
 
-    context_wrapper.set_font_color( this.foreground_color );
-    context_wrapper.set_font( this._fontSize_normal, this._fontType );
+    contextWrapper.set_font_color( this.foreground_color );
+    contextWrapper.set_font( this._fontSize_normal, this._fontType );
 
     let text_left;
     if( this.sideCanvasEnabled && !force_left ){
@@ -2187,48 +1781,56 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     );
 
     // Line 1: object name
-    context_wrapper.fill_text( objectInfo.name, textPosition.x, textPosition.y );
+    contextWrapper.fill_text( objectInfo.name, textPosition.x, textPosition.y );
 
     // Smaller
-    context_wrapper.set_font( this._fontSize_small, this._fontType );
+    contextWrapper.set_font( this._fontSize_small, this._fontType );
 
     // Line 2: Global position
 
-    let pos;
-    if( objectInfo.isElectrode ){
-      pos = objectInfo.MNI305Position;
+    let pos = objectInfo.position;
+    const electrodeInstance = objectInfo.instance && objectInfo.instance.isElectrode ? objectInfo.instance : null;
+    if( electrodeInstance ){
       if( pos && (pos.x !== 0 || pos.y !== 0 || pos.z !== 0) ){
         textPosition.y += this._lineHeight_small
-        context_wrapper.fill_text( `MNI305: `, textPosition.x , textPosition.y );
-        context_wrapper.set_font( this._fontSize_small, this._fontType, true );
-        context_wrapper.fill_text(
-          `${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)}`,
-          textPosition.x + this._fontSize_small * 5, textPosition.y
-        );
-        context_wrapper.set_font( this._fontSize_small, this._fontType, false );
+
+        const subjectCode = electrodeInstance.subject_code;
+        const subjectData = this.shared_data.get( subjectCode );
+
+        if( subjectData && subjectData.matrices ) {
+          this._tmpMat4.copy( subjectData.matrices.Torig ).invert()
+            .premultiply( subjectData.matrices.Norig );
+          this._tmpVec3.copy( pos ).applyMatrix4( this._tmpMat4 );
+          pos = this._tmpVec3
+          contextWrapper.set_font( this._fontSize_small, this._fontType, true );
+          contextWrapper.fill_text(
+            `           ${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)}`,
+            textPosition.x, textPosition.y
+          );
+          contextWrapper.set_font( this._fontSize_small, this._fontType, false );
+          contextWrapper.fill_text( `ScanRAS: `, textPosition.x , textPosition.y );
+        }
       }
     } else {
-      pos = objectInfo.position;
       textPosition.y += this._lineHeight_small;
-      context_wrapper.fill_text(
-        `tkrRAS: (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`,
+      contextWrapper.fill_text(
+        `tkrRAS:    (${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)})`,
         textPosition.x, textPosition.y
       );
     }
 
     // For electrodes
-    if( objectInfo.isElectrode ){
+    if( electrodeInstance ){
       const mappingInfo = objectInfo.templateMapping;
-      const displayInfo = this.object_chosen.userData.display_info;
 
-      const _tn = displayInfo.threshold_name || '[None]';
-      let _tv = displayInfo.threshold_value;
+      const _tn = electrodeInstance._thresholdName || '[None]';
+      let _tv = electrodeInstance._currentThresholdValue;
       if( typeof _tv === 'number' ){
         _tv = _tv.toPrecision(4);
       }
 
-      const _dn = displayInfo.display_name;
-      let _dv = objectInfo.currentDataValue;
+      const _dn = electrodeInstance._animationName;
+      let _dv = electrodeInstance._currentValue;
 
       if( typeof _dv === 'number' ){
         _dv = _dv.toPrecision(4);
@@ -2238,7 +1840,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       /*
       text_position[ 1 ] = text_position[ 1 ] + this._lineHeight_small;
 
-      context_wrapper.fill_text.fillText(
+      contextWrapper.fill_text.fillText(
         `Surface: ${ _m.surface }, shift vs. MNI305: ${ _m.shift.toFixed(2) }`,
         text_position[ 0 ], text_position[ 1 ]
       );
@@ -2248,7 +1850,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       if( _dv !== undefined ){
         textPosition.y += this._lineHeight_small;
 
-        context_wrapper.fill_text(
+        contextWrapper.fill_text(
           `Display:   ${ _dn } (${ _dv })`,
           textPosition.x, textPosition.y
         );
@@ -2259,7 +1861,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       if( _tv !== undefined ){
         textPosition.y += this._lineHeight_small;
 
-        context_wrapper.fill_text(
+        contextWrapper.fill_text(
           `Threshold: ${ _tn } (${ _tv })`,
           textPosition.x, textPosition.y
         );
@@ -2271,14 +1873,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Line last: customized message
     textPosition.y += this._lineHeight_small;
 
-    context_wrapper.fill_text(
+    contextWrapper.fill_text(
       objectInfo.customInfo || '',
       textPosition.x, textPosition.y
     );
 
   }
 
-  _draw_video( results, w, h, context_wrapper ){
+  _draw_video( results, w, h, contextWrapper ){
     if( !this.video_canvas._enabled || this.video_canvas._mode === 'hidden' ){ return; }
     // set video time
     const video_time = results.last_time - this.video_canvas._time_start;
@@ -2300,8 +1902,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     const video_height = this.video_canvas.height,
           video_width = video_height * this.video_canvas._asp_ratio;
-    if( context_wrapper ){
-      context_wrapper.draw_video(
+    if( contextWrapper ){
+      contextWrapper.draw_video(
         this.video_canvas, 0, h - video_height,
         video_width, video_height
       );
@@ -2663,16 +2265,16 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   // get matrices
-  get_subject_transforms( subject_code ) {
-    const scode = typeof subject_code === "string" ? subject_code : this.get_state("target_subject", "/");
-    const subject_data = this.shared_data.get( scode );
+  getTransforms( subjectCode ) {
+    const scode = typeof subjectCode === "string" ? subjectCode : this.get_state("target_subject", "/");
+    const subjectData = this.shared_data.get( scode );
     if(
-      !subject_data || typeof subject_data !== "object" ||
-      typeof subject_data.matrices !== "object"
+      !subjectData || typeof subjectData !== "object" ||
+      typeof subjectData.matrices !== "object"
     ) {
       throw `Cannot obtain transform matrices from subject: ${scode}`;
     }
-    return( subject_data.matrices );
+    return( subjectData.matrices );
   }
 
   // Map electrodes

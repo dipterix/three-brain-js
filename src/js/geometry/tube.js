@@ -1,46 +1,247 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { Curve, Vector3, MeshLambertMaterial, Mesh } from 'three';
 import { to_array, min2, sub2 } from '../utils.js';
-import { TubeBufferGeometry2 } from '../ext/geometries/TubeBufferGeometry2.js';
+import {
+  Curve, Vector2, Vector3, Vector4,
+  MeshLambertMaterial, Mesh, BufferGeometry,
+  Float32BufferAttribute, TextureLoader, ClampToEdgeWrapping,
+  NearestFilter
+} from 'three';
+
+class TubeGeometry2 extends BufferGeometry {
+
+	constructor( path, radialSegments = 8, radiusScale = 1 ) {
+
+		super();
+
+		this.type = 'TubeGeometry2';
+
+		this.parameters = {
+			path: path,
+			radialSegments: radialSegments,
+			radiusScale : radiusScale
+		};
+
+		const frames = path.computeFrenetFrames( path._t.length, false );
+
+		// expose internals
+
+		this.tangents = frames.tangents;
+		this.normals = frames.normals;
+		this.binormals = frames.binormals;
+
+		// helper variables
+
+		const vertex = new Vector3();
+		const normal = new Vector3();
+		const uv = new Vector2();
+		let P = new Vector4();
+
+		// buffer
+
+		const vertices = [];
+		const normals = [];
+		const uvs = [];
+		const indices = [];
+
+		// create buffer data
+
+		generateBufferData();
+
+		// build geometry
+
+		this.setIndex( indices );
+		this.setAttribute( 'position', new Float32BufferAttribute( vertices, 3 ) );
+		this.setAttribute( 'normal', new Float32BufferAttribute( normals, 3 ) );
+		this.setAttribute( 'uv', new Float32BufferAttribute( uvs, 2 ) );
+
+		// functions
+
+		function generateBufferData() {
+
+			for ( let i = 0; i < path._t.length; i ++ ) {
+
+				generateSegment( i );
+
+			}
+
+			// uvs are generated in a separate function.
+			// this makes it easy compute correct values for closed geometries
+			generateUVs();
+
+			// finally create faces
+
+			generateIndices();
+
+		}
+
+		function generateSegment( i ) {
+
+			// we use getPointAt to sample evenly distributed points from the given path
+
+      if( i === 0 || i == path._t.length - 1 ) {
+        P.copy( path._pts[i] );
+        P.w = 0;
+      } else {
+        let t = path._t[ i ];
+        if( t <= 0 ) {
+          t = 1e-6;
+        }
+        P = path.getPoint( t, P );
+      }
+
+			// retrieve corresponding normal and binormal
+
+			const N = frames.normals[ i ];
+			const B = frames.binormals[ i ];
+
+			// generate normals and vertices for the current segment
+
+			for ( let j = 0; j <= radialSegments; j ++ ) {
+
+				const v = j / radialSegments * Math.PI * 2;
+
+				const sin = Math.sin( v );
+				const cos = - Math.cos( v );
+
+				// normal
+
+				normal.x = ( cos * N.x + sin * B.x );
+				normal.y = ( cos * N.y + sin * B.y );
+				normal.z = ( cos * N.z + sin * B.z );
+				normal.normalize();
+
+				normals.push( normal.x, normal.y, normal.z );
+
+				// vertex
+
+				vertex.x = P.x + P.w * normal.x * radiusScale;
+				vertex.y = P.y + P.w * normal.y * radiusScale;
+				vertex.z = P.z + P.w * normal.z * radiusScale;
+
+				vertices.push( vertex.x, vertex.y, vertex.z );
+
+			}
+
+		}
+
+		function generateIndices() {
+
+			for ( let j = 1; j < path._t.length; j ++ ) {
+
+				for ( let i = 1; i <= radialSegments; i ++ ) {
+
+					const a = ( radialSegments + 1 ) * ( j - 1 ) + ( i - 1 );
+					const b = ( radialSegments + 1 ) * j + ( i - 1 );
+					const c = ( radialSegments + 1 ) * j + i;
+					const d = ( radialSegments + 1 ) * ( j - 1 ) + i;
+
+					// faces
+
+					indices.push( a, b, d );
+					indices.push( b, c, d );
+
+				}
+
+			}
+
+		}
+
+		function generateUVs() {
+
+			for ( let i = 0; i < path._t.length; i ++ ) {
+
+				for ( let j = 0; j <= radialSegments; j ++ ) {
+
+					uv.y = path._t[ i ];
+					uv.x = j / radialSegments;
+
+					uvs.push( uv.x, uv.y );
+
+				}
+
+			}
+
+		}
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+
+		this.parameters = Object.assign( {}, source.parameters );
+
+		return this;
+
+	}
+
+}
+
+
 
 // construct curve
-function CustomLine( targets ) {
-	Curve.call( this );
-	this.targets = targets;
-	this._cached = targets.map((v) => {
-	  return(new Vector3());
-	});
+class CustomCurve extends Curve {
+
+	constructor( controlData ) {
+		super();
+		// Assuming controlData is sorted
+		this.nPoints = controlData.length / 5;
+		this._t = [0];
+		this._radius = [0];
+		this._pts = [];
+		for( let ii = 0; ii < this.nPoints; ii++ ) {
+		  const p = new Vector3().set(
+		    controlData[ 5 * ii ],
+		    controlData[ 5 * ii + 1 ],
+		    controlData[ 5 * ii + 2 ]
+		  );
+		  if( ii === 0 || ii == (this.nPoints - 1) ) {
+		    this._pts.push( p );
+		  }
+		  this._pts.push( p );
+		  this._t.push( controlData[ 5 * ii + 3 ] );
+		  this._radius.push( controlData[ 5 * ii + 4 ] );
+		}
+		this._t.push( 1 );
+		this._radius.push( 0 );
+	}
+
+	getPoint( t, optionalTarget = new Vector3() ) {
+	  if( t < 0 ) { t = 0; } else if ( t > 1 ) { t = 1; }
+
+	  let idx = 0;
+	  for(; idx < this._t.length - 1; idx++ ) {
+	    if( this._t[idx] <= t && this._t[idx + 1] >= t) {
+	      break;
+	    }
+	  }
+
+    const a = t - this._t[idx];
+	  const b = this._t[idx + 1] - t;
+	  const pa = this._pts[ idx ];
+	  if( idx >= this._t.length - 1 || a == 0 || (a + b) == 0 ) {
+	    optionalTarget.x = pa.x;
+	    optionalTarget.y = pa.y;
+	    optionalTarget.z = pa.z;
+	    if( optionalTarget.isVector4 ) {
+	      optionalTarget.w = this._radius[ idx ];
+	    }
+	  } else {
+	    const pb = this._pts[ idx + 1 ];
+	    optionalTarget.x = ( pa.x * b + pb.x * a ) / ( a + b );
+	    optionalTarget.y = ( pa.y * b + pb.y * a ) / ( a + b );
+	    optionalTarget.z = ( pa.z * b + pb.z * a ) / ( a + b );
+	    if( optionalTarget.isVector4 ) {
+	      optionalTarget.w = ( this._radius[ idx ] * b + this._radius[ idx + 1 ] * a ) / (a + b);
+  	  }
+	  }
+		return optionalTarget;
+	}
+
 }
-CustomLine.prototype = Object.create( Curve.prototype );
-CustomLine.prototype.constructor = CustomLine;
-CustomLine.prototype.getPoint = function ( t, optionalTarget ) {
-  const tp = optionalTarget || new Vector3();
-	tp.x = this.targets[0].x * (1.0 - t) + this.targets[1].x * t;
-  tp.y = this.targets[0].y * (1.0 - t) + this.targets[1].y * t;
-  tp.z = this.targets[0].z * (1.0 - t) + this.targets[1].z * t;
-  return( tp );
-};
-CustomLine.prototype._changed = function() {
-
-  return(this.targets.every((v, ii) => {
-    const _c = this._cached[ii];
-    if( _c && _c.isVector3 ){
-      if( v.equals(_c) ){
-        return(true);
-      }
-      this._cached[ii].copy( v );
-    } else {
-      this._cached[ii] = v.clone();
-    }
-
-    return( false );
-
-  }));
-
-};
 
 
-class TubeMesh extends AbstractThreeBrainObject {
+class Tube extends AbstractThreeBrainObject {
 
   constructor(g, canvas){
 
@@ -49,90 +250,49 @@ class TubeMesh extends AbstractThreeBrainObject {
     // this.name = this._params.name;
     // this.group_name = this._params.group.group_name;
 
-    this.type = 'TubeMesh';
-    this.isTubeMesh = true;
+    this.type = 'Tube';
+    this.isTube = true;
 
-    this.radius = g.radius || 0.4;
-    this.tubularSegments = g.tubular_segments || 3;
-    this.radialSegments = g.radial_egments || 6;
-    this.is_closed = g.is_closed || false;
+    this.tubularSegments = g.tubular_segments;
+    this.radialSegments = g.radial_segments || 10;
 
-    this.path_names = g.paths;
+    this.path = new CustomCurve( g.control_data );
 
-    // TODO: validate paths
-    let t1;
-    this._targets = this.path_names.map((name) => {
-      t1 = canvas.threebrain_instances.get( name );
-      if( t1 && t1.isThreeBrainObject ){
-        return( t1 );
-      } else {
-        throw( `Cannot find object ${ name }.` );
-      }
-    });
-    this._target_positions = [
-      this._targets[0].world_position,
-      this._targets[1].world_position
-    ];
+    this.geometry = new TubeGeometry2( this.path, this.radialSegments );
 
-
-
-
-    this._curve = new CustomLine( this._target_positions );
-
-    this._geometry = new TubeBufferGeometry2( this._curve, this.tubularSegments,
-                                              this.radius, this.radialSegments, this.is_closed );
-
-    this._material = new MeshLambertMaterial();
-
-    this.object = new Mesh( this._geometry, this._material );
-    this._mesh = this.object;
-
-
-    this._geometry.name = 'geom_tube2_' + g.name;
-    this._mesh.name = 'mesh_tube2_' + g.name;
-
-    // cache
-  	this._cached_position = [];
+    if ( g.image_uri ) {
+      this.texture = new TextureLoader().load( g.image_uri );
+      this.texture.wrapS = ClampToEdgeWrapping;
+      this.texture.wrapT = ClampToEdgeWrapping;
+      this.texture.magFilter = NearestFilter;
+      this.texture.minFilter = NearestFilter;
+    } else {
+      this.texture = null
+    }
+    this.material = new MeshLambertMaterial( { color : 0xffffff, map : this.texture } );
+    this.object = new Mesh( this.geometry, this.material );
 
   }
 
 
   finish_init(){
-
     super.finish_init();
-
-    // data cube 2 must have groups and group parent is scene
-    let gp = this.get_group_object();
-    // Move gp to global scene as its center is always 0,0,0
-    gp.remove( this.object );
-    this._canvas.scene.add( this.object );
-
   }
 
   dispose(){
-    this._targets.length = 0;
-    this._mesh.material.dispose();
-    this._mesh.geometry.dispose();
+    this.object.material.dispose();
+    this.object.geometry.dispose();
   }
 
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
-
+    return;
     if( this.object ){
       this._targets.forEach( (v, ii) => {
         if( v._last_rendered !== results.elapsed_time ){
           v.get_world_position();
         }
       } );
-
-      /*
-      if(
-        this._cached_position[0] !== this._target_positions[0] ||
-        this._cached_position[1] !== this._target_positions[1]
-      ) {
-        // position changed
-      }
-      */
 
       // update positions
       this._geometry.generateBufferData( true, false, false, true );
@@ -144,7 +304,7 @@ class TubeMesh extends AbstractThreeBrainObject {
 
 
 function gen_tube(g, canvas){
-  return( new TubeMesh(g, canvas) );
+  return( new Tube(g, canvas) );
 }
 
 

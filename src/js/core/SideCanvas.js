@@ -203,7 +203,7 @@ class SideCanvas {
           return "Normal (Horizontal)";
           break;
         case 'axial':
-          return "First-Person View";
+          return "First-Person";
           break;
         case 'sagittal':
           return "Normal (Vertical)";

@@ -21,14 +21,20 @@ class AnimationParameters extends EventDispatcher {
     this.oldTime = 0;
     this.clockDelta = 0;
 
-    this.userData = {
-      objectFocused : {
-        enabled : false,
-        position : new Vector3(),
-        templateMapping : {}
+    this.objectFocused = {
+      instance : null,
+      position : new Vector3(),
+      templateMapping : {},
+      get currentDataValue () {
+        if( this.instance ) {
+          return this.instance._currentValue;
+        }
+        return undefined;
       }
-    };
+    }
+    this.hasObjectFocused = false;
   }
+
   get play() {
     return this.object[ 'Play/Pause' ];
   }
@@ -111,6 +117,31 @@ class AnimationParameters extends EventDispatcher {
     if( typeof callback === "function" ) {
       this._onChange = callback;
     }
+  }
+
+  updateFocusedInstance ( inst ) {
+    if( !inst ) {
+      this.hasObjectFocused = false;
+      return;
+    }
+    this.hasObjectFocused = true;
+
+    const objectInfo = this.objectFocused;
+    const objectUserData = inst.object.userData;
+
+    inst.object.getWorldPosition( objectInfo.position );
+    objectInfo.instance = inst;
+    objectInfo.name = inst.name;
+    objectInfo.customInfo = inst._params.custom_info;
+    objectInfo.isElectrode = inst.isElectrode ?? false;
+    objectInfo.MNI305Position = objectUserData.MNI305_position;
+    objectInfo.templateMapping.mapped = objectUserData._template_mapped || false;
+    objectInfo.templateMapping.shift = objectUserData._template_shift || 0;
+    objectInfo.templateMapping.space = objectUserData._template_space || 'original';
+    objectInfo.templateMapping.surface = objectUserData._template_surface || 'NA';
+    objectInfo.templateMapping.hemisphere = objectUserData._template_hemisphere || 'NA';
+    objectInfo.templateMapping.mni305 = objectUserData._template_mni305;
+    // objectInfo.currentDataValue = undefined;
   }
 
 }

@@ -173,11 +173,20 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
 
     this._volume_texture.image = m.colorTexture.image;
+    this._volume_texture.format = m.colorTexture.format;
 
     // world to IJK
-    this._material_options.volumeMatrixInverse.value.copy(
-      m._originalData.ijk2tkrRAS
-    ).invert();
+    // this._material_options.volumeMatrixInverse.value.copy(
+    //   m._originalData.ijk2tkrRAS
+    // ).invert();
+
+    this._material_options.volumeMatrixInverse.value
+      .set( 1, 0, 0, m.modelShape.x / -2,
+            0, 1, 0, m.modelShape.y / -2,
+            0, 0, 1, m.modelShape.z / -2,
+            0, 0, 0, 1 )
+      .premultiply( m.object.matrixWorld )
+      .invert();
 
     this._material_options.scale_inv.value.set(
       1 / m.modelShape.x,
@@ -344,6 +353,14 @@ class FreeMesh extends AbstractThreeBrainObject {
         // this.set_visibility( materialType !== 'hidden' );
         this.object.material.wireframe = materialType === 'wireframe';
         this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
+
+        let threshold = 1.0;
+        if( this.hemisphere === "left" ) {
+          threshold = this._canvas.get_state( "surface_mesh_clipping_left", 1.0 );
+        } else if ( this.hemisphere === "right" ) {
+          threshold = this._canvas.get_state( "surface_mesh_clipping_right", 1.0 );
+        }
+        this._material_options.mask_threshold.value = threshold;
       }
     }
 
@@ -587,12 +604,13 @@ class FreeMesh extends AbstractThreeBrainObject {
       'elec_active_size'  : { value : 0 },
       'elec_radius'       : { value: 10.0 },
       'elec_decay'        : { value : 0.15 },
-      'blend_factor'      : { value : 0.4 }
+      'blend_factor'      : { value : 0.4 },
+      'mask_threshold'    : { value : 0.0 }
     };
 
     this._materials = {
       'MeshPhongMaterial' : compile_free_material(
-        new MeshPhongMaterial( MATERIAL_PARAMS),
+        new MeshPhongMaterial( MATERIAL_PARAMS ),
         this._material_options, this._canvas.main_renderer
       ),
       'MeshLambertMaterial': compile_free_material(

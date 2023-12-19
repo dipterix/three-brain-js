@@ -47,6 +47,9 @@ import { registerPresetRaymarchingVoxels } from '../controls/PresetRaymarchingVo
 // 18. Electrode localization
 import { register_controls_localization } from '../controls/localization.js';
 
+// 19. ACPC realignment
+import { registerPresetACPCReAlign } from '../controls/PresetACPCReAlign.js';
+
 // const mouseMoveEvent = { type : "viewerApp.mouse.mousemove" };
 const mouseSingleClickEvent = { type : "viewerApp.mouse.singleClick" };
 const mouseDoubleClickEvent = { type : "viewerApp.mouse.doubleClick" };
@@ -564,5 +567,6 @@ ViewerControlCenter = registerPresetElectrodes( ViewerControlCenter );
 ViewerControlCenter = registerPresetElectrodeAnimation( ViewerControlCenter );
 ViewerControlCenter = registerPresetRaymarchingVoxels( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );
+ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
 
 export { ViewerControlCenter };

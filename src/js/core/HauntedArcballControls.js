@@ -74,6 +74,8 @@ class HauntedArcballControls extends EventDispatcher {
 		this._rotateAxis = new Vector3();
 		this._rotateQuaternion = new Quaternion();
 		this._isRotating = false;
+		// fix axis? altKey -> 3, ctrl -> 2, shift -> 1, 0 for nothing
+		this._rotationAxisFixed = 0;
 
 		// zoom
 		this._isZooming = false;
@@ -161,21 +163,25 @@ class HauntedArcballControls extends EventDispatcher {
     return this._mouseOnScreen;
   }
 
-  getMouseProjectionOnBall = ( pageX, pageY, fix_axis = 0 ) => {
+  getMouseProjectionOnBall = ( pageX, pageY, fixAxis = 0 ) => {
 		this._mouseOnBall.set(
 			( pageX - this.screen.width * 0.5 - this.screen.left ) / this.radius,
 			( this.screen.height * 0.5 + this.screen.top - pageY ) / this.radius,
 			0.0
 		);
 		let length = this._mouseOnBall.length();
-		if( fix_axis === 1 ){
+
+		if( this._rotationAxisFixed > 0 ) {
+		  fixAxis = this._rotationAxisFixed;
+		}
+		if( fixAxis === 1 ){
 		  // Fix x
 		  this._mouseOnBall.x = 0;
 		  length = Math.abs( this._mouseOnBall.y );
-		}else if ( fix_axis === 2 ){
+		}else if ( fixAxis === 2 ){
 		  this._mouseOnBall.y = 0;
 		  length = Math.abs( this._mouseOnBall.x );
-		}else if ( fix_axis === 3 ){
+		}else if ( fixAxis === 3 ){
 		  this._mouseOnBall.normalize();
 		  length = 1;
 		}
@@ -482,7 +488,7 @@ class HauntedArcballControls extends EventDispatcher {
 		if ( this._state === STATE.ROTATE && ! this.noRotate ) {
 		  // fix axis? altKey -> 3, ctrl -> 2, shift -> 1
 
-			this._rotateStart.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + event.ctrlKey * 2 + event.shiftKey ) );
+			this._rotateStart.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + (event.ctrlKey | event.metaKey) * 2 + event.shiftKey ) );
 			this._rotateEnd.copy( this._rotateStart );
 		} else if ( this._state === STATE.ZOOM && ! this.noZoom ) {
 		  this._zoomStart.copy( this.getMouseOnScreen( event.pageX, event.pageY ) );
@@ -507,7 +513,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 		if ( this._state === STATE.ROTATE && ! this.noRotate ) {
 
-			this._rotateEnd.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + event.ctrlKey * 2 + event.shiftKey ) );
+			this._rotateEnd.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + (event.ctrlKey | event.metaKey) * 2 + event.shiftKey ) );
 
 		} else if ( this._state === STATE.ZOOM && ! this.noZoom ) {
 

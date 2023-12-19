@@ -91,7 +91,6 @@ void main() {
   vPosition = position;
 
   gl_Position = pmv * vec4( position, 1.0 );
-  // vSamplerBias = vec3(0.5, -0.5, -0.5) * scale_inv + 0.5;
 
   // For perspective camera, vorigin is camera
   // vec4 vorig = inverse( modelMatrix ) * vec4( cameraPosition, 1.0 );
@@ -154,11 +153,6 @@ float getDepth( vec3 p ){
     (frag2.z / frag2.w * (gl_DepthRange.far - gl_DepthRange.near) +
       gl_DepthRange.near + gl_DepthRange.far) * 0.5
   );
-
-
-  // ndc.z = (2.0 * gl_FragCoord.z - gl_DepthRange.near - gl_DepthRange.far) /
-  //      (gl_DepthRange.far - gl_DepthRange.near);
-  // return (frag2.z / frag2.w / 2.0 + 0.5);
 }
 vec3 getWorldPosition( vec3 p ) {
   return (mv * vec4( p, 1.0 )).xyz;
@@ -274,13 +268,11 @@ void main(){
     return;
   }
   bounds.x = max( bounds.x, 0.0 );
-  // 0-255 need to be 0.5-255.5
 
   // bounds.x is the length of ray
   vec3 p = fOrigin + bounds.x * rayDir;
   vec3 inc = 1.0 / abs( rayDir );
   float delta = min( inc.x, min( inc.y, inc.z ) ) * max( abs( stepSize ), 0.1 );
-  // float delta = 0.5 / max( abs(rayDir.x), max( abs(rayDir.y), abs(rayDir.z) ) );
 
   // Dithering ray
   if( dithering != 0.0 ) {
@@ -494,7 +486,6 @@ void main() {
   vPosition = position;
 
   gl_Position = pmv * vec4( position, 1.0 );
-  // vSamplerBias = vec3(0.5, -0.5, -0.5) * scale_inv + 0.5;
 
   // For perspective camera, vorigin is camera
   // vec4 vorig = inverse( modelMatrix ) * vec4( cameraPosition, 1.0 );
@@ -558,11 +549,6 @@ float getDepth( vec3 p ){
     (frag2.z / frag2.w * (gl_DepthRange.far - gl_DepthRange.near) +
       gl_DepthRange.near + gl_DepthRange.far) * 0.5
   );
-
-
-  // ndc.z = (2.0 * gl_FragCoord.z - gl_DepthRange.near - gl_DepthRange.far) /
-  //      (gl_DepthRange.far - gl_DepthRange.near);
-  // return (frag2.z / frag2.w / 2.0 + 0.5);
 }
 vec3 getWorldPosition( vec3 p ) {
   return (mv * vec4( p, 1.0 )).xyz;
@@ -678,13 +664,11 @@ void main(){
     return;
   }
   bounds.x = max( bounds.x, 0.0 );
-  // 0-255 need to be 0.5-255.5
 
   // bounds.x is the length of ray
   vec3 p = fOrigin + bounds.x * rayDir;
   vec3 inc = 1.0 / abs( rayDir );
   float delta = min( inc.x, min( inc.y, inc.z ) ) * max( abs( stepSize ), 0.1 );
-  // float delta = 0.5 / max( abs(rayDir.x), max( abs(rayDir.y), abs(rayDir.z) ) );
 
   // Dithering ray
   if( dithering != 0.0 ) {

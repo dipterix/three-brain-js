@@ -72,7 +72,6 @@ class CanvasFileLoader {
   readBinary( url, type ) {
     const fileReader = new FileReader();
     fileReader.addEventListener( "loadstart", this._onLoadStart );
-    fileReader.addEventListener( "error", e => { resolve(); })
 
     return {
       reader : fileReader,
@@ -81,21 +80,58 @@ class CanvasFileLoader {
         if( this.cache.check_item( url ) ){
           resolve( this.cache.get_item( url ) );
         } else {
-          fetch(url).then( r => r.blob() ).then( blob => {
+          let dataPath = url;
+          if( url.startsWith("#") ) {
+            const dataElements = document.querySelectorAll(`script[data-for='${ url }']`);
+            const dataMIMEType = dataElements[0].getAttribute("data-type");
+            const dataSize = parseInt(dataElements[0].getAttribute("data-size"));
+
+            // https://stackoverflow.com/questions/16245767/creating-a-blob-from-a-base64-string-in-javascript
+            const dataArrays = [];
+            dataElements.forEach(el => {
+              const partitionSize = parseInt( el.getAttribute("data-parition-size") );
+              const currentPartition = parseInt( el.getAttribute("data-partition") );
+              const byteArray = new Uint8Array( partitionSize );
+              const binaryVal = atob( el.innerHTML.trim() );
+              for (let index = 0; index < partitionSize; index++ ) {
+                byteArray[index] = binaryVal.charCodeAt(index);
+              }
+              dataArrays[ currentPartition ] = byteArray;
+            })
+
+            const blob = new Blob(dataArrays, { type: dataMIMEType });
             fileReader.addEventListener( "load", (e) => {
               e.currentFile = url;
               e.currentType = type;
               this._onLoad( e );
               resolve( e.target.result );
             });
+            fileReader.addEventListener( "error", e => { resolve(); });
             fileReader.readAsArrayBuffer( blob );
-          });
+          } else {
+            fetch( dataPath )
+            .then( r => r.blob() )
+            .then( blob => {
+              fileReader.addEventListener( "load", (e) => {
+                e.currentFile = url;
+                e.currentType = type;
+                this._onLoad( e );
+                resolve( e.target.result );
+              });
+              fileReader.addEventListener( "error", e => { resolve(); });
+              fileReader.readAsArrayBuffer( blob );
+            })
+            .catch(error => {
+              console.error(`Cannot load data: ${url}\nDetails (${error.message.length} characters): ${error.message}`);
+            });
+          }
         }
       })
     };
   }
   readJSON( url ) {
     const fileReader = new FileReader();
+    fileReader.addEventListener( "loadstart", this._onLoadStart );
 
     return {
       reader : fileReader,
@@ -104,9 +140,28 @@ class CanvasFileLoader {
         if( this.cache.check_item( url ) ){
           resolve( this.cache.get_item( url ) );
         } else {
-          fetch(url).then( r => r.blob() ).then( blob => {
 
-            fileReader.addEventListener( "loadstart", this._onLoadStart );
+          let dataPath = url;
+          if( url.startsWith("#") ) {
+            const dataElements = document.querySelectorAll(`script[data-for='${ url }']`);
+            const dataMIMEType = dataElements[0].getAttribute("data-type");
+            const dataSize = parseInt(dataElements[0].getAttribute("data-size"));
+
+            // https://stackoverflow.com/questions/16245767/creating-a-blob-from-a-base64-string-in-javascript
+            const dataArrays = [];
+            dataElements.forEach(el => {
+              const partitionSize = parseInt( el.getAttribute("data-parition-size") );
+              const currentPartition = parseInt( el.getAttribute("data-partition") );
+              const byteArray = new Uint8Array( partitionSize );
+              const binaryVal = atob( el.innerHTML.trim() );
+              for (let index = 0; index < partitionSize; index++ ) {
+                byteArray[index] = binaryVal.charCodeAt(index);
+              }
+              dataArrays[ currentPartition ] = atob( el.innerHTML.trim() );
+            })
+
+            const blob = new Blob(dataArrays, { type: dataMIMEType });
+
             fileReader.addEventListener( "load", (e) => {
               e.currentFile = url;
               e.currentType = "json";
@@ -115,8 +170,21 @@ class CanvasFileLoader {
             });
             fileReader.addEventListener( "error", e => { resolve(); })
             fileReader.readAsText( blob );
+          } else {
 
-          });
+            fetch( dataPath ).then( r => r.blob() ).then( blob => {
+
+              fileReader.addEventListener( "load", (e) => {
+                e.currentFile = url;
+                e.currentType = "json";
+                this._onLoad( e );
+                resolve( e.target.result );
+              });
+              fileReader.addEventListener( "error", e => { resolve(); })
+              fileReader.readAsText( blob );
+
+            });
+          }
         }
       })
     };

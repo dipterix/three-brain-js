@@ -26,18 +26,27 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       })
       .setValue( initialDisplay );
 
-    const sliceModeOptions = ["anatomical view", "first-person view"];
-    let defaultVal = "anatomical view";
+    this.gui.addController(
+      'Slice Brightness', 0.0, { folderName: folderName })
+      .min(-1).max(1).step(0.01)
+      .onChange((v) => {
+        this.canvas.set_state("sliceIntensityBias", v);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+
+    const sliceModeOptions = ["canonical", "line-of-sight"];
+    let defaultVal = "canonical";
     if( this.canvas.get_state("sideCameraTrackMainCamera", false) ) {
-      defaultVal = "first-person view";
+      defaultVal = "line-of-sight";
     }
 
     const controllerSliceMode = this.gui
-      .addController( 'Slice Mode', defaultVal, {
+      .addController( 'Slice Mode', "canonical", {
         args: sliceModeOptions, folderName: folderName
       })
       .onChange((v) => {
-        if( v === "first-person view" ){
+        if( v === "line-of-sight" ){
           this.canvas.set_state("sideCameraTrackMainCamera", true);
         }else{
           this.canvas.set_state("sideCameraTrackMainCamera", false);
@@ -45,7 +54,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
         this.broadcast();
       })
-      .setValue( initialDisplay );
+      .setValue( defaultVal );
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_SLICE_MODE,

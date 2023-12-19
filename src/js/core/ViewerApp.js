@@ -225,17 +225,8 @@ class ViewerApp extends ThrottledEventDispatcher {
       return ( re );
     };
 
-    fileReader.onload = (evt) => {
-
-      fileReader.onload = undefined;
-      if( readerIsObsolete() ) { return; }
-
-      this.setProgressBar({
-        progress  : 10,
-        message   : "Parsing configurations..."
-      });
-
-      const viewerData = JSON.parse(evt.target.result);
+    const parseConfigJSON = (text) => {
+      const viewerData = JSON.parse(text);
       viewerData.settings = bootstrapData.settings;
 
       this.setProgressBar({
@@ -248,31 +239,36 @@ class ViewerApp extends ThrottledEventDispatcher {
         reset : reset,
         isObsolete : readerIsObsolete
       })
-
-      /*
-      this.viewer.renderValues({
-        x : viewerData,
-        reset: reset,
-        dataIsValid : ( msg ) => {
-          const isValid = this.__fileReader === fileReader;
-          if( msg ) {
-            console.debug(`${msg} (fileReader is ${isValid})`);
-          }
-          return isValid;
-        }
-      }).then(() => {
-        if( this.__fileReader === fileReader ) {
-          this.__fileReader = undefined;
-          this.viewer.finalize_render();
-          this.resize();
-        }
-      });
-    */
     }
 
-    window.fetch( path ).then( r => r.blob() ).then( blob => {
-      fileReader.readAsText( blob );
-    });
+    let configDataPath = path;
+
+    if( path.startsWith("#") ) {
+      // the data is embeded
+      const configElements = document.querySelectorAll(`script[data-for='${ path }']`);
+      const data = [];
+      configElements.forEach((e) => {
+        data[ parseInt(e.getAttribute("data-partition")) ] = atob(e.innerHTML.trim());
+      });
+      parseConfigJSON( data.join("") );
+    } else {
+      fileReader.onload = (evt) => {
+
+        fileReader.onload = undefined;
+        if( readerIsObsolete() ) { return; }
+
+        this.setProgressBar({
+          progress  : 10,
+          message   : "Parsing configurations..."
+        });
+
+        parseConfigJSON( evt.target.result );
+      }
+
+      window.fetch( configDataPath ).then( r => r.blob() ).then( blob => {
+        fileReader.readAsText( blob );
+      });
+    }
   }
 
 
@@ -334,11 +330,20 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.colorMaps.forEach( params => {
       // calculate cmap, add time range so that the last value is always displayed
       // let tr = v.time_range;
-      this.canvas.add_colormap(
-        params.name, params.alias,
-        params.value_type, params.value_names, params.value_range, params.time_range,
-        params.color_keys, params.color_vals, params.color_levels, params.hard_range
-      );
+      this.canvas.createColorMap({
+        dataName      : params.name,
+        displayName   : params.alias,
+        controlColors : asArray( params.color_vals ),
+
+        isContinuous  : params.value_type === "continuous",
+        timeRange     : params.time_range,
+
+        valueRange    : params.value_range,
+        hardRange     : params.hard_range,
+
+        valueKeys     : asArray( params.value_names )
+      });
+
     });
 
     if( _isObsolete("Loading group data") ) { return; }
@@ -548,6 +553,11 @@ class ViewerApp extends ThrottledEventDispatcher {
     // ---- Localization -------------------------------------------------------
     if( enabledPresets.includes( "localization" )) {
       this.controlCenter.addPreset_localization();
+    }
+
+    // ---- ACPC Realignment ---------------------------------------------------
+    if( enabledPresets.includes( "acpcrealign" )) {
+      this.controlCenter.addPreset_acpcrealign();
     }
 
     // ---- Data Visualization -------------------------------------------------

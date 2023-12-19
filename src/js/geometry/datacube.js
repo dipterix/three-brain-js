@@ -210,6 +210,9 @@ class DataCube extends AbstractThreeBrainObject {
       this._uniforms.threshold.value = -1.0;
     }
 
+    const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
+    this._uniforms.gamma.value = Math.pow(10, bias);
+
   }
 
   showSlices( which ) {
@@ -274,8 +277,11 @@ class DataCube extends AbstractThreeBrainObject {
     // data cube must have groups. The group is directly added to scene,
     // regardlessly
     let gp = this.get_group_object();
+    this.groupObject = gp;
+
     // Move gp to global scene as its center is always 0,0,0
     this._canvas.origin.remove( gp );
+
     this._canvas.crosshairGroup.add( gp );
 
     // set layer, add tp group

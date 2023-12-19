@@ -53,7 +53,9 @@ CONSTANTS.KEY_CYCLE_SLICE_MODE        = "KeyM";         // `m` - cycle through s
 CONSTANTS.KEY_CYCLE_LEFT              = "BracketLeft";  // `[` - cycle through left hemisphere material
 CONSTANTS.KEY_CYCLE_RIGHT             = "BracketRight"; // `]` - cycle through right hemisphere material
 CONSTANTS.KEY_CYCLE_LEFT_OPACITY      = "BracketLeft";  // `⇧[` - cycle through left hemisphere opacity
-CONSTANTS.KEY_CYCLE_RIGHT_OPACITY     = "BracketRight"; // `⇧[` - cycle through right hemisphere opacity
+CONSTANTS.KEY_CYCLE_RIGHT_OPACITY     = "BracketRight"; // `⇧]` - cycle through right hemisphere opacity
+CONSTANTS.KEY_CYCLE_LEFT_MESH_CLIPPING    = "Comma";        // `<` - cycle through left hemisphere threshold
+CONSTANTS.KEY_CYCLE_RIGHT_MESH_CLIPPING   = "Period";       // `>` - cycle through left hemisphere threshold
 CONSTANTS.KEY_CYCLE_SURFACE_COLOR     = "KeyK";         // `k` - cycling surface color type
 CONSTANTS.KEY_CYCLE_ELECTRODES_NEXT   = "Period";       // `.` - choosing next electrodes
 CONSTANTS.KEY_CYCLE_ELECTRODES_PREV   = "Comma";        // `,` - choosing previous electrodes
@@ -87,6 +89,8 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT              = "[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT             = "]";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_OPACITY      = "⇧[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_OPACITY     = "⇧]";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_MESH_CLIPPING    = "<";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_MESH_CLIPPING   = ">";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_NEXT   = ".";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_PREV   = ",";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_VISIBILITY   = "v";
@@ -153,7 +157,8 @@ CONSTANTS.FOLDERS = {
   'electrode-mapping'     : 'Electrode Settings',
   'animation'             : 'Data Visualization',
   'highlight-selection'   : 'Data Visualization',
-  'localization'          : 'Electrode Localization'
+  'localization'          : 'Electrode Localization',
+  'acpc-realign'          : 'ACPC Realign',
 };
 
 CONSTANTS.THRESHOLD_OPERATORS = [

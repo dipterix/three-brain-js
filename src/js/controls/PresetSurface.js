@@ -191,6 +191,79 @@ function registerPresetSurface( ViewerControlCenter ){
       }
     });
 
+    const ctrlLHThre = this.gui
+      .addController('Left Mesh Clipping', 1.0, { folderName : folderName })
+      .min( 0.1 ).max( 1 ).decimals( 1 )
+      .onChange((v) => {
+        if( typeof v !== "number" ) {
+          v = 1.0;
+        }
+        this.canvas.set_state( 'surface_mesh_clipping_left', v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_LEFT_MESH_CLIPPING,
+      shiftKey  : true,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_MESH_CLIPPING,
+        name    : 'Left Mesh Clipping',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let threshold = ctrlLHThre.getValue();
+        if( threshold > 0.5 ) {
+          threshold = 0.4;
+        } else {
+          threshold = threshold - 0.1;
+          if( threshold < 0.05 ) {
+            threshold = 1;
+          }
+        }
+        ctrlLHThre.setValue( threshold );
+      }
+    });
+
+
+    const ctrlRHThre = this.gui
+      .addController('Right Mesh Clipping', 1.0, { folderName : folderName })
+      .min( 0.1 ).max( 1 ).decimals( 1 )
+      .onChange((v) => {
+        if( typeof v !== "number" ) {
+          v = 1.0;
+        }
+        this.canvas.set_state( 'surface_mesh_clipping_right', v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_RIGHT_MESH_CLIPPING,
+      shiftKey  : true,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_MESH_CLIPPING,
+        name    : 'Right Mesh Clipping',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let threshold = ctrlRHThre.getValue();
+        if( threshold > 0.5 ) {
+          threshold = 0.4;
+        } else {
+          threshold = threshold - 0.1;
+          if( threshold < 0.05 ) {
+            threshold = 1;
+          }
+        }
+        ctrlRHThre.setValue( threshold );
+      }
+    });
+
   };
 
   ViewerControlCenter.prototype.addPreset_surface_subcortical = function(){

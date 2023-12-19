@@ -472,7 +472,18 @@ const OrthographicTrackballControls = function ( object, domElement ) {
 
 		  // fix axis? altKey -> 3, ctrl -> 2, shift -> 1
 
-			_rotateStart.copy( getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + event.ctrlKey * 2 + event.shiftKey ) );
+      let axis = 0;
+      if( event.shiftKey ) {
+        console.log([event.altKey, event.ctrlKey, event.metaKey]);
+        if( event.altKey ) {
+          axis = 2;
+        } else {
+          axis = 1;
+        }
+      } else if ( event.altKey ) {
+        axis = 3;
+      }
+			_rotateStart.copy( getMouseProjectionOnBall( event.pageX, event.pageY, axis ) );
 			_rotateEnd.copy( _rotateStart );
 
 		} else if ( _state === STATE.ZOOM && ! _this.noZoom ) {
@@ -503,7 +514,19 @@ const OrthographicTrackballControls = function ( object, domElement ) {
 
 		if ( _state === STATE.ROTATE && ! _this.noRotate ) {
 
-			_rotateEnd.copy( getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + event.ctrlKey * 2 + event.shiftKey ) );
+		  let axis = 0;
+      if( event.shiftKey ) {
+        console.log([event.altKey, event.ctrlKey, event.metaKey]);
+        if( event.altKey ) {
+          axis = 2;
+        } else {
+          axis = 1;
+        }
+      } else if ( event.altKey ) {
+        axis = 3;
+      }
+
+			_rotateEnd.copy( getMouseProjectionOnBall( event.pageX, event.pageY, axis ) );
 
 		} else if ( _state === STATE.ZOOM && ! _this.noZoom ) {
 

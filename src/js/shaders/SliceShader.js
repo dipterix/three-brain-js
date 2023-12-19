@@ -14,7 +14,10 @@ const SliceShader = {
     world2IJK : { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
 
     // values below this threshold should be discarded
-    threshold : { value : 0.0 }
+    threshold : { value : 0.0 },
+
+    // gamma correction
+    gamma : { value : 1.0 },
 
   },
 
@@ -37,6 +40,7 @@ precision highp float;
 precision mediump sampler3D;
 in vec4 worldPosition;
 uniform float threshold;
+uniform float gamma;
 uniform sampler3D map;
 uniform vec3 mapShape;
 uniform mat4 world2IJK;
@@ -49,13 +53,14 @@ void main() {
     gl_FragDepth = gl_DepthRange.far;
     color.a = 0.0;
   } else {
-    color.rgb = texture(map, samplerPosition).rrr;
+    color.r = texture(map, samplerPosition).r;
     if( color.r <= threshold ) {
       gl_FragDepth = gl_DepthRange.far;
-      color.a = 0.0;
+      color.rgba = vec4(0.0);
     } else {
       gl_FragDepth = gl_FragCoord.z;
       color.a = 1.0;
+      color.rgb = vec3( pow( color.r , 1.0 / gamma ) );
     }
   }
 }`)
