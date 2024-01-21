@@ -1,7 +1,7 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
-         MeshPhongMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
+         MeshPhysicalMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
          Data3DTexture, Color } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
@@ -12,7 +12,14 @@ const MATERIAL_PARAMS = {
   'side': DoubleSide,
   'wireframeLinewidth' : 0.1,
   'vertexColors' : true,
-  'forceSinglePass' : false
+  'forceSinglePass' : false,
+  'reflectivity' : 0,
+  'roughness' : 0.3,
+  'flatShading' : false,
+  'ior' : 1.6,
+  'clearcoat' : 0,
+  'clearcoatRoughness' : 1,
+  'specularIntensity' : 1
 };
 
 // freemesh
@@ -135,11 +142,14 @@ class FreeMesh extends AbstractThreeBrainObject {
     let scale = Math.max(valueRange[1], -valueRange[0]);
 
     // generate color for each vertices
-    const _transform = (v, b = 10 / scale) => {
-      // let _s = 1.0 / ( 1.0 + Math.exp(b * 1)) - 0.5 * 2.0001;
-      let s = Math.floor( 153.9 / ( 1.0 + Math.exp(b * v)) ) + 100;
-      return( s / 255 );
-    };
+    let _transform = ( v ) => { return v };
+    if( cname.endsWith("sulc") ) {
+      _transform = (v) => {
+        // let s = Math.floor( 153.9 / ( 1.0 + Math.exp(b * v)) ) + 100;
+        // return( s / 255 );
+        return 0.7 / ( Math.exp( v * 10.0 / scale ) + 1.0 ) + 0.3;
+      };
+    }
 
     valueData.forEach((v, ii) => {
       if( ii >= nvertices ){ return; }
@@ -609,8 +619,8 @@ class FreeMesh extends AbstractThreeBrainObject {
     };
 
     this._materials = {
-      'MeshPhongMaterial' : compile_free_material(
-        new MeshPhongMaterial( MATERIAL_PARAMS ),
+      'MeshPhysicalMaterial' : compile_free_material(
+        new MeshPhysicalMaterial( MATERIAL_PARAMS ),
         this._material_options, this._canvas.main_renderer
       ),
       'MeshLambertMaterial': compile_free_material(
@@ -618,14 +628,14 @@ class FreeMesh extends AbstractThreeBrainObject {
         this._material_options, this._canvas.main_renderer
       )
     };
-    this._materials.MeshPhongMaterial.color.copy( this._materialColor );
+    this._materials.MeshPhysicalMaterial.color.copy( this._materialColor );
     this._materials.MeshLambertMaterial.color.copy( this._materialColor );
 
     //gb.faces = faces;
 
     this._geometry.name = 'geom_free_' + g.name;
 
-    this._material_type = g.material_type || 'MeshPhongMaterial';
+    this._material_type = g.material_type || 'MeshPhysicalMaterial';
     this._mesh = new Mesh(this._geometry, this._materials[this._material_type]);
     this._mesh.name = 'mesh_free_' + g.name;
 

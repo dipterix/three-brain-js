@@ -47,10 +47,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       if( !dataCubeInstance ) {
         // hide selection controllers
         this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max'], folderName);
-        return;
-      }
-
-      if( dataCubeInstance.isDataContinuous ) {
+      } else if( dataCubeInstance.isDataContinuous ) {
         this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max'], folderName);
         this.gui.hideControllers(['Voxel Label'], folderName);
         // update controllers' min, max, steps
@@ -75,9 +72,31 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     }
 
     // Controls which datacube2 to display
-    this.gui
+    const voxTypeCtrl = this.gui
       .addController('Voxel Type', 'none', {args : ['none'], folderName : folderName })
       .onChange( this._onDataCube2TypeChanged );
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_VOXEL_TYPE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_VOXEL_TYPE,
+        name    : 'Voxel Type',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        const currentValue = voxTypeCtrl.getValue();
+        const cube2Types = this.canvas.get_atlas_types();
+        cube2Types.push("none");
+        let selectedIndex = ( cube2Types.indexOf( currentValue ) + 1 );
+        if( selectedIndex >= cube2Types.length ) {
+          selectedIndex = 0;
+        }
+        voxTypeCtrl.setValue( cube2Types[ selectedIndex ] );
+      }
+    });
 
     // Controls how the datacube should be displayed
     const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'main camera'];
