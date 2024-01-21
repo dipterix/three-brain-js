@@ -21,8 +21,7 @@ const SliceShader = {
 
   },
 
-  vertexShader: remove_comments(`#version 300 es
-precision highp float;
+  vertexShader: remove_comments(`precision highp float;
 in vec3 position;
 uniform mat4 modelMatrix;
 uniform mat4 viewMatrix;
@@ -35,8 +34,7 @@ void main() {
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }`),
-  fragmentShader: remove_comments(`#version 300 es
-precision highp float;
+  fragmentShader: remove_comments(`precision highp float;
 precision mediump sampler3D;
 in vec4 worldPosition;
 uniform float threshold;
@@ -60,7 +58,15 @@ void main() {
     } else {
       gl_FragDepth = gl_FragCoord.z;
       color.a = 1.0;
-      color.rgb = vec3( pow( color.r , 1.0 / gamma ) );
+
+      // color.rgb = vec3( pow( color.r , 1.0 / gamma ) );
+      if( abs(gamma) > 0.03 ) {
+        color.r = exp( gamma * color.r * -10.0 );
+        color.rgb = vec3( ( color.r - 1.0 ) / ( exp( gamma * -10.0 ) - 1.0 ) );
+      } else {
+        color.rgb =  color.rrr;
+      }
+
     }
   }
 }`)

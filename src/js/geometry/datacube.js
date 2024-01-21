@@ -1,11 +1,10 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, get_or_default } from '../utils.js';
-import { Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
+import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType } from 'three';
-import { TextSprite, TextTexture } from '../ext/text_sprite.js';
 import { SliceShader } from '../shaders/SliceShader.js';
 
 
@@ -99,6 +98,7 @@ class DataCube extends AbstractThreeBrainObject {
     this._uniforms.mapShape.value.copy( this.cubeShape );
 
     const sliceMaterial = new RawShaderMaterial( {
+      glslVersion: GLSL3,
       uniforms: this._uniforms,
       vertexShader: SliceShader.vertexShader,
       fragmentShader: SliceShader.fragmentShader,
@@ -211,7 +211,7 @@ class DataCube extends AbstractThreeBrainObject {
     }
 
     const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
-    this._uniforms.gamma.value = Math.pow(10, bias);
+    this._uniforms.gamma.value = bias;
 
   }
 
