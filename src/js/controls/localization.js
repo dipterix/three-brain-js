@@ -20,7 +20,7 @@ const pos = new Vector3();
 const folderName = CONSTANTS.FOLDERS['localization'] || 'Electrode Localization';
 
 const COL_SELECTED = 0xff0000,
-      COL_ENABLED = 0xfa9349,
+      COL_ENABLED = 0xffbb00,
       COL_DISABLED = 0xf1f2d5;
 
 

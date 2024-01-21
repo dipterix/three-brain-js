@@ -18,8 +18,8 @@ function registerPresetSurface( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'surface-selector' ],
           initialSurfaceType = this.canvas.get_state( 'surface_type' ) || 'pial',
           surfaceTypeChoices = this.canvas.getAllSurfaceTypes().cortical,
-          initialMaterialType = this.canvas.get_state( 'surface_material_type' ) || 'MeshPhongMaterial',
-          materialChoices = ['MeshPhongMaterial', 'MeshLambertMaterial'],
+          initialMaterialType = this.canvas.get_state( 'surface_material_type' ) || 'MeshPhysicalMaterial',
+          materialChoices = ['MeshPhysicalMaterial', 'MeshLambertMaterial'],
           corticalDisplay = ['normal', 'wireframe', 'hidden'];
 
     if( !Array.isArray( surfaceTypeChoices ) || surfaceTypeChoices.length === 0 ){ return; }
@@ -370,11 +370,11 @@ function registerPresetSurface( ViewerControlCenter ){
     });
 
     this.gui
-      .addController( "Blend Factor", 0.0, { folderName : folderName } )
+      .addController( "Blend Factor", 1.0, { folderName : folderName } )
       .min( 0 ).max( 1 ).decimals( 2 )
       .onChange((v) => {
         if( typeof(v) != "number" ){
-          v = 0.4;
+          v = 1;
         } else if( v < 0 ){
           v = 0;
         } else if (v > 1){
@@ -383,7 +383,7 @@ function registerPresetSurface( ViewerControlCenter ){
         // this.set_surface_ctype( true, { 'blend' : v } );
         this.canvas.set_state("surface_color_blend", v);
         this._update_canvas();
-      }).setValue( 0.4 );
+      }).setValue( 1.0 );
 
     // ---------- for voxel-color ---------------
 
@@ -396,10 +396,10 @@ function registerPresetSurface( ViewerControlCenter ){
           this.canvas.set_state("surface_color_sigma", v);
           this._update_canvas();
         }
-      }).setValue( 3 );
+      }).setValue( 1 );
 
     // ---------- for electrode maps ------------
-    this.gui.addController("Decay", 0.1, { folderName : folderName })
+    this.gui.addController("Decay", 0.6, { folderName : folderName })
       .min( 0.05 ).max( 1 ).step( 0.05 ).decimals( 2 )
       .onChange((v) => {
         if( v !== undefined ){
@@ -408,9 +408,9 @@ function registerPresetSurface( ViewerControlCenter ){
           this.canvas.set_state("surface_color_decay", v);
           this._update_canvas();
         }
-      }).setValue( 1.5 );
+      }).setValue( 0.6 );
 
-    this.gui.addController("Range Limit", 0.0, { folderName : folderName })
+    this.gui.addController("Range Limit", 5.0, { folderName : folderName })
       .min( 1.0 ).max( 30.0 ).step( 1.0 ).decimals( 1 )
       .onChange((v) => {
         if( v !== undefined ){
@@ -419,7 +419,7 @@ function registerPresetSurface( ViewerControlCenter ){
           this.canvas.set_state("surface_color_radius", v);
           this._update_canvas();
         }
-      }).setValue( 1.0 );
+      }).setValue( 5.0 );
 
     // 'elec_decay'        : { value : 2.0 },
     // 'blend_factor'      : { value : 0.4 }

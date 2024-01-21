@@ -268,7 +268,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_sideViewElectrodeThreshold = function(){
     const folderName = CONSTANTS.FOLDERS[ 'side-electrode-dist' ];
     // show electrodes trimmed
-    this.gui.addController('Render Distance', 1.0, { folderName : folderName })
+    this.gui.addController('Render Distance', 0.4, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
         this.canvas.setVoxelRenderDistance({
@@ -281,7 +281,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 1.0 );
+      .setValue( 0.4 );
   }
 
   return( ViewerControlCenter );

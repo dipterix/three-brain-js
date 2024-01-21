@@ -6,7 +6,7 @@ import {
   Raycaster, ArrowHelper, BoxHelper,
   LoadingManager, FileLoader, FontLoader,
   AnimationClip, AnimationMixer, Clock,
-  Mesh, MeshBasicMaterial, SubtractiveBlending,
+  Mesh, SubtractiveBlending,
   BufferGeometry, LineBasicMaterial, LineSegments
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -286,7 +286,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.add_to_scene( this.mainCamera, true );
 
     // Add ambient light to make scene soft
-    const ambient_light = new AmbientLight( CONSTANTS.COLOR_AMBIENT_LIGHT, 1.0 );
+    const ambient_light = new AmbientLight( CONSTANTS.COLOR_AMBIENT_LIGHT, 0.3 );
     ambient_light.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
     ambient_light.name = 'main light - ambient';
     this.add_to_scene( ambient_light, true ); // soft white light
@@ -323,6 +323,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.mainRenderPass = new RenderPass( this.scene, this.mainCamera );
   	this.mainComposer.addPass( this.mainRenderPass );
 
+    /*
     // outline pass
   	this.mainOutlinePass = new OutlinePass2( new Vector2( width, height ), this.scene, this.mainCamera );
   	this.mainOutlinePass.enabled = false;
@@ -337,6 +338,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.mainOutlinePass.overlayMaterial.blending = SubtractiveBlending;
 
   	this.mainComposer.addPass( this.mainOutlinePass );
+  	*/
 
     // this.main_canvas.appendChild( this.main_renderer.domElement );
     this.main_canvas.appendChild( this.domElement );
@@ -1490,6 +1492,33 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     this.crosshairGroup.position.copy( this._crosshairPosition );
 
+    // set electrode outline clearcoat value
+    const renderOutlines = this.get_state( "outline_state", "auto" );
+    if ( renderOutlines === "on" ) {
+      // this.mainOutlinePass.enabled = true;
+      this.set_state( "electrode_clearcoat", 0.5 );
+    } else if ( renderOutlines === "off" ) {
+      // this.mainOutlinePass.enabled = false;
+      this.set_state( "electrode_clearcoat", 0.0 );
+    } else {
+      const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
+      const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
+      const left_mtype = this.get_state( "material_type_left", "normal" );
+      const right_mtype = this.get_state( "material_type_right", "normal" );
+
+      if( (left_mtype === "normal" && left_opacity > 0.2 && left_opacity < 1) ||
+          (left_mtype === "wireframe" && left_opacity > 0.1) ||
+          (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
+          (right_mtype === "wireframe" && right_opacity > 0.1)
+      ) {
+        // this.mainOutlinePass.enabled = true;
+        this.set_state( "electrode_clearcoat", 0.5 );
+      } else {
+        // this.mainOutlinePass.enabled = false;
+        this.set_state( "electrode_clearcoat", 0.0 );
+      }
+    }
+
     // Pre render all meshes
     this.mesh.forEach((m) => {
       const inst = m.userData.instance;
@@ -1523,27 +1552,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // this.main_renderer.render( this.scene, this.mainCamera );
 
-    const renderOutlines = this.get_state( "outline_state", "auto" );
-    if ( renderOutlines === "on" ) {
-      this.mainOutlinePass.enabled = true;
-    } else if ( renderOutlines === "off" ) {
-      this.mainOutlinePass.enabled = false;
-    } else {
-      const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
-      const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
-      const left_mtype = this.get_state( "material_type_left", "normal" );
-      const right_mtype = this.get_state( "material_type_right", "normal" );
-
-      if( (left_mtype === "normal" && left_opacity > 0.2 && left_opacity < 1) ||
-          (left_mtype === "wireframe" && left_opacity > 0.1) ||
-          (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
-          (right_mtype === "wireframe" && right_opacity > 0.1)
-      ) {
-        this.mainOutlinePass.enabled = true;
-      } else {
-        this.mainOutlinePass.enabled = false;
-      }
-    }
     this.mainComposer.render( this.scene, this.mainCamera );
 
     if(this.sideCanvasEnabled){

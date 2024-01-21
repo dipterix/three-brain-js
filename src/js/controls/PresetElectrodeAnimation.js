@@ -127,6 +127,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         { folderName : folderName, args : names , object : this.animParameters.object },
         CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION)
       .onChange((v) => {
+        if( !names.includes(v) ) { return; }
         this.changeAnimClip( v );
         this.canvas.set_state('display_variable', v);
         // this.fire_change({ 'clip_name' : v, 'display_data' : v });

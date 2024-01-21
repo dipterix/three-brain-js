@@ -123,9 +123,10 @@ class Sprite2 extends Sprite {
 
 class TextTexture extends Texture {
 
-  constructor( text, mapping, wrapS, wrapT, magFilter, minFilter, format,
-    type, anisotropy, font = "Courier", size = 32
-  ) {
+  constructor( text, {
+    mapping, wrapS, wrapT, magFilter, minFilter, format,
+    type, anisotropy, font = "Courier", size = 32, weight = 400
+  } = {} ) {
 
     const canvas = document.createElement("canvas");
     super( canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy );
@@ -139,6 +140,7 @@ class TextTexture extends Texture {
     // this._context.font = `${this._size}px ${font}`;
     // this._context.fillText( this._text, 0, this._size * 26 / 32);
     this._font = font;
+    this._font_weight = weight;
 		// this.needsUpdate = true;
 		this.isTextTexture = true;
 		this.object = null;
@@ -205,7 +207,7 @@ class TextTexture extends Texture {
     // this._context.clearRect( 0 , 0 , this._canvas.width , this._canvas.height );
     this._context.fillStyle = 'rgba( 0, 0, 0, 0 )';
     this._context.fillRect( 0 , 0 , this._canvas.width , this._canvas.height );
-    this._context.font = `${this._size}px ${this._font}`;
+    this._context.font = `${this._font_weight} ${this._size}px ${this._font}`;
     this._context.fillStyle = this._color;
     this._context.shadowBlur = this._shadow_blur || 0;
     this._context.shadowColor = this._shadow_color;

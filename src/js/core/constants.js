@@ -64,6 +64,7 @@ CONSTANTS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "KeyV";  // `⇧V` - toggle elect
 CONSTANTS.KEY_CYCLE_ELEC_OUTLINE      = "KeyO";         // `o` - cycle through outline options
 CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `p` - cycle through surfaces types
 CONSTANTS.KEY_CYCLE_MATERIAL          = "KeyM";         // `⇧M` - change surface material types (lighting model)
+CONSTANTS.KEY_CYCLE_VOXEL_TYPE        = "KeyA";         // `a` - change voxel (volume) to be displayed
 CONSTANTS.KEY_CYCLE_ATLAS_MODE        = "KeyL";         // `l` - cycle through voxel display mode
 CONSTANTS.KEY_OVERLAY_CORONAL         = "KeyC";         // `⇧C` - toggle coronal plane in main scene
 CONSTANTS.KEY_OVERLAY_AXIAL           = "KeyA";         // `⇧A` - toggle axial plane in main scene
@@ -81,6 +82,7 @@ CONSTANTS.KEY_CYCLE_SURFTYPE_EDITOR   = "Digit4";       // `4` - toggle electrod
 CONSTANTS.KEY_NEW_ELECTRODE_EDITOR    = "Digit1";       // `1` - new electrode (experimental)
 CONSTANTS.KEY_LABEL_FOCUS_EDITOR      = "Digit2";       // `2` - quick edit label (experimental)
 CONSTANTS.KEY_CYCLE_REMOVE_EDITOR     = "KeyR";         // `r` - remove editor key (experimental)
+
 
 CONSTANTS.TOOLTIPS = {};
 CONSTANTS.TOOLTIPS.KEY_ZOOM                    = "z/Z";
@@ -112,6 +114,7 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFTYPE_EDITOR   = "4";
 CONSTANTS.TOOLTIPS.KEY_NEW_ELECTRODE_EDITOR    = "1";
 CONSTANTS.TOOLTIPS.KEY_LABEL_FOCUS_EDITOR      = "2";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_REMOVE_EDITOR     = "r";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_VOXEL_TYPE        = "a";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "l";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_R = "1/⇧1";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_A = "2/⇧2";
@@ -127,8 +130,8 @@ CONSTANTS.REGEXP_VOLUME           = /^(.+) \((.+)\)$/;                   // brai
 CONSTANTS.REGEXP_ELECTRODE        = /^(.+), ([0-9]+) - (.*)$/;     // YAB, 1 - pSYLV12
 
 // Colors
-CONSTANTS.COLOR_MAIN_LIGHT = 0xefefef;                  // Color for main camera casting towards objects
-CONSTANTS.COLOR_AMBIENT_LIGHT = 0x808080;               // Color for ambient light that lights up all cameras
+CONSTANTS.COLOR_MAIN_LIGHT = 0xffffff;                  // Color for main camera casting towards objects
+CONSTANTS.COLOR_AMBIENT_LIGHT = 0xffffff;               // Color for ambient light that lights up all cameras
 
 // freemesh
 CONSTANTS.DEFAULT_COLOR = 0;

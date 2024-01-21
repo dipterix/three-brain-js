@@ -15,6 +15,7 @@ function registerPresetSwitchSubject( ViewerControlCenter ){
       this.gui
         .addController('Subject', "/", { folderName : folderName, args : subjectIDs })
         .onChange((v) => {
+          if( !subjectIDs.includes(v) ) { return; }
           this.canvas.switch_subject( v );
           this.broadcast();
           this.canvas.needsUpdate = true;
