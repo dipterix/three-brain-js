@@ -37,9 +37,28 @@ function registerPresetMainCamera( ViewerControlCenter ){
                 if( controllerData && typeof controllerData === "object") {
                   this.gui.load( controllerData );
                 }
+                const cameraData = data.cameraState;
+                if( cameraData && typeof cameraData === "object" ) {
+                  if( cameraData.target ) {
+                    this.canvas.mainCamera.lookAt( cameraData.target );
+                  }
+                  if( cameraData.up ) {
+                    this.canvas.mainCamera.up.copy( cameraData.up );
+                  }
+                  if( typeof cameraData.zoom === "number" ) {
+                    this.canvas.mainCamera.zoom = cameraData.zoom;
+                  }
+                  if( cameraData.position ) {
+                    cameraData.position.updateProjection = false;
+                    this.canvas.mainCamera.setPosition( cameraData.position );
+                  }
+                  this.canvas.mainCamera.updateProjectionMatrix();
+                }
               }
               ctrlApplyState.setValue("");
-            } catch (e) {}
+            } catch (e) {
+              console.warn(e);
+            }
           }, 500);
         }
       });

@@ -520,7 +520,8 @@ class ViewerControlCenter extends EventDispatcher {
     const data = {
       isThreeBrainControllerData : true,
       controllerData : this.gui.save( true ),
-      sliceCrosshair : {}
+      sliceCrosshair : {},
+      cameraState : this.canvas.mainCamera.getState()
     };
 
     // some extra information

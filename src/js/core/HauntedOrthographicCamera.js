@@ -12,6 +12,8 @@ class HauntedOrthographicCamera extends OrthographicCamera {
       height / width * DEFAULT_CAMERA_LEFT,
       -height / width * DEFAULT_CAMERA_LEFT, near, far );
 
+    this.target = new Vector3();
+
     this._canvas = canvas;
 
     this._originalPosition = new Vector3( 500, 0, 0 );
@@ -32,13 +34,22 @@ class HauntedOrthographicCamera extends OrthographicCamera {
 		this.lookAt( CONSTANTS.VEC_ORIGIN ); // Force camera
 
 		// Main camera light, casting from behind the mainCamera, only light up objects in CONSTANTS.LAYER_SYS_MAIN_CAMERA_8
-		this.backLight = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 0.5 );
+		this.backLight = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 1.5 );
     this.backLight.position.copy( CONSTANTS.VEC_ANAT_I );
     this.backLight.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     this.backLight.name = 'main light - directional';
     this.add( this.backLight );
 
 
+  }
+
+  lookAt( x, y, z ) {
+		if ( x.isVector3 ) {
+		  this.target.copy( x );
+		} else {
+			this.target.set( x, y, z );
+		}
+		super.lookAt( this.target );
   }
 
   handleResize() {
@@ -145,7 +156,7 @@ class HauntedOrthographicCamera extends OrthographicCamera {
 
     return({
       //[-1.9612333761590435, 0.7695650079159719, 26.928547456443564]
-      'target' : this.localToWorld( this._stateTarget.set(0, 0, 0) ),
+      'target' : this._stateTarget.copy( this.target ),
 
       // [0.032858884967361716, 0.765725462595094, 0.6423276497335524],
       'up' : this._stateUp.copy( this.up ),
