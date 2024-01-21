@@ -50,8 +50,7 @@ varying float reflectProd;
 `#include <fog_vertex>
 
 // uniform vec3 cameraPosition; - camera position in world space
-vec4 cameraPosInModel = inverse(modelMatrix) * vec4(cameraPosition, 1.0);
-vec3 cameraRay = normalize( position.xyz - cameraPosInModel.xyz );
+vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
 
 vPosition = position;
 vTrackColor = track_color;
@@ -198,7 +197,7 @@ if( mapping_type == 1 ){
 } else if( mapping_type == 2 ){
 
   // vColor.rgb = mix( max(vec3( 1.0 ) - vColor.rgb / 2.0, vColor.rgb), data_color0.rgb, blend_factor );
-  vColor2 = sample1( vPosition );
+  vColor2 = sample1( vPosition + vec3(0.5,-0.5,0.5) );
 
 } else if( mapping_type == 3 ){
   if( elec_active_size > 0.0 ){
