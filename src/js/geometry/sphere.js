@@ -1,17 +1,80 @@
 import { AbstractThreeBrainObject } from './abstract.js';
+// MeshBasicMaterial, MeshLambertMaterial,
 import {
-  MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial, InterpolateDiscrete,
+  MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
   SphereGeometry, Mesh, Vector3, Matrix4, Color,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer
 } from 'three';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
-import { to_array, get_or_default } from '../utils.js';
+import { to_array, get_or_default, remove_comments } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
 import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
 
-const MATERIAL_PARAMS = { 'transparent' : true };
+const MATERIAL_PARAMS = {
+  'transparent' : true,
+  'roughness' : 1,
+  'metalness' : 0,
+  // 'forceSinglePass' : false,
+  'reflectivity' : 0,
+  'flatShading' : false,
+  'ior' : 0,
+  'clearcoat' : 0.0,
+  'clearcoatRoughness' : 1,
+  'color': 0xffffff
+};
+
+function addColorCoat( material ) {
+  if( material.clearcoat === undefined ) {
+    material.clearcoat = 0.0;
+  }
+  material.onBeforeCompile = ( shader , renderer ) => {
+    material.userData.shader = shader;
+
+    shader.uniforms.clearcoat2 = { get value() {
+      return material.clearcoat;
+    } };
+
+    shader.vertexShader = remove_comments(`
+varying float reflectProd;
+`) + shader.vertexShader;
+
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <fog_vertex>",
+      remove_comments(
+`#include <fog_vertex>
+
+// uniform vec3 cameraPosition; - camera position in world space
+vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
+
+reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+`)
+    );
+
+
+    shader.fragmentShader = remove_comments(`
+uniform float clearcoat2;
+varying float reflectProd;
+`) + shader.fragmentShader;
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    remove_comments(
+`
+#include <dithering_fragment>
+
+gl_FragDepth = gl_FragCoord.z;
+if ( clearcoat2 > 0.0 && reflectProd < clearcoat2 ) {
+  gl_FragColor.rgb = vec3( 0.0 );
+  gl_FragDepth = gl_DepthRange.near;
+}
+`));
+  };
+
+  return material;
+}
+
 
 class Sphere extends AbstractThreeBrainObject {
   constructor (g, canvas) {
@@ -27,8 +90,20 @@ class Sphere extends AbstractThreeBrainObject {
 
     this.animationKeyFrames = {};
 
+    this.fixedColor = undefined;
+    if( g.fixed_color && typeof( g.fixed_color ) === "object" ) {
+      if( g.fixed_color.color ) {
+        this.fixedColor = {
+          'color' : new Color().set( g.fixed_color.color ),
+          'names' : asArray( g.fixed_color.names ),
+          'inclusive' : g.fixed_color.inclusive ? true: false
+        };
+      }
+    }
+
+
     // Register g.keyframes
-    this._material_type = 'MeshLambertMaterial';
+    this._material_type = 'MeshPhysicalMaterial';
     for( let frameName in g.keyframes ) {
       const kf = g.keyframes[ frameName ];
       const times = asArray( kf.time );
@@ -50,8 +125,8 @@ class Sphere extends AbstractThreeBrainObject {
     }
 
     this._materials = {
-      'MeshBasicMaterial' : new MeshBasicMaterial( MATERIAL_PARAMS ),
-      'MeshLambertMaterial': new MeshLambertMaterial( MATERIAL_PARAMS )
+      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS ) ),
+      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS ) )
     };
 
     const gb = new SphereGeometry( g.radius, g.width_segments, g.height_segments );
@@ -92,7 +167,7 @@ class Sphere extends AbstractThreeBrainObject {
 
     // Add text label to electrodes
     this._text_label = `${this._params.number || ""}`;
-    const map = new TextTexture( this._text_label );
+    const map = new TextTexture( this._text_label, { 'weight' : 900 } );
     const material = new SpriteMaterial( {
       map: map,
       transparent: true,
@@ -206,7 +281,7 @@ class Sphere extends AbstractThreeBrainObject {
     }
     this._animationName = dataName;
     if( !this.hasAnimationTracks ) {
-      this._mesh.material = this._materials.MeshLambertMaterial;
+      this._mesh.material = this._materials.MeshPhysicalMaterial;
       this.animationActive = false;
       return;
     }
@@ -215,7 +290,7 @@ class Sphere extends AbstractThreeBrainObject {
       this._mesh.material = this._materials.MeshBasicMaterial;
       this.animationActive = true;
     } else {
-      this._mesh.material = this._materials.MeshLambertMaterial;
+      this._mesh.material = this._materials.MeshPhysicalMaterial;
       this.animationActive = false;
     }
 
@@ -278,72 +353,131 @@ class Sphere extends AbstractThreeBrainObject {
     // 1. whether passed threshold
     const cmap = this._canvas.currentColorMap();
     const currentValue = this._currentValue;
+
+    // whether the threshold test passed
     let thresholdTestPassed = true;
 
-    if( this._currentThresholdValue !== undefined ) {
-      thresholdTestPassed = false;
-      const currentThresholdValue = this._currentThresholdValue;
-      const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
-      const operators = this._canvas.get_state('threshold_method');
-      if( this._canvas.get_state('threshold_type') === "continuous" ) {
-        // '|v| < T1', '|v| >= T1', 'v < T1',
-        // 'v >= T1', 'v in [T1, T2]', 'v not in [T1,T2]'
-        if(
-          thresholdRanges.length > 0 && operators >= 0 &&
-          operators < CONSTANTS.THRESHOLD_OPERATORS.length
-        ){
-          const opstr = CONSTANTS.THRESHOLD_OPERATORS[ operators ]
-          let t1 = thresholdRanges[0];
+    // either:
+    // electrode fix_color is set & enabled
+    // or:
+    // thresholdTestPassed (true), has animation & currentValue is valid
+    let isActive = true;
 
-          if( opstr === 'v = T1' && currentThresholdValue == t1 ){
-            thresholdTestPassed = true;
-          } else if( opstr === '|v| < T1' && Math.abs(currentThresholdValue) < t1 ){
-            thresholdTestPassed = true;
-          } else if( opstr === '|v| >= T1' && Math.abs(currentThresholdValue) >= t1 ){
-            thresholdTestPassed = true;
-          } else if( opstr === 'v < T1' && currentThresholdValue < t1 ){
-            thresholdTestPassed = true;
-          } else if( opstr === 'v >= T1' && currentThresholdValue >= t1 ){
-            thresholdTestPassed = true;
-          } else {
-            let t2 = Math.abs(t1);
-            if( thresholdRanges.length === 1 ){
-              t1 = -t2;
-            } else {
-              t2 = thresholdRanges[1];
-              if( t1 > t2 ){
-                t2 = t1;
-                t1 = thresholdRanges[1];
-              }
-            }
-            if( opstr === 'v in [T1, T2]' && currentThresholdValue <= t2 && currentThresholdValue >= t1 ){
-              thresholdTestPassed = true;
-            } else if( opstr === 'v not in [T1,T2]' && ( currentThresholdValue > t2 || currentThresholdValue < t1 ) ){
-              thresholdTestPassed = true;
-            }
-          }
 
-        } else {
-          thresholdTestPassed = true;
-        }
+    // 2. check if electrode fix_color is set & enabled
+    // useFixedColor=true when cmap.name is '[None]' or in/not in this.fixedColor.names,
+    // depending on this.fixedColor.inclusive
+    let useFixedColor = false;
+
+    if( this.fixedColor ) {
+      if( !cmap ) {
+        useFixedColor = true;
       } else {
-        // discrete
-        thresholdTestPassed = thresholdRanges.includes( currentThresholdValue );
+        switch (cmap.name) {
+          case '[None]':
+            useFixedColor = true;
+            break;
+
+          case '[Subject]':
+            useFixedColor = false;
+            break;
+
+          default:
+            if( this.fixedColor.inclusive ) {
+              useFixedColor = this.fixedColor.names.includes( cmap.name );
+            } else {
+              useFixedColor = ! this.fixedColor.names.includes( cmap.name );
+            }
+        };
       }
     }
 
-    // 2. check if active
-    const isActive = thresholdTestPassed && this.animationActive && currentValue !== undefined;
+    if( useFixedColor ) {
+      // 2.1 display this.fixedColor.color only
 
-    // 3. change material, don't use switch_material as that's heavy
-    if( isActive && this.object.material.isMeshLambertMaterial ){
-      this.object.material = this._materials.MeshBasicMaterial;
-    }else if( !isActive && this.object.material.isMeshBasicMaterial ){
-      this.object.material = this._materials.MeshLambertMaterial;
+      // 2.1.1 always use MeshPhysicalMaterial
+      this.object.material = this._materials.MeshPhysicalMaterial;
+
+      // 2.1.2 set color
+      this.object.material.color.copy( this.fixedColor.color );
+
+    } else {
+      // 2.2 display values
+
+      // 2.2.1 check if threshold is passed
+      if( this._currentThresholdValue !== undefined ) {
+        thresholdTestPassed = false;
+        const currentThresholdValue = this._currentThresholdValue;
+        const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
+        const operators = this._canvas.get_state('threshold_method');
+        if( this._canvas.get_state('threshold_type') === "continuous" ) {
+          // '|v| < T1', '|v| >= T1', 'v < T1',
+          // 'v >= T1', 'v in [T1, T2]', 'v not in [T1,T2]'
+          if(
+            thresholdRanges.length > 0 && operators >= 0 &&
+            operators < CONSTANTS.THRESHOLD_OPERATORS.length
+          ){
+            const opstr = CONSTANTS.THRESHOLD_OPERATORS[ operators ]
+            let t1 = thresholdRanges[0];
+
+            if( opstr === 'v = T1' && currentThresholdValue == t1 ){
+              thresholdTestPassed = true;
+            } else if( opstr === '|v| < T1' && Math.abs(currentThresholdValue) < t1 ){
+              thresholdTestPassed = true;
+            } else if( opstr === '|v| >= T1' && Math.abs(currentThresholdValue) >= t1 ){
+              thresholdTestPassed = true;
+            } else if( opstr === 'v < T1' && currentThresholdValue < t1 ){
+              thresholdTestPassed = true;
+            } else if( opstr === 'v >= T1' && currentThresholdValue >= t1 ){
+              thresholdTestPassed = true;
+            } else {
+              let t2 = Math.abs(t1);
+              if( thresholdRanges.length === 1 ){
+                t1 = -t2;
+              } else {
+                t2 = thresholdRanges[1];
+                if( t1 > t2 ){
+                  t2 = t1;
+                  t1 = thresholdRanges[1];
+                }
+              }
+              if( opstr === 'v in [T1, T2]' && currentThresholdValue <= t2 && currentThresholdValue >= t1 ){
+                thresholdTestPassed = true;
+              } else if( opstr === 'v not in [T1,T2]' && ( currentThresholdValue > t2 || currentThresholdValue < t1 ) ){
+                thresholdTestPassed = true;
+              }
+            }
+
+          } else {
+            thresholdTestPassed = true;
+          }
+        } else {
+          // discrete
+          thresholdTestPassed = thresholdRanges.includes( currentThresholdValue );
+        }
+      }
+
+      // 2.2.2 set isActive - thresholdTestPassed (true), has animation & currentValue is valid
+      isActive = thresholdTestPassed && this.animationActive && currentValue !== undefined;
+
+      // 2.2.3 change material, don't use switch_material as that's heavy
+      if( isActive && this.object.material.isMeshPhysicalMaterial ){
+        this.object.material = this._materials.MeshBasicMaterial;
+      }else if( !isActive && this.object.material.isMeshBasicMaterial ){
+        this.object.material = this._materials.MeshPhysicalMaterial;
+      }
+
+      // 2.2.4 if active, set material color
+      if( isActive ) {
+        cmap.getColor( currentValue , this.object.material.color );
+      } else {
+        // reset color
+        this.object.material.color.set(1, 1, 1);
+      }
     }
-    if( isActive ) {
-      cmap.getColor( currentValue , this.object.material.color );
-    }
+
+    // 3. set outline
+    this.object.material.clearcoat = this._canvas.get_state( "electrode_clearcoat", 0.0 );
 
     // 4. set visibility
     const vis = this._canvas.get_state( 'electrode_visibility', 'all visible');
@@ -358,6 +492,14 @@ class Sphere extends AbstractThreeBrainObject {
       case 'hide inactives':
         // The electrode has no value, hide
         if( isActive ){
+          this.object.visible = true;
+        }else{
+          this.object.visible = false;
+        }
+        break;
+      case 'threshold only':
+        // show even the object does not have values
+        if( thresholdTestPassed ){
           this.object.visible = true;
         }else{
           this.object.visible = false;
@@ -421,7 +563,7 @@ class Sphere extends AbstractThreeBrainObject {
         this._mesh.material = this._materials.MeshBasicMaterial;
         this.animationActive = true;
       }else{
-        this._mesh.material = this._materials.MeshLambertMaterial;
+        this._mesh.material = this._materials.MeshPhysicalMaterial;
         this.animationActive = false;
       }
     }

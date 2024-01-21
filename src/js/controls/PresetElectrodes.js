@@ -29,7 +29,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
             set_visibility( el, false );
             break;
           case 'hide inactives':
-            if( el.material.isMeshLambertMaterial ){
+            if( el.material.isMeshPhysicalMaterial ){
               // el.visible = false;
               set_visibility( el, false );
             }else{
@@ -101,7 +101,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_electrodes = function(){
     const folderName = CONSTANTS.FOLDERS[ 'electrode-style' ];
     const showInactives = this.settings.show_inactive_electrodes;
-    const visibleChoices = ['all visible', 'hide inactives', 'hidden'];
+    const visibleChoices = ['all visible', 'threshold only', 'hide inactives', 'hidden'];
     const initialSelection = showInactives? 'all visible': 'hide inactives';
 
     const controllerElectrodeVisiblility = this.gui
