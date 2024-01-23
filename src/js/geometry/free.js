@@ -7,20 +7,24 @@ import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
 
-const MATERIAL_PARAMS = {
+const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
   'side': DoubleSide,
   'wireframeLinewidth' : 0.1,
   'vertexColors' : true,
   'forceSinglePass' : false,
   'reflectivity' : 0,
+  'flatShading' : false
+};
+
+const MATERIAL_PARAMS_MORE = {
+  ...MATERIAL_PARAMS_BASIC,
   'roughness' : 0.3,
-  'flatShading' : false,
   'ior' : 1.6,
   'clearcoat' : 0,
   'clearcoatRoughness' : 1,
   'specularIntensity' : 1
-};
+}
 
 // freemesh
 // CONSTANTS.DEFAULT_COLOR = 0;
@@ -620,11 +624,11 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     this._materials = {
       'MeshPhysicalMaterial' : compile_free_material(
-        new MeshPhysicalMaterial( MATERIAL_PARAMS ),
+        new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ),
         this._material_options, this._canvas.main_renderer
       ),
       'MeshLambertMaterial': compile_free_material(
-        new MeshLambertMaterial( MATERIAL_PARAMS ),
+        new MeshLambertMaterial( MATERIAL_PARAMS_BASIC ),
         this._material_options, this._canvas.main_renderer
       )
     };

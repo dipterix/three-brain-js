@@ -12,18 +12,21 @@ import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
 
-const MATERIAL_PARAMS = {
+const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
+  'reflectivity' : 0,
+  'color': 0xffffff
+};
+
+const MATERIAL_PARAMS_MORE = {
+  ...MATERIAL_PARAMS_BASIC,
   'roughness' : 1,
   'metalness' : 0,
-  // 'forceSinglePass' : false,
-  'reflectivity' : 0,
-  'flatShading' : false,
   'ior' : 0,
   'clearcoat' : 0.0,
   'clearcoatRoughness' : 1,
-  'color': 0xffffff
-};
+  'flatShading' : false
+}
 
 function addColorCoat( material ) {
   if( material.clearcoat === undefined ) {
@@ -125,8 +128,8 @@ class Sphere extends AbstractThreeBrainObject {
     }
 
     this._materials = {
-      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS ) ),
-      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS ) )
+      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS_BASIC ) ),
+      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ) )
     };
 
     const gb = new SphereGeometry( g.radius, g.width_segments, g.height_segments );
