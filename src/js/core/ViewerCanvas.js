@@ -2397,6 +2397,12 @@ mapped = false,
     invertColor( c );
     this.foreground_color = `#${ c.getHexString() }`;
 
+    // set scenes
+    if( !this.scene.background ) {
+      this.scene.background = new Color();
+    }
+    this.scene.background.set( this.background_color );
+
     // Set renderer background to be v
     this.main_renderer.setClearColor( this.background_color );
     this.$el.style.backgroundColor = this.background_color;

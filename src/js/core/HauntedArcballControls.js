@@ -146,7 +146,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 		}
 
-		this.radius = 0.5 * Math.min( this.screen.width, this.screen.height );
+		this.radius = 0.5 * Math.max( this.screen.width, this.screen.height );
 
 		this.left0 = this.object.left;
 		this.right0 = this.object.right;
@@ -483,6 +483,13 @@ class HauntedArcballControls extends EventDispatcher {
 		event.stopPropagation();
 
 		if ( this._state === STATE.NONE ) {
+		  const box = this.domElement.getBoundingClientRect();
+			// adjustments come from similar code in the jquery offset() function
+			const d = this.domElement.ownerDocument.documentElement;
+			this.screen.left = box.left + window.pageXOffset - d.clientLeft;
+			this.screen.top = box.top + window.pageYOffset - d.clientTop;
+			this.screen.width = box.width;
+			this.screen.height = box.height;
 			this._state = event.button;
 		}
 		if ( this._state === STATE.ROTATE && ! this.noRotate ) {
