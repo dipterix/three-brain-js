@@ -9,15 +9,18 @@ const tmpVec3Alt = new Vector3();
 const tmpQuaternion = new Quaternion();
 const tmpMat4 = new Matrix4();
 
+
+const SIDECANVAS_ZINDEX_BASE = CONSTANTS.ZINDEX_BASE + 1;
+
 class SideCanvas {
 
   get zIndex () {
     const re = parseInt( this.$el.style.zIndex );
     if( isNaN(re) ) { return( 0 ); }
-    return re
+    return re - SIDECANVAS_ZINDEX_BASE;
   }
   set zIndex (v) {
-    this.$el.style.zIndex = v;
+    this.$el.style.zIndex = v + SIDECANVAS_ZINDEX_BASE;
   }
 
   set enabled( v ) {
@@ -493,6 +496,9 @@ class SideCanvas {
 		$resizeAnchor.className = 'resizer bottom-right';
 		this.$resizeWrapper.appendChild( $resizeAnchor );
 		this.$el.appendChild( this.$resizeWrapper );
+
+		// make sure z-index is set so overlay canvas is underneath
+		this.zIndex = 0;
 
 		// Make header draggable within viewer
     makeDraggable( this.$el, this.$header, undefined, () => {

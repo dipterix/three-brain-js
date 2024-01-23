@@ -46,6 +46,9 @@ CONSTANTS.VEC_ANAT_L = new Vector3( -1, 0, 0 );
 CONSTANTS.VEC_ANAT_P = new Vector3( 0, -1, 0 );
 CONSTANTS.VEC_ANAT_I = new Vector3( 0, 0, -1 );
 
+// overlay canvas z-index
+CONSTANTS.ZINDEX_BASE = 1;
+
 // You can only change which key is pressed. However, you cannot change shift & ctrl or alt
 // To do that you must go into the code
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
