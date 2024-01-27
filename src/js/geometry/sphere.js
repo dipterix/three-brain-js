@@ -10,7 +10,6 @@ import { to_array, get_or_default, remove_comments } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
 import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
-import { OutlinePass } from '../jsm/postprocessing/OutlinePass.js';
 
 const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
@@ -103,6 +102,7 @@ class Sphere extends AbstractThreeBrainObject {
         };
       }
     }
+    this.defaultColor = new Color().set(1, 1, 1);
 
 
     // Register g.keyframes
@@ -475,7 +475,7 @@ class Sphere extends AbstractThreeBrainObject {
         cmap.getColor( currentValue , this.object.material.color );
       } else {
         // reset color
-        this.object.material.color.set(1, 1, 1);
+        this.object.material.color.copy( this.defaultColor );
       }
     }
 

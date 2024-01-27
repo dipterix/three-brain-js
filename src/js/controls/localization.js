@@ -148,8 +148,8 @@ class LocElectrode {
 
     this.instance = inst;
     this.object = inst.object;
-    this.object.material.color.set( COL_ENABLED );
     this.object.userData.localization_instance = this;
+    this.update_color( COL_ENABLED );
 
     // set up label;
     this.instance.label = this.localization_order;
@@ -508,15 +508,15 @@ class LocElectrode {
   }
 
   update_color( color ){
-    if( color ){
-      this.object.material.color.set( color );
-    } else {
+    if( !color ){
       if(this.enabled()){
-        this.object.material.color.set( COL_ENABLED );
+        color = COL_ENABLED;
       } else {
-        this.object.material.color.set( COL_DISABLED );
+        color = COL_DISABLED;
       }
     }
+    this.instance.defaultColor.set( color );
+    this.object.material.color.set( color );
   }
 
   reset_position() {
@@ -1349,7 +1349,7 @@ function register_controls_localization( ViewerControlCenter ){
     this.startBrainShift({ mode : "disabled", threshold : 50.0, dryRun : true });
 
     // remove electrode
-    this.gui.addController( 'Enable/Disable Electrode', () => {
+    /* this.gui.addController( 'Enable/Disable Electrode', () => {
       if( refine_electrode &&
           refine_electrode.isLocElectrode ){
         if( refine_electrode.enabled() ){
@@ -1367,7 +1367,7 @@ function register_controls_localization( ViewerControlCenter ){
 
         this._update_canvas();
       }
-    },  { folderName: folderName });
+    },  { folderName: folderName }); */
 
     this.gui.addController( 'Auto-Adjust Highlighted', () => {
       if( refine_electrode &&
