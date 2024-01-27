@@ -1,10 +1,7 @@
 import { remove_comments } from '../utils.js';
 
-const compile_free_material = ( material, options, target_renderer ) => {
+const compile_free_material = ( material, options ) => {
 
-  if( material.userData.compiled ){ return; }
-
-  material.userData.compiled = false;
   material.userData.options = options;
 
   material.onBeforeCompile = ( shader , renderer ) => {
@@ -28,13 +25,6 @@ const compile_free_material = ( material, options, target_renderer ) => {
     shader.uniforms.mask_threshold = options.mask_threshold;
 
     material.userData.shader = shader;
-
-    if( target_renderer !== undefined ){
-      if( target_renderer !== renderer ){
-        return;
-      }
-    }
-    material.userData.compiled = true;
 
     shader.vertexShader = remove_comments(`
 attribute vec3 track_color;

@@ -625,11 +625,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._materials = {
       'MeshPhysicalMaterial' : compile_free_material(
         new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ),
-        this._material_options, this._canvas.main_renderer
+        this._material_options
       ),
       'MeshLambertMaterial': compile_free_material(
         new MeshLambertMaterial( MATERIAL_PARAMS_BASIC ),
-        this._material_options, this._canvas.main_renderer
+        this._material_options
       )
     };
     this._materials.MeshPhysicalMaterial.color.copy( this._materialColor );
