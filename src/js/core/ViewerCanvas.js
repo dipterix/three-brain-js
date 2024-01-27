@@ -9,12 +9,6 @@ import {
   Mesh, SubtractiveBlending,
   BufferGeometry, LineBasicMaterial, LineSegments
 } from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-// import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
-import { OutlinePass2 } from '../jsm/postprocessing/OutlinePass2.js';
-// import { OutlineEffect2 } from '../jsm/effects/OutlineEffect2.js';
-
 import Stats from 'three/addons/libs/stats.module.js';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
@@ -309,38 +303,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.main_renderer.localClippingEnabled=true; // Enable clipping
   	this.main_renderer.setClearColor( this.background_color );
 
-  	// Add composer
-  	this.mainComposer = new EffectComposer( this.main_renderer );
-  	/*
-  	this.mainEffect = new OutlineEffect2( this.main_renderer, {
-  	  defaultThickness: 0.003,
-  	  defaultColor: [ 0, 0, 0 ],
-  	  defaultAlpha: 1.0,
-  	} );
-  	*/
-
-  	// Main renderer pass
-  	this.mainRenderPass = new RenderPass( this.scene, this.mainCamera );
-  	this.mainComposer.addPass( this.mainRenderPass );
-
-    /*
-    // outline pass
-  	this.mainOutlinePass = new OutlinePass2( new Vector2( width, height ), this.scene, this.mainCamera );
-  	this.mainOutlinePass.enabled = false;
-
-  	this.mainOutlinePass.selectedObjects = this.clickable_array;
-  	this.mainOutlinePass.edgeStrength = 1.5;
-  	this.mainOutlinePass.edgeGlow = 1;
-  	this.mainOutlinePass.edgeThickness = 1;
-  	this.mainOutlinePass.pulsePeriod = 0;
-  	this.mainOutlinePass.visibleEdgeColor.set( '#ffffff' );
-  	this.mainOutlinePass.hiddenEdgeColor.set( '#ffffff' );
-  	this.mainOutlinePass.overlayMaterial.blending = SubtractiveBlending;
-
-  	this.mainComposer.addPass( this.mainOutlinePass );
-  	*/
-
-    // this.main_canvas.appendChild( this.main_renderer.domElement );
     this.main_canvas.appendChild( this.domElement );
 
     let wrapper_canvas = document.createElement('div');
@@ -974,8 +936,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas.style.width = main_width + 'px';
     this.main_canvas.style.height = main_height + 'px';
 
-    // this.main_renderer.setSize( main_width, main_height );
-    this.mainComposer.setSize( main_width, main_height );
+    this.main_renderer.setSize( main_width, main_height );
 
     const pixelRatio = this.pixel_ratio[0];
 
@@ -1452,8 +1413,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           _height = this.domElement.height;
 
     // Clear the whole canvas
-    this.domContext.fillStyle = this.background_color;
-    this.domContext.fillRect(0, 0, _width, _height);
+    // this.domContext.fillStyle = this.background_color;
+    // this.domContext.fillRect(0, 0, _width, _height);
+    this.domContext.clearRect( 0, 0, _width, _height );
 
     // copy the main_renderer context
     this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
@@ -1495,10 +1457,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // set electrode outline clearcoat value
     const renderOutlines = this.get_state( "outline_state", "auto" );
     if ( renderOutlines === "on" ) {
-      // this.mainOutlinePass.enabled = true;
       this.set_state( "electrode_clearcoat", 0.5 );
     } else if ( renderOutlines === "off" ) {
-      // this.mainOutlinePass.enabled = false;
       this.set_state( "electrode_clearcoat", 0.0 );
     } else {
       const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
@@ -1511,10 +1471,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
           (right_mtype === "wireframe" && right_opacity > 0.1)
       ) {
-        // this.mainOutlinePass.enabled = true;
         this.set_state( "electrode_clearcoat", 0.5 );
       } else {
-        // this.mainOutlinePass.enabled = false;
         this.set_state( "electrode_clearcoat", 0.0 );
       }
     }
@@ -1550,9 +1508,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     });
 
-    // this.main_renderer.render( this.scene, this.mainCamera );
-
-    this.mainComposer.render( this.scene, this.mainCamera );
+    this.main_renderer.render( this.scene, this.mainCamera );
 
     if(this.sideCanvasEnabled){
 
