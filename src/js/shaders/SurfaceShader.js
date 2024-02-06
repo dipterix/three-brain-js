@@ -49,6 +49,7 @@ reflectProd = abs( dot( normalize( normal ), cameraRay ) );
 `)
     );
 
+
     shader.fragmentShader = remove_comments(`
 precision mediump sampler2D;
 precision mediump sampler3D;
@@ -71,70 +72,114 @@ varying mediump vec3 vTrackColor;
 varying mediump vec3 vPosition;
 varying mediump float reflectProd;
 
-vec3 zeros = vec3( 0.0 );
-    `) + shader.fragmentShader;
+`) + shader.fragmentShader;
 
 shader.fragmentShader = shader.fragmentShader.replace(
       "void main() {",
       remove_comments(
 `
-vec4 sample1(vec3 p) {
-  vec4 re = vec4( 0.0, 0.0, 0.0, 0.0 );
+vec3 sample1(vec3 p) {
+  vec4 re = vec4( 0.0 );
   vec3 threshold = vec3( 0.007843137, 0.007843137, 0.007843137 );
+
   vec3 ijk = (volumeMatrixInverse * vec4(p, 1.0)).xyz + vec3(0.5);
-  if( sampler_bias > 0.0 ){
-    vec3 dta = vec3( 0.0 );
 
-    float max_bias = max(sampler_bias, 1.0);
-    float step = max(sampler_step, 0.5);
-
-    for(float bias = 0.0; bias <= max_bias; bias += step) {
-
-      if( bias < step ) {
-        re = texture( volume_map, ijk.xyz * scale_inv );
-        if(
-          re.a > 0.0 &&
-          (
-            re.r > threshold.r ||
-            re.g > threshold.g ||
-            re.b > threshold.b
-          )
-        ){
-          return( re );
-        }
-      } else {
-        dta.xyz = vec3( 0.0 );
-
-        for(dta.x = -bias; dta.x <= bias; dta.x+=bias){
-          for(dta.y = -bias; dta.y <= bias; dta.y+=bias){
-            for(dta.z = -bias; dta.z <= bias; dta.z+=bias){
-              re = texture( volume_map, (ijk.xyz + dta) * scale_inv );
-              if(
-                re.a > 0.0 &&
-                (
-                  re.r > threshold.r ||
-                  re.g > threshold.g ||
-                  re.b > threshold.b
-                )
-              ){
-                return( re );
-              }
-
-            }
-          }
-        }
-      }
-
-    }
-
-  } else {
-    re = texture( volume_map, ijk.xyz * scale_inv );
+  re = texture( volume_map, ijk.xyz * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
   }
-  if( re.a == 0.0 ){
-    re.rgb = vColor.rgb;
-    re.a = 1.0;
+
+  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
   }
-  return( re );
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, -0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, 0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( -0.5, -0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.5, -0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.5, 0.0 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, -0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, -0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, -0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, -0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.5 )) * scale_inv );
+  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+    return re.rgb;
+  }
+
+  return( vColor.rgb );
 }
 
 vec3 sample2( vec3 p ) {
@@ -165,46 +210,42 @@ vec3 sample2( vec3 p ) {
 }
 
 `) + "\nvoid main() {\n");
+
+
+
     shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <clipping_planes_fragment>",
+      "#include <color_fragment>",
       remove_comments(
 `
 
+vec4 vColor2 = vec4( vColor.rgb , 1.0 );
+
 if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
-  discard;
+  vColor2.a = 0.0;
 }
 
-vec4 vColor2 = vColor;
-
 if( mapping_type == 1 ){
+
     // is vTrackColor is missing, or all zeros, it's invalid
 
-    if( vTrackColor.rgb != zeros ){
+    if( vTrackColor.rgb != vec3(0.0) ){
       vColor2.rgb = vTrackColor.rgb;
-      // vColor.rgb = mix( vColor.rgb, vTrackColor.rgb, blend_factor );
     }
 
 } else if( mapping_type == 2 ){
 
-  // vColor.rgb = mix( max(vec3( 1.0 ) - vColor.rgb / 2.0, vColor.rgb), data_color0.rgb, blend_factor );
-  vColor2 = sample1( vPosition + vec3(0.5,-0.5,0.5) );
+  vColor2.rgb = sample1( vPosition + vec3(0.5,-0.5,0.5) ).rgb;
 
 } else if( mapping_type == 3 ){
+
   if( elec_active_size > 0.0 ){
-    vColor2.rgb = sample2( vPosition + shift );
+
+    vColor2.rgb = sample2( vPosition + shift ).rgb;
+
   }
 }
 
-// Remove transparent fragments
-#if defined( USE_COLOR_ALPHA )
-  if( vColor.a == 0.0 ){
-    // gl_FragColor.a = 0.0;
-    // gl_FragColor.rgba = vec4(0.0);
-    discard;
-  }
-#endif
-
-#include <clipping_planes_fragment>
+#include <color_fragment>
 `)
     );
 
@@ -215,6 +256,12 @@ if( mapping_type == 1 ){
 #include <dithering_fragment>
 // vColor2.rgb = vColor.rgb / 2.0 + mix( vColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
 gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
+if( vColor2.a == 0.0 ) {
+  gl_FragColor.a = 0.0;
+  gl_FragDepth = gl_DepthRange.far;
+} else {
+  gl_FragDepth = gl_FragCoord.z;
+}
 `
       )
     );
