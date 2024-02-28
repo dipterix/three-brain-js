@@ -208,9 +208,16 @@ class HauntedArcballControls extends EventDispatcher {
 
   rotateCamera = () => {
 
-		let angle = Math.acos( this._rotateStart.dot( this._rotateEnd ) / this._rotateStart.length() / this._rotateEnd.length() );
+    // Use angleTo to avoid floating errors
+    // Math.acos( this._rotateStart.dot( this._rotateEnd ) / this._rotateStart.length() / this._rotateEnd.length() );
+		let angle = this._rotateStart.angleTo( this._rotateEnd );
 
-		if( angle ) {
+    /**
+     * In some cases (for example, promise), `angle` can be very small number
+     * e.g.1e-7, resulting the rendering never stops.
+     * Set threshold here.
+     */
+		if( Math.abs(angle) > EPS ) {
 	    // start event
 		  this._isRotating = true;
 		  this.dispatchEvent( _startEvent );

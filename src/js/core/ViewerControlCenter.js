@@ -1,6 +1,6 @@
 import { Vector3, Matrix4, EventDispatcher } from 'three';
 import { CONSTANTS } from './constants.js';
-import { is_electrode } from '../geometry/sphere.js';
+import { is_electrode } from '../geometry/electrode.js';
 import { copyToClipboard } from '../utility/copyToClipboard.js';
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { asColor } from '../utility/color.js';
@@ -120,12 +120,12 @@ class ViewerControlCenter extends EventDispatcher {
           if( is_electrode( obj ) && obj.visible ) {
 
             if( !focusedObject ) {
-              this.canvas.focus_object( obj , true );
+              this.canvas.focusObject( obj , { helper : true } );
               return;
             }
 
             if ( previousObject && previousObject.name === focusedObject.name ) {
-              this.canvas.focus_object( obj , true );
+              this.canvas.focusObject( obj , { helper : true } );
               return;
             }
 
@@ -140,7 +140,7 @@ class ViewerControlCenter extends EventDispatcher {
             // focus on the first one
             previousObject = firstObject;
           }
-          this.canvas.focus_object( previousObject, true );
+          this.canvas.focusObject( previousObject, { helper : true } );
         }
       }
     })
@@ -163,7 +163,7 @@ class ViewerControlCenter extends EventDispatcher {
           if( is_electrode( obj ) && obj.visible ) {
 
             if( previousObject && focusedObject && obj.name == focusedObject.name ){
-              this.canvas.focus_object( previousObject, true );
+              this.canvas.focusObject( previousObject, { helper : true } );
               return ;
             }
             previousObject = obj;
@@ -171,7 +171,7 @@ class ViewerControlCenter extends EventDispatcher {
           }
         }
         if( previousObject ){
-          this.canvas.focus_object( previousObject, true );
+          this.canvas.focusObject( previousObject, { helper : true } );
         }
       }
     })
@@ -483,17 +483,6 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.dispatchEvent( animationFrameUpdateEvent );
 
-  }
-
-  /**
-   * wrapper for this.canvas.start_animation and pause_animation
-   */
-  _update_canvas(level = 0){
-    if(level >= 0){
-      this.canvas.start_animation(level);
-    }else{
-      this.canvas.pause_animation(-level);
-    }
   }
 
   // priority is deferred or event, see shiny

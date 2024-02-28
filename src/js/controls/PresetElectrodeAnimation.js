@@ -5,6 +5,8 @@ import { set_visibility } from '../utils.js';
 
 // 15. animation, play/pause, speed, clips...
 
+const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
+
 function registerPresetElectrodeAnimation( ViewerControlCenter ){
 
   ViewerControlCenter.prototype.add_clip = function(
@@ -46,7 +48,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     // time range is updated
     // this.canvas.updateTimeRange();
     this.ctrlAnimTime.min( this.animParameters.min ).max( this.animParameters.max )
-      // .onChange(v => { this._update_canvas(); });
+      // .onChange(v => { this.canvas.needsUpdate = true; });
 
     // update video playback speed FIXME?
     // const playbackSpeed = this.ctrlAnimSpeed.getValue() || 1;
@@ -273,6 +275,21 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
       });
     this.canvas.set_state('threshold_method', 2);
 
+
+    this.gui
+      .addController(
+        'Additional Data', '[None]',
+        {
+          folderName : folderName, args : names ,
+          object : this.animParameters.object })
+      .onChange( (v) => {
+        if( !names.includes(v) ) { return; }
+        this.canvas.set_state('additional_display_variable', v);
+        // this.fire_change({ 'clip_name' : v, 'display_data' : v });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
     this.ctrlAnimPlay = this.gui
       .addController(
         'Play/Pause', false,
@@ -280,9 +297,11 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION )
       .onChange(v => {
         if(v){
-          this._update_canvas(2);
+          this.canvas._renderFlag = this.canvas._renderFlag | CanvasState.Animate;
+          this.canvas.animParameters.start();
         }else{
-          this._update_canvas(-2);
+          this.canvas._renderFlag = this.canvas._renderFlag & (CanvasState.Animate ^ CanvasState.Mask);
+          this.canvas.animParameters.stop();
         }
         this.broadcast();
       });

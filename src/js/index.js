@@ -10,6 +10,7 @@ import * as download from 'downloadjs';
 import { json2csv } from 'json-2-csv';
 import ClipboardJS from 'clipboard';
 import nifti from 'nifti-reader-js';
+import { svd, registerRigidPoints } from './Math/svd.js';
 
 // Viewer class
 import { CONSTANTS } from './core/constants.js';
@@ -52,7 +53,8 @@ const ExternLibs = {
   json2csv          : json2csv,
   downloadjs        : download,
   ClipboardJS       : ClipboardJS,
-  nifti             : nifti
+  nifti             : nifti,
+  registration      : { svd : svd, registerRigidPoints : registerRigidPoints },
 };
 
 const Drivers = {

@@ -1,10 +1,10 @@
-import { AbstractThreeBrainObject } from './abstract.js';
-// MeshBasicMaterial, MeshLambertMaterial,
+import { AbstractThreeBrainObject, ElasticGeometry } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
-  SphereGeometry, Mesh, Vector3, Matrix4, Color,
+  Mesh, Vector3, Matrix4, Color,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer
 } from 'three';
+import { addColorCoat } from '../shaders/addColorCoat.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { to_array, get_or_default, remove_comments } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
@@ -12,71 +12,856 @@ import { CONSTANTS } from '../core/constants.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 
 const MATERIAL_PARAMS_BASIC = {
-  'transparent' : true,
-  'reflectivity' : 0,
-  'color': 0xffffff
+  'transparent'   : true,
+  'reflectivity'  : 0,
+  'color'         : 0xffffff,
+  'vertexColors'  : false
 };
 
 const MATERIAL_PARAMS_MORE = {
   ...MATERIAL_PARAMS_BASIC,
-  'roughness' : 1,
-  'metalness' : 0,
-  'ior' : 0,
-  'clearcoat' : 0.0,
-  'clearcoatRoughness' : 1,
-  'flatShading' : false
+  'roughness'           : 1,
+  'metalness'           : 0,
+  'ior'                 : 0,
+  'clearcoat'           : 0.0,
+  'clearcoatRoughness'  : 1,
+  'flatShading'         : false,
 }
 
-function addColorCoat( material ) {
-  if( material.clearcoat === undefined ) {
-    material.clearcoat = 0.0;
+function guessHemisphere(g) {
+  // guess hemisphere from freesurfer label
+  if( !g.hemisphere || !['left', 'right'].includes( g.hemisphere ) ) {
+
+    g.hemisphere = null;
+
+    let fsLabel = g.anatomical_label;
+    if( typeof fsLabel === "string" ) {
+      fsLabel = fsLabel.toLowerCase();
+      if(
+        fslabel.startsWith("ctx-lh") ||
+        fslabel.startsWith("ctx_lh") ||
+        fslabel.startsWith("left")
+      ) {
+        g.hemisphere = "left";
+      } else if (
+        fslabel.startsWith("ctx-rh") ||
+        fslabel.startsWith("ctx_rh") ||
+        fslabel.startsWith("right")
+      ) {
+        g.hemisphere = "right";
+      }
+    }
+
   }
-  material.onBeforeCompile = ( shader , renderer ) => {
-    material.userData.shader = shader;
-
-    shader.uniforms.clearcoat2 = { get value() {
-      return material.clearcoat;
-    } };
-
-    shader.vertexShader = remove_comments(`
-varying float reflectProd;
-`) + shader.vertexShader;
-
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <fog_vertex>",
-      remove_comments(
-`#include <fog_vertex>
-
-// uniform vec3 cameraPosition; - camera position in world space
-vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
-
-reflectProd = abs( dot( normalize( normal ), cameraRay ) );
-`)
-    );
-
-
-    shader.fragmentShader = remove_comments(`
-uniform float clearcoat2;
-varying float reflectProd;
-`) + shader.fragmentShader;
-
-  shader.fragmentShader = shader.fragmentShader.replace(
-    "#include <dithering_fragment>",
-    remove_comments(
-`
-#include <dithering_fragment>
-
-gl_FragDepth = gl_FragCoord.z;
-if ( clearcoat2 > 0.0 && reflectProd < clearcoat2 ) {
-  gl_FragColor.rgb = vec3( 0.0 );
-  gl_FragDepth = gl_DepthRange.near;
-}
-`));
-  };
-
-  return material;
+  return g.hemisphere;
 }
 
+class Electrode extends AbstractThreeBrainObject {
+
+  _registerAnimationKeyFrames( keyframes ) {
+    // only call once during initialization (maybe called later)
+    if( !this.animationKeyFrames ) {
+      this.animationKeyFrames = {};
+    }
+    if( keyframes === undefined ) {
+      keyframes = this._params.keyframes;
+    }
+    for( let frameName in keyframes ) {
+      const kf = keyframes[ frameName ];
+      const times = asArray( kf.time );
+      const values = asArray( kf.value );
+
+      if( values.length > 0 ) {
+        if( times.length === 0 ) {
+          times.push( 0 );
+        }
+        const timeValuePairs = times.map((t, i) => {
+          return( [ t , values[ i ] ] );
+        })
+        timeValuePairs.sort( (e1, e2) => { return( e1[0] - e2[0] ) });
+        this.animationKeyFrames[ frameName ] = timeValuePairs;
+      }
+    }
+
+    return Object.keys( this.animationKeyFrames );
+  }
+
+  get hasAnimationTracks () {
+    for( let k in this.animationKeyFrames ) {
+      return true;
+    }
+    return false;
+  }
+
+  get label() {
+    if( typeof this.state.customLabel === "string" ) {
+      return this.state.customLabel;
+    }
+    const nChannels = this.numbers.length;
+    if( nChannels === 0 ) { return ""; }
+    if( nChannels === 1 ) {
+      return `${ this.numbers[0] }`;
+    }
+    return `${ this.numbers[0] } - ${ this.numbers[ nChannels - 1 ] }`;
+  }
+
+  set label( name ) {
+    if( !name ) {
+      this.state.customLabel = undefined;
+    } else {
+      this.state.customLabel = `${name}`;
+    }
+    this.updateTextSprite();
+    // console.debug(`Setting label: ${this._text_label}`);
+    this._textMap.draw_text( this.label );
+  }
+
+  setLabelScale ( v ) {
+    if( v && v > 0 ) {
+      this._textMap.updateScale( v * (this._geometry.parameters.size || 1) );
+    }
+  }
+
+  setLabelVisible ( visible ) {
+    if( visible ) {
+      this._textSprite.visible = true;
+    } else {
+      this._textSprite.visible = false;
+    }
+  }
+
+  getSummary({ reset_fs_index = false, enabled_only = true } = {}) {
+
+    let localization_instance = this.object.userData.localization_instance;
+
+    let enabled = this._enabled !== false;
+    if(
+      localization_instance &&
+      typeof localization_instance === "object" &&
+      localization_instance.isLocElectrode === true
+    ) {
+      if( enabled && typeof( localization_instance.enabled ) === "function" ){
+        enabled = localization_instance.enabled();
+      }
+    } else {
+      localization_instance = {};
+    }
+
+    // return nothing if electrode is disabled
+    if( enabled_only && !enabled ) {
+      return;
+    }
+
+    // prepare data
+    const subject_code = this.subject_code,
+          subject_data  = this._canvas.shared_data.get( subject_code ),
+          tkrRAS_Scanner = subject_data.matrices.tkrRAS_Scanner,
+          xfm = subject_data.matrices.xfm,
+          Torig_inv = subject_data.matrices.Torig.clone().invert(),
+          _regexp = new RegExp(`^${subject_code}, ([0-9]+) \\- (.*)$`),
+          parsed = _regexp.exec( this.name ),
+          tkrRASOrig = new Vector3(),
+          pos = new Vector3();  // pos is reused
+
+    let electrode_number = localization_instance.Electrode || "",
+        tentative_label = "",
+        localization_order = localization_instance.localization_order;
+    if( parsed && parsed.length === 3 ) {
+      if( electrode_number === "" ) {
+        electrode_number = parsed[1];
+      }
+      tentative_label = parsed[2] || `NoLabel${electrode_number}`;
+      localization_order = localization_order || parseInt( parsed[1] );
+    } else {
+      tentative_label = `NoLabel${electrode_number}`;
+    }
+
+    // initialize summary data with Column `Subject`
+    const summary = {
+      Subject: this.subject_code,
+      Electrode: electrode_number
+    };
+
+    // get position in tkrRAS, set `Coord_xyz`
+    tkrRASOrig.fromArray( this._params.position );
+    if( localization_instance.brainShiftEnabled ) {
+      pos.copy( localization_instance.pialPosition );
+    } else {
+      pos.copy( tkrRASOrig );
+    }
+    summary.Coord_x = pos.x;
+    summary.Coord_y = pos.y;
+    summary.Coord_z = pos.z;
+
+    if( enabled_only && pos.length() === 0 ) {
+      return;
+    }
+
+    // Clinical `Label`
+    summary.Label = localization_instance.Label || tentative_label;
+
+    // Localization order (`LocalizationOrder`)
+    summary.LocalizationOrder = localization_order;
+
+    // get FreeSurfer Label `FSIndex` + `FSLabel`
+    if( reset_fs_index ) {
+      localization_instance[ "manual" ] = undefined;
+    }
+    try { localization_instance.computeFreeSurferLabel() } catch (e) {}
+    const atlasLabels = localization_instance.atlasLabels;
+
+    if( atlasLabels ) {
+      let seekOrder = ["manual", "aparc.a2009s+aseg", "aparc+aseg", "aparc.DKTatlas+aseg", "aseg"];
+      for( let ii in seekOrder ) {
+        const atlasType = seekOrder[ ii ];
+        const atlasLabel = atlasLabels[ atlasType ];
+        if( typeof atlasLabel === "object" ) {
+          if( atlasType === "manual" || atlasType === "aseg" || atlasLabel.index > 0 ) {
+            summary.FSIndex = atlasLabel.index;
+            summary.FSLabel = atlasLabel.label;
+            break;
+          }
+        }
+      }
+
+      for( let ii = 1; ii < seekOrder.length; ii++ ) {
+        const atlasType = seekOrder[ ii ];
+        const atlasLabel = atlasLabels[ atlasType ];
+        const atlasTypeReformat = atlasType.replaceAll(/[^a-zA-Z0-9]/g, "_");
+        summary[ `FSIndex_${ atlasTypeReformat }` ] = atlasLabel.index;
+        summary[ `FSLabel_${ atlasTypeReformat }` ] = atlasLabel.label;
+      }
+    }
+
+    //  T1 MRI scanner RAS (T1RAS)
+    pos.applyMatrix4( tkrRAS_Scanner );
+    summary.T1_x = pos.x;
+    summary.T1_y = pos.y;
+    summary.T1_z = pos.z;
+
+    //  MNI305_x MNI305_y MNI305_z
+    pos.applyMatrix4( xfm );
+    summary.MNI305_x = pos.x;
+    summary.MNI305_y = pos.y;
+    summary.MNI305_z = pos.z;
+
+    // `SurfaceElectrode` `SurfaceType` `Radius` `VertexNumber` `Hemisphere`
+    const isSurfaceElectrode = localization_instance.brainShiftEnabled ?? this._params.is_surface_electrode;
+    summary.SurfaceElectrode = isSurfaceElectrode ? 'TRUE' : 'FALSE';
+    summary.SurfaceType = this._params.surface_type || "pial";
+    summary.Radius =  this._params.radius;
+    summary.VertexNumber = this._params.vertex_number;     // vertex_number is already changed if std.141 is used
+    summary.Hemisphere = this._params.hemisphere;
+
+    // Original tkrRAS
+    summary.OrigCoord_x = tkrRASOrig.x;
+    summary.OrigCoord_y = tkrRASOrig.y;
+    summary.OrigCoord_z = tkrRASOrig.z;
+
+    // xyz on sphere.reg
+    if( localization_instance.brainShiftEnabled ) {
+      summary.DistanceShifted = localization_instance.distanceToShifted;
+      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial;
+      summary.Sphere_x = localization_instance.spherePosition.x;
+      summary.Sphere_y = localization_instance.spherePosition.y;
+      summary.Sphere_z = localization_instance.spherePosition.z;
+    } else {
+      summary.DistanceShifted = 0;
+      summary.DistanceToPial = localization_instance.distanceFromShiftedToPial ?? 0;
+      if( this._params.sphere_position ) {
+        summary.Sphere_x = this._params.sphere_position[0];
+        summary.Sphere_y = this._params.sphere_position[1];
+        summary.Sphere_z = this._params.sphere_position[2];
+      } else {
+        summary.Sphere_x = 0;
+        summary.Sphere_y = 0;
+        summary.Sphere_z = 0;
+      }
+    }
+
+    // CustomizedInformation `Notes`
+    summary.Notes = this._params.custom_info || '';
+
+    // get MRI VoxCRS = inv(Torig)*[tkrR tkrA tkrS 1]'
+    pos.fromArray( this._params.position ).applyMatrix4( Torig_inv );
+    summary.Voxel_i = Math.round( pos.x );
+    summary.Voxel_j = Math.round( pos.y );
+    summary.Voxel_k = Math.round( pos.z );
+
+
+
+    return( summary );
+  }
+
+  dispose(){
+    try {
+      this._textSprite.removeFromParent();
+      this._textSprite.material.map.dispose();
+      this._textSprite.material.dispose();
+      this._textSprite.geometry.dispose();
+    } catch (e) {}
+
+    try {
+      this.object.removeFromParent();
+    } catch (e) {}
+
+    this.object.material.dispose();
+    this.object.geometry.dispose();
+
+    try {
+      this._canvas.$el.removeEventListener(
+        "viewerApp.electrodes.mapToTemplate",
+        this.mapToTemplate
+      )
+    } catch (e) {}
+  }
+
+  // fat arrow to make sure listeners are correct for child classes
+  mapToTemplate = ( event ) => {
+    "TO BE IMPLEMENTED";
+  }
+
+  constructor (g, canvas) {
+    super( g, canvas );
+    // correct hemisphere
+    g.hemisphere = guessHemisphere( g );
+
+    // member setups
+    this.type = "Electrode";
+    this.isElectrode = true;
+
+    // channel number(s)
+    if( this._params.number ) {
+      // assuming it's sorted
+      this.numbers = asArray( this._params.number );
+    } else {
+      this.numbers = [];
+    }
+    // TODO: add channel number -> UV mapping
+    // if( this._params.channel_orders)
+
+    // this.animationActive = false;
+    // this._animationName = "[None]";
+    this.state = {
+      // For inner text
+      customLabel       : undefined,
+
+      // updated during update()
+      displayActive     : false,            // whether active keyframe is found for animation
+      displayVariable   : "[None]",         // variable name used for displaying
+      displayValues     : undefined,        // Array or number, electrode value(s) for displaying
+
+      thresholdActive   : false,            // whether threshold is on
+      thresholdVariable : "[None]",         // threshold variable names
+      thresholdValues   : undefined,        // Array or number, electrode value(s) for threshold
+      thresholdTest     : true,             // whether threshold is passed; always true if threshold is inactive
+
+      colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
+      fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
+      useBasicMaterial  : false,            // whether to use basic material? true when have data, false when fixed color or no data
+
+    };
+
+    // When to fix the color
+    this.fixedColor = undefined;
+    if( g.fixed_color && typeof( g.fixed_color ) === "object" ) {
+      if( g.fixed_color.color ) {
+        this.fixedColor = {
+          'color' : new Color().set( g.fixed_color.color ),
+          'names' : asArray( g.fixed_color.names ),
+          'inclusive' : g.fixed_color.inclusive ? true: false
+        };
+      }
+    }
+
+    // default color when not values set
+    this.defaultColor = new Color().set(1, 1, 1);
+    this._tmpColor = new Color().set(1, 1, 1);
+
+    // animation key-values
+    // this.animationKeyFrames = {};
+    const variableNames = this._registerAnimationKeyFrames();
+
+
+    // build geometry
+    const baseSize = g.size || g.radius || g.width || g.height || 5;
+    this._geometry = new ElasticGeometry( g.subtype ?? "PlaneGeometry", {
+      size            : g.size ?? baseSize,
+      radius          : g.radius ?? baseSize,
+      width           : g.width ?? baseSize,
+      height          : g.height ?? baseSize,
+      widthSegments   : g.width_segments ?? 10,
+      heightSegments  : g.height_segments ?? 6,
+      textureWidth    : g.texture_width ?? 1,
+      textureHeight   : g.texture_height ?? 1,
+    });
+    this._geometry.name = `geom_electrode_${ g.name }`;
+    this._dataTexture = this._geometry.dataTexture;
+
+    this._shaderUniforms = {
+      useDataTexture : { value : 0 },
+      dataTexture    : { value : this._dataTexture },
+    };
+
+    // materials
+    this._materials = {
+      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS_BASIC ), this._shaderUniforms ),
+      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ), this._shaderUniforms )
+    };
+
+    // mesh
+    this.object = new Mesh(this._geometry, this._materials.MeshPhysicalMaterial );
+    // make sure not hidden by other objects;
+    this.object.renderOrder = -500;
+    this.object.name = 'mesh_electrode_' + g.name;
+    this.object.position.fromArray(g.position);
+
+    // Build inner text sprite (text label to electrodes); requires
+    // this.state and this.numbers
+    this._textMap = new TextTexture( this.label, { 'weight' : 900 } );
+    this._textSprite = new Sprite2( new SpriteMaterial({
+      map: this._textMap,
+      transparent: true,
+      depthTest : false,
+      depthWrite : false,
+      color: 0xffffff
+    }));
+    this._textSprite.visible = false;
+    this.object.add( this._textSprite );
+
+    this.object.userData.dispose = () => { this.dispose(); };
+  }
+
+  // After everything else is set (including controllers)
+  finish_init(){
+
+    super.finish_init();
+
+    // add to canvas electrode list
+    this.register_object( ['electrodes'] );
+
+    // electrodes must be clickable, ignore the default settings
+    this._canvas.add_clickable( this.name, this.object );
+
+    // set label size
+    const electrodeLabelState = this._canvas.state_data.get("electrode_label");
+    if( typeof electrodeLabelState === "object" && electrodeLabelState ) {
+      this.setLabelScale( electrodeLabelState.scale || 1.5 );
+    } else {
+      this.setLabelScale( 1.5 );
+    }
+
+    this._canvas.$el.addEventListener(
+      "viewerApp.electrodes.mapToTemplate",
+      this.mapToTemplate
+    )
+
+  }
+
+  updateThresholdTest() {
+
+    const thresholdVariableName = this._canvas.get_state('threshold_variable', "[None]");
+    const thresholdActive = this._canvas.get_state( 'threshold_active', false);
+    const thresholdKeyFrame = thresholdActive ? this.animationKeyFrames[ thresholdVariableName ] : null;
+
+    if( !thresholdKeyFrame ) {
+
+      this.state.thresholdActive = false;
+      this.state.thresholdVariable = "[None]";
+      this.state.thresholdValues = undefined;
+
+      // default pass threshold
+      this.state.thresholdTest = true;
+
+      return;
+
+    }
+
+    // Find current value used by threshold
+    const time = this._canvas.animParameters.time;
+    let idx = 0;
+    // TODO: use binary search
+    for( idx = 0 ; idx < thresholdKeyFrame.length - 1 ; idx++ ) {
+        if( thresholdKeyFrame[ idx + 1 ][0] > time && thresholdKeyFrame[ idx ][0] <= time ) { break; }
+    }
+    if( idx >= thresholdKeyFrame.length ) { idx = thresholdKeyFrame.length - 1; }
+
+
+
+    // This can be an array or number
+    this.state.thresholdActive = true;
+    this.state.thresholdVariable = thresholdVariableName;
+    this.state.thresholdValues = thresholdKeyFrame[ idx ][ 1 ];
+    this.state.thresholdTest = false;
+
+    // test the threshold ranges agaist electrode value(s)
+    const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
+    const operators = this._canvas.get_state('threshold_method');
+    const isContinuous = this._canvas.get_state('threshold_type') === "continuous";
+    const tVals = this.state.thresholdValues;
+
+    if( isContinuous ) {
+      // '|v| < T1', '|v| >= T1', 'v < T1',
+      // 'v >= T1', 'v in [T1, T2]', 'v not in [T1,T2]'
+      if(
+        thresholdRanges.length > 0 && operators >= 0 &&
+        operators < CONSTANTS.THRESHOLD_OPERATORS.length
+      ){
+        const opstr = CONSTANTS.THRESHOLD_OPERATORS[ operators ]
+        let t1 = thresholdRanges[0];
+
+        let isPassed;
+
+        switch (expression) {
+          case 'v = T1':
+            isPassed = ( v ) => { return v == t1; };
+            break;
+
+          case '|v| < T1':
+            isPassed = ( v ) => { return Math.abs( v ) < t1; };
+            break;
+
+          case '|v| >= T1':
+            isPassed = ( v ) => { return Math.abs( v ) >= t1; };
+            break;
+
+          case 'v < T1':
+            isPassed = ( v ) => { return v < t1; };
+            break;
+
+          case 'v >= T1':
+            isPassed = ( v ) => { return v >= t1; };
+            break;
+
+          default:
+            // 'v in [T1, T2]' or 'v not in [T1,T2]'
+            let t2 = Math.abs(t1);
+            if( thresholdRanges.length === 1 ){
+              t1 = -t2;
+            } else {
+              t2 = thresholdRanges[1];
+              if( t1 > t2 ){
+                t2 = t1;
+                t1 = thresholdRanges[1];
+              }
+            }
+            if( opstr === 'v in [T1, T2]' ) {
+              isPassed = ( v ) => { return (v <= t2 && v >= t1); };
+            } else {
+              // 'v not in [T1,T2]'
+              isPassed = ( v ) => { return (v > t2 && v < t1); };
+            }
+        };
+
+        if( Array.isArray( tVals ) ) {
+          for(let ii in tVals) {
+            if( isPassed( tVals[ii] ) ) {
+              this.state.thresholdTest = true;
+              break;
+            }
+          }
+        } else {
+          this.state.thresholdTest = isPassed( tVals );
+        }
+
+      } else {
+        this.state.thresholdTest = true;
+      }
+    } else {
+      // discrete
+      const tVals = this.state.thresholdValues;
+      if( Array.isArray( tVals ) ) {
+        for(let ii in tVals) {
+          if( thresholdRanges.includes( tVals[ii] ) ) {
+            this.state.thresholdTest = true;
+            break;
+          }
+        }
+      } else {
+        this.state.thresholdTest = thresholdRanges.includes( currentThresholdValue );;
+      }
+    }
+  }
+
+  updateDisplayValue () {
+
+    // updated during update()
+    //  displayActive     : false,            // whether active keyframe is found for animation
+    //  displayVariable   : "[None]",         // variable name used for displaying
+    //  displayValues     : undefined,        // Array or number, electrode value(s) for displaying
+
+    if( !this.hasAnimationTracks ) {
+      this.state.displayActive    = false;
+      this.state.displayVariable  = "[None]";
+      this.state.displayValues    = undefined;
+      this.state.useBasicMaterial = false;
+
+      return;
+    }
+
+    // 1. determine if display color needs to be caluclated
+    const displayVariableName = this._canvas.get_state('display_variable', "[None]");
+    const displayKeyFrame = this.animationKeyFrames[ displayVariableName ];
+
+    this.state.displayVariable = displayVariableName;
+
+    if( !displayKeyFrame ) {
+      this.state.displayActive = false;
+      this.state.displayValues = undefined;
+      this.state.useBasicMaterial = false;
+
+      return;
+    }
+
+    let idx;
+    for( idx = 0 ; idx < displayKeyFrame.length - 1 ; idx++ ) {
+      if( displayKeyFrame[ idx + 1 ][0] > time && displayKeyFrame[ idx ][0] <= time ) { break; }
+    }
+    if( idx >= displayKeyFrame.length ) { idx = displayKeyFrame.length - 1; }
+
+    this.state.displayActive = true;
+    this.state.displayValues = displayKeyFrame[ idx ][ 1 ];
+    this.state.useBasicMaterial = true;
+
+  }
+
+  updateFixedColor() {
+
+    // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
+    // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
+    // useBasicMaterial
+
+    const colorSize = this.state.colorSize;
+    const fixColor = this.state.fixColor;
+
+    if( !this.fixedColor ) {
+      for( let i = 0 ; i < colorSize; i++ ) {
+        fixColor[ i ] = false;
+      }
+      return;
+    }
+    const displayVariableName = this.state.displayVariable;
+
+    // TODO: fix me when fixed color needs to be considered for each sub-element
+    let useFixedColor = false;
+
+    switch ( displayVariableName ) {
+      case '[None]':
+        useFixedColor = true;
+        break;
+
+      case '[Subject]':
+        useFixedColor = false;
+        break;
+
+      default: {
+        const cmap = this._canvas.currentColorMap();
+        if( this.fixedColor.inclusive ) {
+          useFixedColor = this.fixedColor.names.includes( cmap.name );
+        } else {
+          useFixedColor = ! this.fixedColor.names.includes( cmap.name );
+        }
+      }
+    };
+
+    for( let i = 0 ; i < colorSize; i++ ) {
+      fixColor[ i ] = useFixedColor;
+    }
+
+    if( useFixedColor) {
+      this.state.useBasicMaterial = false;
+    }
+
+  }
+  updateMaterialType() {
+    if( this.state.useBasicMaterial ) {
+      this.object.material = this._materials.MeshBasicMaterial;
+    } else {
+      this.object.material = this._materials.MeshPhysicalMaterial;
+    }
+  }
+
+  updateVisibility() {
+    // 4. set visibility
+    const vis = this._canvas.get_state( 'electrode_visibility', 'all visible');
+
+    switch (vis) {
+      case 'all visible':
+        this.object.visible = true;
+        break;
+      case 'hidden':
+        this.object.visible = false;
+        break;
+      case 'hide inactives':
+        // The electrode has no value, hide
+        if( this.state.displayActive && this.state.thresholdTest ){
+          this.object.visible = true;
+        }else{
+          this.object.visible = false;
+        }
+        break;
+      case 'threshold only':
+        // show even the object does not have values
+        if( this.state.thresholdTest ){
+          this.object.visible = true;
+        }else{
+          this.object.visible = false;
+        }
+        break;
+    }
+  }
+
+  updateColors() {
+    // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
+    // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
+    // useBasicMaterial  // whether basic material is used
+
+    // no need to visualize
+    if( !this.object.visible ) { return; }
+
+    const cmap = this._canvas.currentColorMap();
+    const currentMaterial = this.object.material;
+
+    // check if fixed color
+    if( this.state.fixColor[0] && this.fixedColor ) {
+      this._shaderUniforms.useDataTexture.value = 0;
+      currentMaterial.color.copy( this.fixedColor.color );
+    } else if( this.state.displayActive ) {
+
+      if( this.state.useBasicMaterial && this._dataTexture && Array.isArray( this.state.displayValues ) ) {
+
+        const colorArray = this._dataTexture.image.data;
+        const colorCount = this._dataTexture._width * this._dataTexture._height;
+        const values = this.state.displayValues;
+        const n = Math.min( colorCount, values.length );
+        const tmpColor = this._tmpColor;
+        for( let i = 0; i < n ; i++ ) {
+          cmap.getColor( values[ i ] , tmpColor );
+
+          // set RGB 0-255
+          colorArray[ i * 4 ] = tmpColor.r * 255;
+          colorArray[ i * 4 + 1 ] = tmpColor.g * 255;
+          colorArray[ i * 4 + 2 ] = tmpColor.b * 255;
+        }
+
+        this._dataTexture.needsUpdate = true;
+        this._shaderUniforms.useDataTexture.value = 1;
+
+      } else {
+        this._shaderUniforms.useDataTexture.value = 0;
+        if( Array.isArray( this.state.displayValues ) ) {
+          cmap.getColor( this.state.displayValues[0] , currentMaterial.color );
+        } else {
+          cmap.getColor( this.state.displayValues, currentMaterial.color );
+        }
+      }
+
+    } else {
+      // use default color
+      this._shaderUniforms.useDataTexture.value = 0;
+      currentMaterial.color.copy( this.defaultColor );
+    }
+
+    // also set clearcoat
+    const clearCoatValue = this._canvas.get_state( "electrode_clearcoat", 0.0 );
+    if( typeof clearCoatValue === "number" ) {
+      currentMaterial.clearcoat = clearCoatValue;
+    }
+  }
+
+  update() {
+
+    // ---- Section 0. check if raw position is 0,0,0 --------------------------
+    const origPos = this.object.userData.construct_params.position;
+    if( this.isElectrode && origPos[0] === 0 && origPos[1] === 0 && origPos[2] === 0 ) {
+      this.object.visible = false;
+      return ;
+    }
+
+    // ---- Section 1: Handle display, threshold -------------------------------
+    /** For reference
+    this.state = {
+      displayVariable   : "[None]",
+      displayValues     : [],
+      thresholdVariable : "[None]",
+      thresholdValues   : undefined
+      thresholdTest     : true
+    };
+    */
+
+    // updates
+    // this.state.thresholdActive     true/false
+    // this.state.thresholdVariable   "name"
+    // this.state.thresholdValues     [] or number
+    // this.state.thresholdTest       true/false
+    this.updateThresholdTest();
+
+    //  displayActive     : false,            // whether active keyframe is found for animation
+    //  displayVariable   : "[None]",         // variable name used for displaying
+    //  displayValues     : undefined,        // Array or number, electrode value(s) for displaying
+    this.updateDisplayValue();
+
+    // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
+    // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
+    // useBasicMaterial  // whether basic material is used
+    this.updateFixedColor();
+
+
+    // Determine the material
+    this.updateMaterialType();
+
+    // visible?
+    this.updateVisibility();
+
+    // update color
+    this.updateColors();
+
+
+  }
+  pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
+
+    super.pre_render({ target : target });
+
+    this.object.material.transparent = target !== CONSTANTS.RENDER_CANVAS.main;
+
+  }
+
+}
+
+function gen_electrode(g, canvas) {
+  const subject_code = g.subject_code;
+
+  if( subject_code ){
+    // make sure subject group exists
+    if( g.group && g.group.group_name ){
+      const group_name = g.group.group_name;
+
+      if( !canvas.group.has(group_name) ){
+        canvas.add_group( {
+          name : group_name, layer : 0, position : [0,0,0],
+          disable_trans_mat: true, group_data: null,
+          parent_group: null, subject_code: subject_code,
+          trans_mat: null
+        });
+      }
+    }
+  }
+
+  const el = new Electrode(g, canvas);
+
+  if( subject_code ){
+    // make sure subject array exists
+    canvas.init_subject( subject_code );
+  }
+  return( el );
+}
+
+function gen_sphere(g, canvas){
+  g.geometry_type = "SphereGeometry";
+  return gen_electrode(g, canvas);
+}
+
+/*
 
 class Sphere extends AbstractThreeBrainObject {
   constructor (g, canvas) {
@@ -127,21 +912,36 @@ class Sphere extends AbstractThreeBrainObject {
       }
     }
 
-    this._materials = {
-      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS_BASIC ) ),
-      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ) )
+    this._shaderUniforms = {
+      useDataTexture : { value : 0 },
     };
 
-    const gb = new SphereGeometry( g.radius, g.width_segments, g.height_segments );
+    this._materials = {
+      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS_BASIC, this._shaderUniforms ) ),
+      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE, this._shaderUniforms ) )
+    };
+
+    const gb = new ElasticGeometry( "SphereGeometry", {
+      radius:         g.radius,
+      widthSegments:  g.width_segments,
+      heightSegments: g.height_segments
+    });
     this._geometry = gb;
+    console.log(this);
+    console.log(gb);
 
     gb.name = 'geom_sphere_' + g.name;
 
 
     const mesh = new Mesh(gb, this._materials[ this._material_type ]);
+    // make sure not hidden by other objects;
+    mesh.renderOrder = -500;
     mesh.name = 'mesh_sphere_' + g.name;
-    const gb2 = gb.clone();
-    gb2.name = gb.name + "--clone"
+
+
+    this._mesh = mesh;
+    this.object = mesh;
+
 
     // FIXME: need to use class instead of canvas.mesh
     let linked = false;
@@ -161,12 +961,6 @@ class Sphere extends AbstractThreeBrainObject {
     if(!linked){
       mesh.position.fromArray(g.position);
     }
-
-    // make sure not hidden by other objects;
-    mesh.renderOrder = -500;
-
-    this._mesh = mesh;
-    this.object = mesh;
 
     // Add text label to electrodes
     this._text_label = `${this._params.number || ""}`;
@@ -524,56 +1318,6 @@ class Sphere extends AbstractThreeBrainObject {
     }
   }
 
-  /*
-  add_track_data( track_name, data_type, value, time_stamp = 0 ){
-    let first_value = value, track_value = value;
-    if(Array.isArray(time_stamp)){
-      if(!Array.isArray(value) || time_stamp.length !== value.length ){
-        return;
-      }
-      first_value = value[0];
-    }else if(Array.isArray(value)){
-      first_value = value[0];
-      track_value = first_value;
-    }
-    if( !data_type ){
-      data_type = (typeof first_value === 'number')? 'continuous' : 'discrete';
-    }
-    this._mesh.userData.ani_exists = true;
-    this._mesh.userData.ani_params[track_name] = {
-      "name"      : track_name,
-      "time"      : time_stamp,
-      "value"     : value,
-      "data_type" : data_type,
-      "target"    : ".material.color",
-      "cached"    : false
-    };
-    if(!this._animationAllNames.includes( track_name )){
-      this._animationAllNames.push( track_name );
-    }
-  }
-
-  get_track_data( track_name, reset_material ){
-    let re;
-
-    if( this.hasAnimationTracks ){
-      if( track_name === undefined ){ track_name = this._animationName; }
-      re = this._mesh.userData.ani_params[ track_name ];
-    }
-
-    if( reset_material ){
-      if( re && re.value !== null ){
-        this._mesh.material = this._materials.MeshBasicMaterial;
-        this.animationActive = true;
-      }else{
-        this._mesh.material = this._materials.MeshPhysicalMaterial;
-        this.animationActive = false;
-      }
-    }
-
-    return( re );
-  }
-  */
 
   get_summary({
     reset_fs_index = false,
@@ -1085,6 +1829,7 @@ function gen_sphere(g, canvas){
   }
   return( el );
 }
+*/
 
 function add_electrode (canvas, number, name, position, surface_type = 'NA',
                         custom_info = '', is_surface_electrode = false,
@@ -1252,4 +1997,4 @@ function is_electrode(e) {
   }
 }
 
-export { gen_sphere, is_electrode };
+export { gen_sphere };

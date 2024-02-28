@@ -254,7 +254,7 @@ class DataCube extends AbstractThreeBrainObject {
       this._canvas.set_state( 'axial_overlay', false );
       this.axialActive = false;
     }
-    this._canvas.start_animation( 0 );
+    this._canvas.needsUpdate = true;
   }
 
   finish_init(){

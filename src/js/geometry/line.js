@@ -95,7 +95,7 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
 
     this.updateResolutions();
 
-    this.needsUpdate = false;
+    // this.needsUpdate = false;
 
     this.finish_init();
 

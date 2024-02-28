@@ -1,5 +1,7 @@
 import { EventDispatcher, Clock, Vector3 } from 'three';
 
+const emptyDict = {};
+
 class AnimationParameters extends EventDispatcher {
   constructor () {
     super();
@@ -26,13 +28,39 @@ class AnimationParameters extends EventDispatcher {
       position : new Vector3(),
       templateMapping : {},
       get currentDataValue () {
-        if( this.instance ) {
-          return this.instance._currentValue;
+        if( this.instance && this.instance.isElectrode ) {
+          const dispVal = this.instance.state.displayValues;
+          if( Array.isArray( dispVal ) ) {
+            if( dispVal.length === 1 ) {
+              return dispVal[0];
+            }
+            const focusedContact = this.instance.state.focusedContact;
+            if ( focusedContact >= 0 ) {
+              return dispVal[ focusedContact ];
+            }
+            return undefined;
+          }
+          return dispVal;
         }
         return undefined;
       }
     }
     this.hasObjectFocused = false;
+  }
+
+  start() {
+    if( !this._clock.running ) {
+      this._clock.start();
+    }
+  }
+  stop() {
+    if( this._clock.running ) {
+      this._clock.stop();
+    }
+  }
+
+  get started () {
+    return this._clock.running;
   }
 
   get play() {
@@ -133,14 +161,27 @@ class AnimationParameters extends EventDispatcher {
     objectInfo.instance = inst;
     objectInfo.name = inst.name;
     objectInfo.customInfo = inst._params.custom_info;
-    objectInfo.isElectrode = inst.isElectrode ?? false;
-    objectInfo.MNI305Position = objectUserData.MNI305_position;
-    objectInfo.templateMapping.mapped = objectUserData._template_mapped || false;
-    objectInfo.templateMapping.shift = objectUserData._template_shift || 0;
-    objectInfo.templateMapping.space = objectUserData._template_space || 'original';
-    objectInfo.templateMapping.surface = objectUserData._template_surface || 'NA';
-    objectInfo.templateMapping.hemisphere = objectUserData._template_hemisphere || 'NA';
-    objectInfo.templateMapping.mni305 = objectUserData._template_mni305;
+
+    const isElectrode = inst.isElectrode ?? false;
+    objectInfo.isElectrode = isElectrode;
+
+    // const state = isElectrode ? inst.state : emptyDict;
+    // const isTemplateMappingActive = state.templateMappingActive;
+
+    // objectInfo.templateMapping.mapped = isTemplateMappingActive;
+
+    // objectInfo.templateMapping.shift = 0;
+    // objectInfo.templateMapping.space = `${ state.templateCoordSys }(${ state.templateMappingMethod })`;
+
+
+
+    // objectInfo.MNI305Position = objectUserData.MNI305_position;
+    // objectInfo.templateMapping.mapped = objectUserData._template_mapped || false;
+    // objectInfo.templateMapping.shift = objectUserData._template_shift || 0;
+    // objectInfo.templateMapping.space = objectUserData._template_space || 'original';
+    // objectInfo.templateMapping.surface = objectUserData._template_surface || 'NA';
+    // objectInfo.templateMapping.hemisphere = objectUserData._template_hemisphere || 'NA';
+    // objectInfo.templateMapping.mni305 = objectUserData._template_mni305;
     // objectInfo.currentDataValue = undefined;
   }
 

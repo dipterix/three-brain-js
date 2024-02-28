@@ -77,7 +77,7 @@ function registerPresetMainCamera( ViewerControlCenter ){
       );
       cameraPosition.forceZUp = true;
       this.canvas.mainCamera.setPosition( cameraPosition );
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     }
   }
 
@@ -101,7 +101,7 @@ function registerPresetMainCamera( ViewerControlCenter ){
       controller.object["Camera Position"] = '[free rotate]';
       controller.updateDisplay()
 
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     });
 
     this.initializeCameraPosition();

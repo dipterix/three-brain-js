@@ -2,7 +2,7 @@ import { Vector3, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper, Group } fr
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { getDataCube2 } from '../utility/getDataCube2.js';
 import { CONSTANTS } from '../core/constants.js';
-import { is_electrode } from '../geometry/sphere.js';
+import { is_electrode } from '../geometry/electrode.js';
 import { intersect_volume, electrode_from_ct } from '../Math/raycast_volume.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { getAnatomicalLabelFromPosition } from '../Math/getAnatomicalLabelFromPosition.js';
@@ -118,7 +118,7 @@ class LocElectrode {
 
     const inst = canvas.add_object({
       "name": this._orig_name,
-      "type": "sphere",
+      "type": "electrode",
       "time_stamp": [],
       "position": initialPositionAsArray,
       "value": null,
@@ -153,7 +153,7 @@ class LocElectrode {
 
     // set up label;
     this.instance.label = this.localization_order;
-    this.instance.set_label_visible(true);
+    this.instance.setLabelVisible(true);
     // this.object.scale.set( this._scale, this._scale, this._scale );
 
     // Add line to indicate shift
@@ -1294,7 +1294,7 @@ function register_controls_localization( ViewerControlCenter ){
         }
 
         this.broadcast();
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
 
       });
     const auto_refine = this.gui
@@ -1316,7 +1316,7 @@ function register_controls_localization( ViewerControlCenter ){
           el.updateScale( v );
         });
 
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
 
       });
 
@@ -1365,7 +1365,7 @@ function register_controls_localization( ViewerControlCenter ){
         });
 
 
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
       }
     },  { folderName: folderName }); */
 
@@ -1379,7 +1379,7 @@ function register_controls_localization( ViewerControlCenter ){
         });
 
 
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
       }
     },  { folderName: folderName });
 
@@ -1394,7 +1394,7 @@ function register_controls_localization( ViewerControlCenter ){
         });
 
 
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
       }
     },  { folderName: folderName });
 
@@ -1408,7 +1408,7 @@ function register_controls_localization( ViewerControlCenter ){
       });
 
 
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     },  { folderName: folderName });
 
 
@@ -1767,7 +1767,7 @@ function register_controls_localization( ViewerControlCenter ){
         data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
       });
 
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     }
 
     this.bindKeyboard({

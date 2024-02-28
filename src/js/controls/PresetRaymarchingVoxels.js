@@ -24,7 +24,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       if( !lut || lut.mapDataType !== "continuous" ) { return; }
       dataCubeInstance._filterDataContinuous( voxelLB, voxelUB );
       this.canvas.set_state( "surface_color_refresh", Date() );
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     }
 
     // Add controllers for discrete lut
@@ -36,7 +36,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       if( !lut || lut.mapDataType !== "discrete" ) { return; }
       dataCubeInstance._filterDataDiscrete( selectedLabels );
       this.canvas.set_state( "surface_color_refresh", Date() );
-      this._update_canvas();
+      this.canvas.needsUpdate = true;
     }
 
     this._onDataCube2TypeChanged = (v) => {
@@ -122,7 +122,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
 
         // TODO use event dispatcher
         this.canvas.set_state( "surface_color_refresh", Date() );
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
       })
       .setValue( 'side camera' );
     this.bindKeyboard({

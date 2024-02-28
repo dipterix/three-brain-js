@@ -235,7 +235,7 @@ ShaderLib[ 'line' ] = {
 			gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a );
 
 			#include <tonemapping_fragment>
-			#include <encodings_fragment>
+			#include <colorspace_fragment>
 			#include <fog_fragment>
 			#include <premultiplied_alpha_fragment>
 

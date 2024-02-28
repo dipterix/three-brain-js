@@ -1,7 +1,7 @@
 import { Vector3, Color } from 'three';
 import { asArray } from '../utility/asArray.js';
 import { asColor } from '../utility/color.js';
-import { is_electrode } from '../geometry/sphere.js';
+import { is_electrode } from '../geometry/electrode.js';
 import { CONSTANTS } from '../core/constants.js';
 
 // events to $wrapper
@@ -380,7 +380,7 @@ class RShinyDriver {
       if( name.startsWith( namePrefix ) ) {
         const mesh = meshCollection[ name ];
         if( is_electrode( mesh ) ) {
-          this.canvas.focus_object( mesh );
+          this.canvas.focusObject( mesh, { helper : true } );
           this.canvas.needsUpdate = true;
           return;
         }

@@ -382,7 +382,7 @@ function registerPresetSurface( ViewerControlCenter ){
         }
         // this.set_surface_ctype( true, { 'blend' : v } );
         this.canvas.set_state("surface_color_blend", v);
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
       }).setValue( 1.0 );
 
     // ---------- for voxel-color ---------------
@@ -394,7 +394,7 @@ function registerPresetSurface( ViewerControlCenter ){
           if( v < 0 ){ v = 0; }
           // this.set_surface_ctype( true, { 'sigma' : v } );
           this.canvas.set_state("surface_color_sigma", v);
-          this._update_canvas();
+          this.canvas.needsUpdate = true;
         }
       }).setValue( 1 );
 
@@ -406,7 +406,7 @@ function registerPresetSurface( ViewerControlCenter ){
           if( v < 0.05 ){ v = 0.05; }
           // this.set_surface_ctype( true, { 'decay' : v } );
           this.canvas.set_state("surface_color_decay", v);
-          this._update_canvas();
+          this.canvas.needsUpdate = true;
         }
       }).setValue( 0.6 );
 
@@ -417,7 +417,7 @@ function registerPresetSurface( ViewerControlCenter ){
           if( v < 1.0 ){ v = 1.0; }
           // this.set_surface_ctype( true, { 'radius' : v } );
           this.canvas.set_state("surface_color_radius", v);
-          this._update_canvas();
+          this.canvas.needsUpdate = true;
         }
       }).setValue( 5.0 );
 

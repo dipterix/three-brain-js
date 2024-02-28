@@ -295,7 +295,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.debug = data.settings.debug || false;
 
     // clear canvas
-    this.canvas.pause_animation(9999);
+    this.canvas.needsUpdate = false;
     this.canvas.clear_all();
     if( this.controllerGUI ) {
       try { this.controllerGUI.dispose(); } catch (e) {}
@@ -424,7 +424,7 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // Force starting rendering
     this.canvas.render();
-    this.canvas.start_animation(0);
+    this.canvas.needsUpdate = true;
 
     if( typeof( callback ) === 'function' ){
       try {
@@ -612,6 +612,7 @@ class ViewerApp extends ThrottledEventDispatcher {
   animate(){
 
     if( this._disposed ){ return; }
+    this.canvas.rendering = true;
 
     requestAnimationFrame( this.animate.bind(this) );
 
@@ -635,9 +636,9 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.controlCenter.update();
     }
 
-    if( this.canvas.needsUpdate ){
-  		this.canvas.render();
-    }
+    this.canvas.render();
+
+    this.canvas.rendering = false;
 
 	}
 }

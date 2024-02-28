@@ -231,7 +231,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       this._mesh.material.opacity = _o;
       this._mesh.material.needsUpdate = true;
       if( update_canvas ){
-        this._canvas.start_animation( 0 );
+        this._canvas.needsUpdate = true;
       }
     }
   }
@@ -383,7 +383,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._check_material( false );
 
     // compute render order
-    this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius;
+    this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius / 2.0;
 
 
     // need to get current active datacube2

@@ -1,7 +1,8 @@
-import { Vector3 } from 'three';
+import { Vector3, Matrix4 } from 'three';
 // Defined all the constants
 
 const CONSTANTS = {};
+
 
 /* ------------------------------------ Layer setups ------------------------------------
   Defines for each camera which layers are visible.
@@ -45,6 +46,15 @@ CONSTANTS.VEC_ANAT_S = new Vector3( 0, 0, 1 );
 CONSTANTS.VEC_ANAT_L = new Vector3( -1, 0, 0 );
 CONSTANTS.VEC_ANAT_P = new Vector3( 0, -1, 0 );
 CONSTANTS.VEC_ANAT_I = new Vector3( 0, 0, -1 );
+
+CONSTANTS.MNI305_to_MNI152 = new Matrix4().set(
+  0.9975, -0.0073, 0.0176, -0.0429,
+  0.0146, 1.0009, -0.0024, 1.5496,
+  -0.013, -0.0093, 0.9971, 1.184,
+  0, 0, 0, 1
+);
+
+CONSTANTS.MNI152_to_MNI305 = CONSTANTS.MNI305_to_MNI152.clone().invert();
 
 // overlay canvas z-index
 CONSTANTS.ZINDEX_BASE = 1;
@@ -183,7 +193,8 @@ This value allows the default rendering order of scene graph objects to be overr
  */
 CONSTANTS.RENDER_ORDER = {
   'DataCube2' : -1,
-  'DataCube'  : CONSTANTS.MAX_RENDER_ORDER - 1
+  'DataCube'  : CONSTANTS.MAX_RENDER_ORDER - 1,
+  "Electrode" : -500,
 };
 
 
@@ -199,5 +210,24 @@ CONSTANTS.RENDER_CANVAS = {
 CONSTANTS.GEOMETRY = {
   "crosshair-gap-half" : 0
 };
+
+
+/**
+ * Instructs whether canvas should be rendered continuously
+ *
+ * this.canvas.render() only resets the last bit,
+ * trackball end resets the second bit
+ * playback button (pause) resets the first bit
+ *
+ */
+CONSTANTS.CANVAS_RENDER_STATE = {
+  "Animate" : 0b100,
+  "TrackballChange" : 0b010,
+  "RenderOnce" : 0b001,  // also true or 1
+  "NoRender" : 0b000,
+  "Mask" : 0b111
+};
+
+
 
 export { CONSTANTS };

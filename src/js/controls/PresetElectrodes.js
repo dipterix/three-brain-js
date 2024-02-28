@@ -1,4 +1,4 @@
-import { is_electrode } from '../geometry/sphere.js';
+import { is_electrode } from '../geometry/electrode.js';
 import { to_array } from '../utils.js';
 import { CONSTANTS } from '../core/constants.js';
 import { set_visibility } from '../utils.js';
@@ -73,10 +73,10 @@ function registerPresetElectrodes( ViewerControlCenter ){
       to_array( this.canvas.electrodes.get( subject_code ) ).forEach((e) => {
         if(e.isMesh && e.userData.instance && e.userData.instance.isElectrode ) {
           if( change_visible ) {
-            e.userData.instance.set_label_visible( visible );
+            e.userData.instance.setLabelVisible( visible );
           }
           if( change_scale ) {
-            e.userData.instance.set_label_scale ( scale )
+            e.userData.instance.setLabelScale ( scale )
           }
         }
       });
@@ -245,7 +245,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
     this.gui.addController('Highlight Box', true, { folderName : folderName })
       .onChange((v) => {
         this.canvas.set_state( 'highlight_disabled', !v );
-        this.canvas.focus_object( this.canvas.object_chosen );
+        this.canvas.focusObject( this.canvas.object_chosen );
         this.broadcast();
         this.canvas.needsUpdate = true;
       });

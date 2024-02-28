@@ -7,7 +7,8 @@ import {
   LoadingManager, FileLoader, FontLoader,
   AnimationClip, AnimationMixer, Clock,
   Mesh, SubtractiveBlending,
-  BufferGeometry, LineBasicMaterial, LineSegments
+  SphereGeometry, BufferGeometry, MeshBasicMaterial,
+  LineBasicMaterial, LineSegments
 } from 'three';
 import Stats from 'three/addons/libs/stats.module.js';
 import { json2csv } from 'json-2-csv';
@@ -35,13 +36,15 @@ import { asColor, invertColor, colorLuma } from '../utility/color.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
 import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
-import { gen_sphere, is_electrode } from '../geometry/sphere.js';
+import { gen_sphere } from '../geometry/sphere.js';
+import { is_electrode } from '../geometry/electrode.js';
 import { gen_datacube } from '../geometry/datacube.js';
 import { gen_datacube2 } from '../geometry/datacube2.js';
 import { gen_tube } from '../geometry/tube.js';
 import { gen_free } from '../geometry/free.js';
 import { gen_linesements } from '../geometry/line.js';
 
+const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
 const _mainCameraUpdatedEvent = {
   type  : "viewerApp.mainCamera.updated",
@@ -177,7 +180,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     _renderFlag=2 and pause_animation only has input of 1, renderer will ignore
     the pause signal.
     */
-    this._renderFlag = 0;
+    this._renderFlag = CanvasState.NoRender;
+    this.needsUpdate = undefined;
 
     // Disable raycasting, soft deprecated
     this.disable_raycast = true;
@@ -294,6 +298,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     	this.main_renderer = new WebGLRenderer({
     	  antialias: false, alpha: true, canvas: main_canvas_el, context: main_context
     	});
+
     }else{
     	this.main_renderer = new WebGLRenderer({ antialias: false, alpha: true });
     }
@@ -353,9 +358,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.mouseRaycaster = new Raycaster();
     this._mouseEvent = undefined;
 
-    this.focus_box = new BoxHelper();
-    this.focus_box.material.color.setRGB( 1, 0, 0 );
-    this.focus_box.userData.added = false;
+    this.highlightBox = new BoxHelper();
+    this.highlightBox.material.color.setRGB( 1, 0, 0 );
+    this.highlightBox.userData.added = false;
+    this.highlightTarget = new Mesh(new SphereGeometry( 1 ), new MeshBasicMaterial());
+    this.highlightTarget.layers.disableAll();
+    this.highlightTarget.visible = false;
+    this.add_to_scene( this.highlightTarget, true );
+
     this.bounding_box = new BoxHelper();
     this.bounding_box.material.color.setRGB( 0, 0, 1 );
     this.bounding_box.userData.added = false;
@@ -382,21 +392,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
 
-  _onTrackballChanged = () => {
+  _onTrackballChanged = ( event ) => {
     if( !this.activated ) {
       this.activated = true;
     }
-    this.needsUpdate = true;
+    this._renderFlag = this._renderFlag | CanvasState.TrackballChange;
   }
 
   _onTrackballEnded = () => {
-    this.pause_animation( 1 );
+    this._renderFlag = this._renderFlag & (CanvasState.TrackballChange ^ CanvasState.Mask);
     this.dispatch( _mainCameraUpdatedEvent );
   }
 
   _activateViewer = () => {
     this.activated = true;
-    this.start_animation( 0 );
+    this.needsUpdate = true;
   }
   _deactivateViewer = () => { this.activated = false; }
   /* Moved to viewer control center
@@ -408,43 +418,51 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   */
   _onMouseDown = ( event ) => {
     // async, but raycaster is always up to date
-    const p = this.raycastClickables()
-      .then((item) => {
-        if( event.detail.button == 2 && item ) {
-          if( item.object && item.object.isMesh && item.object.userData.construct_params ) {
-            const crosshairPosition = item.object.getWorldPosition( new Vector3() );
-            crosshairPosition.centerCrosshair = true;
-            this.setSliceCrosshair( crosshairPosition );
-          }
+    const promise = this.raycastClickables();
+    if( !promise ) { return; }
+    promise
+      .then(( item ) => {
+        if(
+          !item || !item.object || !item.object.isMesh ||
+          !item.object.userData.construct_params
+        ) { return; }
+
+        // normal left-click
+        const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
+
+        // right-click
+        if( event.detail.button == 2 ) {
+          // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
+
+          crosshairPosition.centerCrosshair = true;
+          this.setSliceCrosshair( crosshairPosition );
         }
-      });
-    return p;
+      })
+      .catch(() => {});
   }
 
-  raycastClickables = () => {
+  raycastClickables() {
 
     const raycaster = this.updateRaycast();
+    if( !raycaster ) { return; }
+    // where clickable objects stay
+    raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
 
-    return new Promise(resolve => {
+    const _this = this;
 
-      if( !raycaster ) { resolve( undefined ); }
-
-      // where clickable objects stay
-      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
+    return new Promise((resolve) => {
 
       // Only raycast with visible
       const items = raycaster.intersectObjects(
         // asArray( this.clickable )
-        this.clickable_array.filter((e) => { return( e.visible ) })
+        _this.clickable_array.filter((e) => { return( e.visible ) })
       );
 
-      if( !items || items.length === 0 ) { resolve( undefined ); }
+      if( !items || items.length === 0 ) { resolve(); }
+      resolve( items[0] );
 
-      const item = items[ 0 ];
-      this.focus_object( item.object );
+    });
 
-      resolve( item );
-    })
   }
 
   /*---- Add objects --------------------------------------------*/
@@ -917,7 +935,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if(lazy){
       this.trackball.handleResize();
 
-      this.start_animation(0);
+      this.needsUpdate = true;
 
       return(undefined);
     }
@@ -954,7 +972,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.trackball.handleResize();
 
-    this.start_animation(0);
+    this.needsUpdate = true;
 
   }
 
@@ -1134,29 +1152,53 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 	  this.sideCanvasList.coronal.enabled = true;
 	  this.sideCanvasList.axial.enabled = true;
 	  this.sideCanvasList.sagittal.enabled = true;
-	  this.start_animation( 0 );
+
+	  this.needsUpdate = true;
 	}
 	disableSideCanvas(force = false){
 	  this.sideCanvasEnabled = false;
 	  this.sideCanvasList.coronal.enabled = false;
 	  this.sideCanvasList.axial.enabled = false;
 	  this.sideCanvasList.sagittal.enabled = false;
-	  this.start_animation( 0 );
+
+	  this.needsUpdate = true;
 	}
   /*---- Choose & highlight objects -----------------------------------------*/
 
-  focus_object( m = undefined, helper = false, auto_unfocus = false ){
+  focusObject( m = undefined, {
+    helper = false, auto_unfocus = false,
+    intersectPoint = null
+  } = {} ){
 
     if( m ){
-      if( this.object_chosen ){
+      /*if( this.object_chosen ){
         this.highlight( this.object_chosen, true );
-      }
+      }*/
       this.object_chosen = m;
       this._last_object_chosen = m;
-      this.highlight( this.object_chosen, false );
-      this.animParameters.updateFocusedInstance( m.userData.instance );
-      this.debugVerbose('object selected ' + m.name);
 
+      const inst = m.userData.instance;
+      if( inst && inst.isElectrode ) {
+        // let electrode know where clicked so it can update the contact list
+        inst.focusContactFromWorld( intersectPoint );
+
+        const instState = inst.state;
+
+        // instState.focusedContact will always >= 0
+        if( intersectPoint ) {
+          intersectPoint.copy( instState.contactPositions.tkrRAS );
+        }
+        if( inst.contactCenter.length === 1 ) {
+          // one contact case
+          this.highlight( this.object_chosen, false );
+        } else {
+          this.highlight( null, true );
+        }
+      } else {
+        this.highlight( this.object_chosen, false );
+      }
+
+      this.animParameters.updateFocusedInstance( inst );
 
     } else {
       if( auto_unfocus ){
@@ -1168,39 +1210,44 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         }
       }
     }
+
+    this.needsUpdate = true;
+
+    return intersectPoint;
   }
 
   /*
   * @param reset whether to reset (hide) box that is snapped to m
   */
   highlight( m, reset = false ){
+    if( reset ) {
+      this.highlightBox.visible = false;
+      return ;
+    }
 
-    const highlight_disabled = get_or_default(
+    const highlightBoxDisabled = get_or_default(
       this.state_data,
       'highlight_disabled',
       false
     );
 
-    // use bounding box with this.focus_box
-    if( !m || !m.isObject3D ){ return(null); }
-
-    this.focus_box.setFromObject( m );
-    if( !this.focus_box.userData.added ){
-      this.focus_box.userData.added = true;
-      this.add_to_scene( this.focus_box, true );
+    // use bounding box with this.highlightBox
+    if( highlightBoxDisabled || !m || !( m.isObject3D || m.isVector3 ) ){
+      this.highlightBox.visible = false;
+      return ;
+    }
+    if( m.isObject3D ) {
+      this.highlightBox.setFromObject( m );
+    } else {
+      this.highlightTarget.position.copy( m );
+      this.highlightBox.setFromObject( this.highlightTarget );
+    }
+    if( !this.highlightBox.userData.added ){
+      this.highlightBox.userData.added = true;
+      this.add_to_scene( this.highlightBox, true );
     }
 
-    this.focus_box.visible = !reset && !highlight_disabled;
-
-    // check if there is highlight helper
-    if( m.children.length > 0 ){
-      m.children.forEach((_c) => {
-        if( _c.isMesh && _c.userData.is_highlight_helper ){
-          set_visibility( _c, !reset );
-          // _c.visible = !reset;
-        }
-      });
-    }
+    this.highlightBox.visible = true;
 
   }
 
@@ -1343,68 +1390,48 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   // set renderer's flag (persistLevel):
   // 0: render once at next cycle
-  start_animation( persistLevel = 0 ){
-    // persistLevel 0, render once
-    // persistLevel > 0, loop
 
-    const _flag = this._renderFlag;
-    if( persistLevel >= _flag ){
-      this._renderFlag = persistLevel;
-    }
-    if( persistLevel >= 2 && _flag < 2 ){
-      // _flag < 2 means prior state only renders the scene, but animation is paused
-      // if _flag >= 2, then clock was running, then there is no need to start clock
-      // persist >= 2 is a flag for animation to run
-      // animation clips need a clock
-      this.animParameters._clock.start();
-    }
-  }
-  get needsUpdate () { return this._renderFlag >= 0; }
-  set needsUpdate ( persistLevel ) {
+  updateRenderFlag() {
+    if( this.needsUpdate === undefined ) { return; }
+    let persistLevel = this.needsUpdate;
+    this.needsUpdate = undefined;
+
     if( persistLevel === true ) {
-      persistLevel = 0;
+      persistLevel = CanvasState.RenderOnce;
+    } else if ( persistLevel === false ) {
+      persistLevel = CanvasState.NoRender;
+    } else if ( typeof persistLevel !== "number" ) {
+      return;
     }
-    // persistLevel 0, render once
-    // persistLevel > 0, loop
-    const _flag = this._renderFlag;
-    if( persistLevel >= _flag ){
-      this._renderFlag = persistLevel;
+    if( !persistLevel ){
+      this._renderFlag = CanvasState.NoRender;
+      return;
     }
-    if( persistLevel >= 2 && _flag < 2 ){
-      // _flag < 2 means prior state only renders the scene, but animation is paused
-      // if _flag >= 2, then clock was running, then there is no need to start clock
-      // persist >= 2 is a flag for animation to run
-      // animation clips need a clock
-      this.animParameters._clock.start();
+    if( persistLevel < 0 ) {
+      persistLevel = this._renderFlag & ((-persistLevel) ^ CanvasState.Mask);
+    } else {
+      persistLevel = this._renderFlag | (persistLevel & CanvasState.Mask);
     }
-  }
 
-  // Pause animation
-  pause_animation( level = 1 ){
-    const _flag = this._renderFlag;
-    if(_flag <= level){
-      this._renderFlag = -1;
-
-      // When animation is stopped, we need to check if clock is running, if so, stop it
-      if( _flag >= 2 ){
-        this.animParameters._clock.stop();
-      }
-    }
+    this._renderFlag = this._renderFlag | persistLevel | CanvasState.RenderOnce;
   }
-  pauseAnimation ( persistLevel = 1 ) {
-    this.pause_animation( persistLevel );
-  }
-
 
   update(){
 
+    this.updateRenderFlag();
+
     this.trackball.update();
+
+    this.updateRenderFlag();
+
     this.compass.update();
 
     // check if time has timeChanged
     this.threebrain_instances.forEach((inst) => {
       inst.update();
     });
+
+    this.updateRenderFlag();
   }
 
   // re-render canvas to display additional information without 3D
@@ -1424,6 +1451,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   // Main render function, automatically scheduled
   render(){
+
+    if( this._renderFlag == CanvasState.NoRender ) { return; }
 
     if( this.__nerdStatsEnabled ) { this.nerdStats.update(); }
 
@@ -1566,9 +1595,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this._draw_video( results, _width, _height );
 
     // reset render flag
-    if(this._renderFlag === 0){
-      this._renderFlag = -1;
-    }
+    this._renderFlag = this._renderFlag & 0b110;
+    this.needsUpdate = undefined;
 
   }
 
@@ -1682,8 +1710,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       currentValue = this.animParameters.objectFocused.currentDataValue;
     }
 
-    this._lineHeight_legend = this._lineHeight_legend || Math.round( 15 * this.pixel_ratio[0] );
-    this._fontSize_legend = this._fontSize_legend || Math.round( 10 * this.pixel_ratio[0] );
+    this._lineHeight_legend = this._lineHeight_legend || Math.round( 12 * this.pixel_ratio[0] );
+    this._fontSize_legend = this._fontSize_legend || Math.round( 8 * this.pixel_ratio[0] );
 
     const pixelRatio = this.pixel_ratio[0];
     cmap.renderLegend(
@@ -1691,7 +1719,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       {
         legendWidth       : 25 * pixelRatio,
         // legendHeightRatio : 0.5,
-        offsetTopRatio    : 0.3,
+        offsetTopRatio    : 0.35,
         offsetRight       : 0,
         lineHeight        : this._lineHeight_legend,
         fontSize          : this._fontSize_legend,
@@ -1719,17 +1747,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     const objectInfo = this.animParameters.objectFocused;
 
-    this._lineHeight_normal = this._lineHeight_normal || Math.round( 25 * this.pixel_ratio[0] );
-    this._lineHeight_small = this._lineHeight_small || Math.round( 15 * this.pixel_ratio[0] );
-    this._fontSize_normal = this._fontSize_normal || Math.round( 15 * this.pixel_ratio[0] );
-    this._fontSize_small = this._fontSize_small || Math.round( 10 * this.pixel_ratio[0] );
+    this._lineHeight_normal = this._lineHeight_normal || Math.round( 20 * this.pixel_ratio[0] );
+    this._lineHeight_small = this._lineHeight_small || Math.round( 12 * this.pixel_ratio[0] );
+    this._fontSize_normal = this._fontSize_normal || Math.round( 12 * this.pixel_ratio[0] );
+    this._fontSize_small = this._fontSize_small || Math.round( 8 * this.pixel_ratio[0] );
 
     contextWrapper.set_font_color( this.foreground_color );
     contextWrapper.set_font( this._fontSize_normal, this._fontType );
 
     let text_left;
     if( this.sideCanvasEnabled && !force_left ){
-      text_left = w - Math.ceil( 50 * this._fontSize_normal * 0.42 );
+      text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
     } else {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
     }
@@ -1755,6 +1783,31 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     let pos = objectInfo.position;
     const electrodeInstance = objectInfo.instance && objectInfo.instance.isElectrode ? objectInfo.instance : null;
     if( electrodeInstance ){
+
+      textPosition.y += this._lineHeight_small;
+
+      const contactPositions = electrodeInstance.state.contactPositions;
+      const postkrRAS = contactPositions.tkrRAS,
+            posScanner = contactPositions.scanner,
+            pos152 = contactPositions.mni152,
+            pos305 = contactPositions.mni305;
+
+      contextWrapper.set_font( this._fontSize_small, this._fontType, false );
+      contextWrapper.fill_text(
+        `           ScanRAS=${posScanner.x.toFixed(0)},${posScanner.y.toFixed(0)},${posScanner.z.toFixed(0)} tkrRAS=${postkrRAS.x.toFixed(0)},${postkrRAS.y.toFixed(0)},${postkrRAS.z.toFixed(0)}`,
+        textPosition.x, textPosition.y
+      );
+      contextWrapper.fill_text( `Positions: `, textPosition.x , textPosition.y );
+
+      textPosition.y += this._lineHeight_small;
+      contextWrapper.fill_text(
+        `           MNI152 =${pos152.x.toFixed(0)},${pos152.y.toFixed(0)},${pos152.z.toFixed(0)} MNI305=${pos305.x.toFixed(0)},${pos305.y.toFixed(0)},${pos305.z.toFixed(0)}`,
+        textPosition.x, textPosition.y
+      );
+
+
+
+      /*
       if( pos && (pos.x !== 0 || pos.y !== 0 || pos.z !== 0) ){
         textPosition.y += this._lineHeight_small
 
@@ -1775,6 +1828,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           contextWrapper.fill_text( `ScanRAS: `, textPosition.x , textPosition.y );
         }
       }
+      */
     } else {
       textPosition.y += this._lineHeight_small;
       contextWrapper.fill_text(
@@ -1785,20 +1839,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // For electrodes
     if( electrodeInstance ){
-      const mappingInfo = objectInfo.templateMapping;
-
-      const _tn = electrodeInstance._thresholdName || '[None]';
-      let _tv = electrodeInstance._currentThresholdValue;
-      if( typeof _tv === 'number' ){
-        _tv = _tv.toPrecision(4);
-      }
-
-      const _dn = electrodeInstance._animationName;
-      let _dv = electrodeInstance._currentValue;
-
-      if( typeof _dv === 'number' ){
-        _dv = _dv.toPrecision(4);
-      }
 
       // Line 3: mapping method & surface type
       /*
@@ -1810,28 +1850,27 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       );
       */
 
-      // Line 4:
-      if( _dv !== undefined ){
-        textPosition.y += this._lineHeight_small;
 
-        contextWrapper.fill_text(
-          `Display:   ${ _dn } (${ _dv })`,
-          textPosition.x, textPosition.y
-        );
+      // Line 4: Display information
+      const displayText = electrodeInstance.getInfoText("display");
+      if( displayText ) {
+        textPosition.y += this._lineHeight_small;
+        contextWrapper.fill_text( displayText, textPosition.x, textPosition.y );
       }
 
-
-      // Line 5:
-      if( _tv !== undefined ){
+      // Line 5: Threshold information
+      const thresholdText = electrodeInstance.getInfoText("threshold");
+      if( thresholdText ) {
         textPosition.y += this._lineHeight_small;
-
-        contextWrapper.fill_text(
-          `Threshold: ${ _tn } (${ _tv })`,
-          textPosition.x, textPosition.y
-        );
+        contextWrapper.fill_text( thresholdText, textPosition.x, textPosition.y );
       }
 
-
+      // Line 6: Additional Display information
+      const additionalText = electrodeInstance.getInfoText("additionalDisplay");
+      if( additionalText ) {
+        textPosition.y += this._lineHeight_small;
+        contextWrapper.fill_text( additionalText, textPosition.x, textPosition.y );
+      }
     }
 
     // Line last: customized message
@@ -2096,6 +2135,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.trackball.update();
 
     this.dispatch( _subjectStateChangedEvent );
+
     this.needsUpdate = true;
 
   }
@@ -2176,7 +2216,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.set_state( "activeSliceInstance", newActiveSlices );
     }
 
-    this.start_animation( 0 );
+    this.needsUpdate = true;
   }
 
   // used to switch atlas, but can also switch other datacube2
@@ -2225,7 +2265,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
     });
 
-    this.start_animation( 0 );
+    this.needsUpdate = true;
   }
 
   // get matrices
@@ -2281,7 +2321,8 @@ mapped = false,
     if( line_segs ) {
       line_segs.update_segments();
     }
-    this.start_animation( 0 );
+
+    this.needsUpdate = true;
   }
 
 
@@ -2306,7 +2347,7 @@ mapped = false,
         if( parsed && parsed.length === 3 ){
 
           e = collection[ k ];
-          const row = e.userData.instance.get_summary( args );
+          const row = e.userData.instance.getSummary( args );
 
           if( row && typeof row ==="object" ) {
             res.push( row );
@@ -2376,7 +2417,7 @@ mapped = false,
     } catch (e) {}
 
     // force re-render
-    this.start_animation(0);
+    this.needsUpdate = true;
   }
   resetCanvas() {
     // Center camera first.
@@ -2384,7 +2425,8 @@ mapped = false,
 		this.trackball.reset();
 		this.mainCamera.reset();
     this.trackball.enabled = true;
-    this.start_animation(0);
+
+    this.needsUpdate = true;
   }
   getSideCanvasCrosshairMNI305( m ) {
     // MNI 305 position of the intersection

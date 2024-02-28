@@ -221,8 +221,9 @@ class NamedLut {
     if( !c.isColor ) {
       throw 'c must be a THREE.Color instance';
     }
-    if( v === undefined ) {
-      throw 'v must not be undefined';
+    if( v === undefined || v === null ) {
+      c.setHex( 0xffffff );
+      return c;
     }
     if( !this.lut.length ) {
       c.setHex( 0xffffff );
@@ -293,7 +294,7 @@ class NamedLut {
     if( !this.isContinuous && !this._map.length ) { return; }
 
     // 50% of the canvas height
-    let legendHeightRatio = 0.5;
+    let legendHeightRatio = 0.45;
 
     // leave enough space to display legend strings; default is 9+7 = 16 chars
     let maxLegendTextLabel = 9;

@@ -1,6 +1,13 @@
-import { to_array, get_element_size, get_or_default } from '../utils.js';
+import { get_element_size, get_or_default } from '../utils.js';
+import { asArray } from '../utility/asArray.js';
+import { registerRigidPoints } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
-import { Vector3, Matrix4 } from 'three';
+import {
+  Vector3, Matrix4, BufferGeometry, DataTexture, RGBAFormat, UVMapping,
+  UnsignedByteType, ClampToEdgeWrapping, NearestFilter,
+  BufferAttribute, Float32BufferAttribute,
+  PlaneGeometry, SphereGeometry, BoxGeometry
+} from 'three';
 
 class AbstractThreeBrainObject {
   constructor(g, canvas){
@@ -23,8 +30,8 @@ class AbstractThreeBrainObject {
   set_layer( addition = [], object = null ){
     let obj = object || this.object;
     if( obj ){
-      let layers = to_array( this._params.layer );
-      let more_layers = to_array(addition);
+      let layers = asArray( this._params.layer );
+      let more_layers = asArray(addition);
       // set clickable layer
       if( this._params.clickable === true ){
         layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
@@ -74,8 +81,10 @@ class AbstractThreeBrainObject {
     this.warn('method get_track_data(track_name, reset_material) not implemented...');
   }
 
+  // Logics, invariant to renderers, unified across main/side canvas
   update() {}
 
+  // handle differences of the renderers
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
       this.get_world_position();
@@ -98,7 +107,7 @@ class AbstractThreeBrainObject {
   }
 
   register_object( names ){
-    to_array(names).forEach((nm) => {
+    asArray(names).forEach((nm) => {
       get_or_default( this._canvas[ nm ], this.subject_code, {} )[ this.name ] = this.object;
     });
   }
@@ -163,4 +172,249 @@ class AbstractThreeBrainObject {
   }
 }
 
-export { AbstractThreeBrainObject };
+function createBuiltinGeometry (type, {
+	  position, index, uv,
+	  normal = undefined, channel_map = undefined,
+	  texture_size = [1, 1], transform = undefined,
+	  radius = 1, fix_outline = true,
+	  contact_center = null, channel_numbers = null,
+	  model_control_points = null, world_control_points = null
+	} = {} ) {
+
+  let geom, useTexture = true;
+  let textureWidth = texture_size[0], textureHeight = texture_size[1];
+  const m44 = new Matrix4();
+  const controlPoints = {
+    model : [],
+    world : []
+  };
+  const contactCenter = [new Vector3()];
+
+  switch (type) {
+    case 'PlaneGeometry':
+      geom = new PlaneGeometry( radius, radius, 1, 1 );
+      geom.parameters.size = radius;
+      break;
+    case 'BoxGeometry':
+      const uvAttr = new Float32BufferAttribute( new Float32Array([
+
+        0, 1, -1, 2, -1, 2, 0, 1, 0, 0, -1, -1, -1, -1, 0, 0,
+        1, 1, 2, 2, 2, 2, 1, 1, 1, 0, 2, -1, 2, -1, 1, 0,
+        1, 1, 0, 1, 2, 2, -1, 2, 2, 2, -1, 2, 1, 1, 0, 1,
+        1, 0, 0, 0, 2, -1, -1, -1, 2, -1, -1, -1, 1, 0, 0, 0,
+        1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0
+
+/*/
+         2.5, 2.5, 0.5,     0, 1,
+         2.5, 2.5, 0.16,    -1, 2,
+         2.5, 2.5, -0.16,   -1, 2,
+         2.5, 2.5, -0.5,    0, 1,
+         2.5, -2.5, 0.5,    0, 0,
+         2.5, -2.5, 0.16,   -1, -1,
+         2.5, -2.5, -0.16,  -1, -1,
+         2.5, -2.5, -0.5,   0, 0,
+         -2.5, 2.5, -0.5,   1, 1,
+         -2.5, 2.5, -0.16,  2, 2,
+         -2.5, 2.5, 0.16,   2, 2,
+         -2.5, 2.5, 0.5,    1, 1,
+         -2.5, -2.5, -0.5,  1, 0,
+         -2.5, -2.5, -0.16, 2, -1,
+         -2.5, -2.5, 0.16,  2, -1,
+         -2.5, -2.5, 0.5,   1, 0,
+         -2.5, 2.5, -0.5,   1, 1,
+         2.5, 2.5, -0.5,    0, 1,
+         -2.5, 2.5, -0.16,  2, 2,
+         2.5, 2.5, -0.16,   -1, 2,
+         -2.5, 2.5, 0.16,   2, 2,
+         2.5, 2.5, 0.16,    -1, 2,
+         -2.5, 2.5, 0.5,    1, 1,
+         2.5, 2.5, 0.5,     0, 1,
+         -2.5, -2.5, 0.5,   1, 0,
+         2.5, -2.5, 0.5,    0, 0,
+         -2.5, -2.5, 0.16,  2, -1,
+         2.5, -2.5, 0.16,   -1, -1,
+         -2.5, -2.5, -0.16, 2, -1,
+         2.5, -2.5, -0.16,  -1, -1,
+         -2.5, -2.5, -0.5,  1, 0,
+         2.5, -2.5, -0.5,   0, 0,
+         -2.5, 2.5, 0.5,    1, 1,
+         2.5, 2.5, 0.5,     0, 1,
+         -2.5, -2.5, 0.5,   1, 0,
+         2.5, -2.5, 0.5,    0, 0,
+         2.5, 2.5, -0.5,    0, 1,
+         -2.5, 2.5, -0.5,   1, 1,
+         2.5, -2.5, -0.5,   0, 0,
+         -2.5, -2.5, -0.5   1, 0
+
+        //*/
+
+      ]), 2 );
+      geom = new BoxGeometry( radius, radius, 0.3, 1, 1, 3);
+      geom.setAttribute( "uv" , uvAttr );
+      geom.parameters.size = radius;
+      geom.parameters.fixedClearCoat = true;
+      break;
+    case 'CustomGeometry':
+      geom = new BufferGeometry();
+      geom.parameters = {
+        size: 1,
+        fixedClearCoat : fix_outline
+      };
+      geom.setIndex( index );
+
+      let pos = new Float32BufferAttribute( new Float32Array( position ), 3 );
+
+      const mcpArray = model_control_points;
+      if( Array.isArray(mcpArray) && mcpArray.length >= 9 ) {
+        const mcp = controlPoints.model;
+        for( let i = 0; i < mcpArray.length / 3; i++ ) {
+          mcp.push( new Vector3().fromArray( mcpArray, i * 3 ) );
+        }
+      }
+      const tcpArray = world_control_points;
+      if( Array.isArray(tcpArray) && tcpArray.length >= 9 ) {
+        const tcp = controlPoints.world;
+        for( let i = 0; i < tcpArray.length / 3; i++ ) {
+          tcp.push( new Vector3().fromArray( tcpArray, i * 3 ) );
+        }
+      }
+
+      if( transform ) {
+        transform = asArray(transform);
+        m44.set(...transform);
+        geom.parameters.hasTransform = true;
+      } else if( controlPoints.model.length >= 3 && controlPoints.world.length >= 3 ) {
+        try {
+          const m44_1 = registerRigidPoints( controlPoints.model , controlPoints.world );
+          m44.copy( m44_1 );
+          geom.parameters.hasTransform = true;
+        } catch (e) {
+          console.warn( e );
+        }
+      }
+
+      geom.setAttribute( 'position', pos );
+      if( uv ) {
+        geom.setAttribute( 'uv', new Float32BufferAttribute( new Float32Array( uv ), 2 ) );
+      }
+
+      if( normal ) {
+        geom.setAttribute( 'normal', new Float32BufferAttribute( new Float32Array( normal ), 3 ) );
+      }
+
+      if( channel_map ) {
+        geom.setAttribute( 'channelMap', new BufferAttribute( new Uint8Array( channel_map ), 4 ) );
+        geom.parameters.useChannelMap = true;
+      }
+
+      const cc = contact_center;
+      const cn = Array.isArray( channel_numbers ) ? channel_numbers : [];
+      if( Array.isArray(cc) && cc.length >= 3 ) {
+        contactCenter.length = 0;
+        for(let i = 0; i < cc.length/3; i++ ) {
+          const cPos = new Vector3().fromArray( cc, i * 3 );
+          cPos.chanNum = cn[ i ] ?? (i + 1);
+          contactCenter.push( cPos );
+        }
+      }
+
+      break;
+
+    default: {
+      type = "SphereGeometry";
+      geom = new SphereGeometry( radius, 10, 6 );
+      geom.parameters.size = geom.parameters.radius;
+    }
+  }
+
+  // construct vertex colors
+  let dataTexture = null;
+  if( useTexture && textureWidth * textureHeight > 1 ) {
+    const width = textureWidth;
+    const height = textureHeight;
+
+    // DataTexture( data, width, height, format, type, mapping, wrapS, wrapT, magFilter, minFilter, anisotropy, colorSpace )
+    dataTexture = new DataTexture(
+      new Uint8Array( 4 * width * height ), width, height,
+      RGBAFormat, UnsignedByteType, UVMapping,
+      ClampToEdgeWrapping, ClampToEdgeWrapping,
+      NearestFilter, NearestFilter
+    );
+    dataTexture.unpackAlignment = 1;
+    dataTexture.generateMipmaps = false;
+    dataTexture._width = width;
+    dataTexture._height = height;
+  } else {
+    useTexture = false;
+  }
+
+  geom.parameters.textureWidth = textureWidth;
+  geom.parameters.textureHeight = textureHeight;
+  geom.parameters.useDataTexture = useTexture;
+  geom.parameters.transform = m44;
+  geom.parameters.controlPoints = controlPoints;
+  geom.parameters.contactCenter = contactCenter;
+
+
+  return {
+    type      : type,
+    parameters: geom.parameters,
+    index     : geom.index,
+    position  : geom.getAttribute("position"),
+    normal    : geom.getAttribute("normal"),
+    uv        : geom.getAttribute("uv"),
+    channelMap: geom.getAttribute("channelMap"),
+    dataTexture: dataTexture,
+  };
+}
+
+const GEOMETRY_CREATORS = {
+  SphereGeometry  : createBuiltinGeometry,
+  CustomGeometry   : createBuiltinGeometry,
+};
+
+
+class ElasticGeometry extends BufferGeometry {
+
+	constructor( type, parameters ) {
+
+		super();
+
+		let factory = GEOMETRY_CREATORS[ type ] ?? createBuiltinGeometry;
+		const factoryParams = factory( type, parameters );
+
+		this.type = 'ElasticGeometry';
+		this.subType = factoryParams.type;
+
+		this.parameters = factoryParams.parameters;
+		this.dataTexture = factoryParams.dataTexture;
+
+    // build geometry
+		this.setIndex( factoryParams.index );
+		this.setAttribute( 'position', factoryParams.position );
+		if( factoryParams.normal ) {
+		  this.setAttribute( 'normal', factoryParams.normal );
+		}
+		if( factoryParams.uv ) {
+		  this.setAttribute( 'uv', factoryParams.uv );
+		}
+		if( factoryParams.channelMap ) {
+		  this.setAttribute( 'channelMap', factoryParams.channelMap );
+		}
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+
+		this.subType = source.subType;
+		this.parameters = Object.assign( {}, source.parameters );
+
+		return this;
+
+	}
+
+}
+
+export { AbstractThreeBrainObject, ElasticGeometry };

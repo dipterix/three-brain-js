@@ -12,7 +12,7 @@ function registerPresetCoordinateCompass( ViewerControlCenter ){
         if( this.canvas.compass ) {
           this.canvas.compass.set_visibility( v );
         }
-        this._update_canvas();
+        this.canvas.needsUpdate = true;
         this.broadcast();
       });
   };
