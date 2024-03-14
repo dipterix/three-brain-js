@@ -37,6 +37,7 @@ class LocElectrode {
     this.subject_code = subject_code;
     this.localization_order = localization_order;
     this._canvas = canvas;
+
     if(Array.isArray(initial_position)){
       this.initialPosition = new Vector3().fromArray( initial_position );
     } else {
@@ -1125,8 +1126,16 @@ function register_controls_localization( ViewerControlCenter ){
   }
 
   ViewerControlCenter.prototype.clearLocalization = function( fireEvents = true ){
-    const electrodes = this.__localize_electrode_list;
     const scode = this.canvas.get_state("target_subject");
+
+    const plist = this.canvas.electrodePrototypes.get( scode );
+    if( plist && typeof plist === "object" ) {
+      for( let k in plist ) {
+        const inst = plist[ k ];
+        inst.dispose();
+      }
+    }
+    const electrodes = this.__localize_electrode_list;
     const collection = this.canvas.electrodes.get(scode) || {};
     electrodes.forEach((el) => {
       el.dispose();
@@ -1140,6 +1149,48 @@ function register_controls_localization( ViewerControlCenter ){
       });
     }
   };
+
+  ViewerControlCenter.prototype.localizeAddPrototype = function(geomParams) {
+    const scode = this.canvas.get_state("target_subject");
+    const name = geomParams.name ?? "";
+    const params = {
+      "name": `${ scode }, Prototype - ${name}`,
+      "type": "electrode",
+      "subtype": "CustomGeometry",
+      "prototype_name": name,
+      "geomParams" : geomParams,
+      "time_stamp": [],
+      "position": [0, 0, 1],
+      "value": null,
+      "clickable": true,
+      "layer": 0,
+      "group":{
+        "group_name": `group_Electrodes (${ scode })`,
+        "group_layer": 0,
+        "group_position":[0,0,0]
+      },
+      "use_cache":false,
+      "custom_info": "",
+      "subject_code": scode,
+      "radius": 1,
+      "width_segments": 10,
+      "height_segments": 6,
+      "is_electrode": true,
+      "is_surface_electrode": false,
+      "use_template": false,
+      "surface_type": 'pial',
+      "hemisphere": undefined,
+      "vertex_number": -1,
+      "sub_cortical": true,
+      "search_geoms": null,
+    };
+
+    const inst = this.canvas.add_object( params );
+    window.eee = {
+      params: params,
+      inst: inst
+    };
+  }
 
   ViewerControlCenter.prototype.localizeAddElectrode = function({
     Coord_x, Coord_y, Coord_z, Hemisphere = "auto",
@@ -1647,7 +1698,7 @@ function register_controls_localization( ViewerControlCenter ){
 
     // add canvas update
     let throttleCount = 0;
-    this.addEventListener( "viewerApp.animationFrame.update", () => {
+    this.addEventListener( "viewerApp.animationFrame.update", async () => {
 
       const mode = edit_mode.getValue();
 
@@ -1728,7 +1779,9 @@ function register_controls_localization( ViewerControlCenter ){
               refine_electrode.update_color();
             }
             refine_electrode = el.userData.localization_instance;
-            refine_electrode.update_color( COL_SELECTED );
+            if( refine_electrode ) {
+              refine_electrode.update_color( COL_SELECTED );
+            }
           }
         }
 

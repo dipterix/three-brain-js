@@ -1,5 +1,5 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { DoubleSide, BufferAttribute, DataTexture, NearestFilter,
+import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
          MeshPhysicalMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
          Data3DTexture, Color } from 'three';
@@ -383,7 +383,16 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._check_material( false );
 
     // compute render order
-    this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius / 2.0;
+    if( !this.isROI && this.object.material.transparent && this.object.material.opacity < 0.5 ) {
+      this.object.material.depthWrite = false;
+      this.object.renderOrder = -1000;
+      this.object.material.side = FrontSide;
+    } else {
+      this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius / 2.0;
+      this.object.material.depthWrite = true;
+      this.object.material.side = DoubleSide;
+    }
+
 
 
     // need to get current active datacube2
@@ -539,7 +548,9 @@ class FreeMesh extends AbstractThreeBrainObject {
     // gb.setAttribute( 'normal', new Float32BufferAttribute( normals, 3 ) );
 
     // register sphere positions
+    this.isROI = true;
     if( this.surface_type === "pial" ) {
+      this.isROI = false;
       const hemAsTitle = this.hemisphere[0].toUpperCase() + this.hemisphere.substring(1);
       const sphereName = `FreeSurfer ${ hemAsTitle } Hemisphere - sphere (${this.subject_code})`;
       const sphereGroupName = `Surface - sphere (${this.subject_code})`;
@@ -565,6 +576,8 @@ class FreeMesh extends AbstractThreeBrainObject {
           }
         }
       }
+    } else if (this.surface_type === "white" || this.surface_type === "smoothwm") {
+      this.isROI = false;
     }
 
     this._geometry.computeVertexNormals();

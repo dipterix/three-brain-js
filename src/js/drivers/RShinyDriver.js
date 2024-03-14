@@ -1,4 +1,4 @@
-import { Vector3, Color } from 'three';
+import { Vector3, Matrix4, Color } from 'three';
 import { asArray } from '../utility/asArray.js';
 import { asColor } from '../utility/color.js';
 import { is_electrode } from '../geometry/electrode.js';
@@ -95,6 +95,9 @@ class RShinyDriver {
         case 'set_plane':
           this.driveSetCrosshair( data.value );
           break;
+        case 'set_matrix_world':
+          this.driveSetTransform( data.value );
+          break;
         case 'set_localization_electrode':
           this.driveSetLocalization( data.value );
           break;
@@ -114,6 +117,8 @@ class RShinyDriver {
 
     });
 
+
+    this.enabled = true;
     this.debugVerbose("[RShinyDriver] Registered");
 
 
@@ -174,7 +179,7 @@ class RShinyDriver {
 
     if( is_electrode(objectChosen) ) {
       const m = CONSTANTS.REGEXP_ELECTRODE.exec( g.name );
-      if( m.length === 4 ){
+      if( m && m.length === 4 ){
 
         data.subject = m[1];
         data.electrode_number = parseInt( m[2] );
@@ -284,6 +289,8 @@ class RShinyDriver {
 
   dispatchToShiny( name , value , priority = "deferred" ) {
 
+    if( !this.enabled ){ return; }
+
     this.debugVerbose(`Sending data [${name}] to shiny app...`)
     // make sure shiny exists and is connected
     if( !this._shiny || !this._shiny.shinyapp.$socket ) { return; }
@@ -389,6 +396,17 @@ class RShinyDriver {
 
   }
 
+  driveSetTransform({ instanceName, matrix, byrow = true } = {}) {
+    const m44 = new Matrix4();
+    if( byrow ) {
+      m44.set(...matrix);
+    } else {
+      m44.fromArray( matrix );
+    }
+    const instance = this.canvas.threebrain_instances.get( instanceName );
+    instance.useMatrix4( m44 );
+  }
+
   // localization
   driveSetLocalization({ which, params, update_shiny = false }) {
     this.app.controlCenter.localizeSetElectrode( which, params, update_shiny);
@@ -414,11 +432,28 @@ class RShinyDriver {
   }
 
   driveAddLocalization( args = {} ) {
+
+    this.enabled = false;
+
     const argsCopy = { ...args };
     argsCopy.mode = argsCopy.mode ?? "CT/volume";
     argsCopy.fireEvents = false;
-    // const el =
-    this.app.controlCenter.localizeAddElectrode( argsCopy );
+
+    try {
+      this.app.controlCenter.dispatcherEnabled = false;
+      // const el =
+      if( argsCopy.is_prototype ) {
+        this.app.controlCenter.localizeAddPrototype( argsCopy );
+      } else {
+        this.app.controlCenter.localizeAddElectrode( argsCopy );
+      }
+    } catch (e) {
+
+    } finally {
+      this.app.controlCenter.dispatcherEnabled = true;
+    }
+
+    this.enabled = true;
   }
 
 }

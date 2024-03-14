@@ -20,7 +20,7 @@ function registerPresetSurface( ViewerControlCenter ){
           surfaceTypeChoices = this.canvas.getAllSurfaceTypes().cortical,
           initialMaterialType = this.canvas.get_state( 'surface_material_type' ) || 'MeshPhysicalMaterial',
           materialChoices = ['MeshPhysicalMaterial', 'MeshLambertMaterial'],
-          corticalDisplay = ['normal', 'wireframe', 'hidden'];
+          corticalDisplay = ['normal', 'mesh clipping x 0.3', 'mesh clipping x 0.1', 'wireframe', 'hidden'];
 
     if( !Array.isArray( surfaceTypeChoices ) || surfaceTypeChoices.length === 0 ){ return; }
 
@@ -90,7 +90,27 @@ function registerPresetSurface( ViewerControlCenter ){
     const ctrlLHStyle = this.gui
       .addController('Left Hemisphere', 'normal', { args : corticalDisplay , folderName : folderName })
       .onChange((v) => {
-        this.canvas.switch_subject( '/', { 'material_type_left': v });
+        // corticalDisplay = ['normal', 'mesh clipping x 0.3', 'mesh clipping x 0.1', 'wireframe', 'hidden'];
+        if( !v ) { return; }
+        switch (v) {
+          case 'normal':
+          case 'wireframe':
+          case 'hidden':
+            this.canvas.switch_subject( '/', { 'material_type_left': v });
+            ctrlLHThre.setValue( 1.0 );
+            break;
+          case 'mesh clipping x 0.3':
+            this.canvas.switch_subject( '/', { 'material_type_left': 'normal' });
+            ctrlLHThre.setValue( 0.3 );
+            break;
+          case 'mesh clipping x 0.1':
+            this.canvas.switch_subject( '/', { 'material_type_left': 'normal' });
+            ctrlLHThre.setValue( 0.1 );
+            break;
+          default:
+            return;
+        }
+
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
@@ -116,7 +136,26 @@ function registerPresetSurface( ViewerControlCenter ){
     const ctrlRHStyle = this.gui
       .addController('Right Hemisphere', 'normal', { args : corticalDisplay, folderName : folderName })
       .onChange((v) => {
-        this.canvas.switch_subject( '/', { 'material_type_right': v });
+        // corticalDisplay = ['normal', 'mesh clipping x 0.3', 'mesh clipping x 0.1', 'wireframe', 'hidden'];
+        if( !v ) { return; }
+        switch (v) {
+          case 'normal':
+          case 'wireframe':
+          case 'hidden':
+            this.canvas.switch_subject( '/', { 'material_type_right': v });
+            ctrlRHThre.setValue( 1.0 );
+            break;
+          case 'mesh clipping x 0.3':
+            this.canvas.switch_subject( '/', { 'material_type_right': 'normal' });
+            ctrlRHThre.setValue( 0.3 );
+            break;
+          case 'mesh clipping x 0.1':
+            this.canvas.switch_subject( '/', { 'material_type_right': 'normal' });
+            ctrlRHThre.setValue( 0.1 );
+            break;
+          default:
+            return;
+        }
         this.broadcast();
         this.canvas.needsUpdate = true;
       });

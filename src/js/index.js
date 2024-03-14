@@ -11,6 +11,7 @@ import { json2csv } from 'json-2-csv';
 import ClipboardJS from 'clipboard';
 import nifti from 'nifti-reader-js';
 import { svd, registerRigidPoints } from './Math/svd.js';
+import QrCodeWithLogo from "qrcode-with-logos";
 
 // Viewer class
 import { CONSTANTS } from './core/constants.js';
@@ -54,6 +55,7 @@ const ExternLibs = {
   downloadjs        : download,
   ClipboardJS       : ClipboardJS,
   nifti             : nifti,
+  QRCode            : QrCodeWithLogo,
   registration      : { svd : svd, registerRigidPoints : registerRigidPoints },
 };
 

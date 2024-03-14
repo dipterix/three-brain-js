@@ -146,6 +146,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Stores all electrodes
     this.subject_codes = [];
     this.electrodes = new Map();
+    this.electrodePrototypes = new Map();
     this.slices = new Map();
     this.ct_scan = new Map();
     this.atlases = new Map();
@@ -796,6 +797,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.subject_codes.length = 0;
     this.fileLoader.dispose();
     this.electrodes.clear();
+    this.electrodePrototypes.clear();
     this.slices.clear();
     this.ct_scan.clear();
     this.surfaces.clear();
@@ -1927,6 +1929,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( ! this.subject_codes.includes( subject_code ) ){
       this.subject_codes.push( subject_code );
       this.electrodes.set( subject_code, {});
+      this.electrodePrototypes.set( subject_code, {});
       this.slices.set( subject_code, {} );
       this.ct_scan.set( subject_code, {} );
       this.surfaces.set(subject_code, {} );
@@ -2327,7 +2330,7 @@ mapped = false,
 
 
   // export electrodes
-  electrodes_info(args={}){
+  electrodes_info(includePrototypes = false, args={}){
 
     const res = [];
 
@@ -2347,10 +2350,14 @@ mapped = false,
         if( parsed && parsed.length === 3 ){
 
           e = collection[ k ];
-          const row = e.userData.instance.getSummary( args );
+          const inst = e.userData.instance;
 
-          if( row && typeof row ==="object" ) {
-            res.push( row );
+          if( includePrototypes || typeof inst.protoName !== "string" ) {
+            const row = inst.getSummary( args );
+
+            if( row && typeof row ==="object" ) {
+              res.push( row );
+            }
           }
         }
 

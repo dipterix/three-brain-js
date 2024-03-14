@@ -7,7 +7,7 @@ import {
 import { addColorCoat } from '../shaders/addColorCoat.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { asArray } from '../utility/asArray.js';
-import { pointPositionByDistances } from '../Math/svd.js';
+import { pointPositionByDistances, registerRigidPoints } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
 
 const MATERIAL_PARAMS_BASIC = {
@@ -287,21 +287,29 @@ class Electrode extends AbstractThreeBrainObject {
     summary.Voxel_j = Math.round( pos.y );
     summary.Voxel_k = Math.round( pos.z );
 
-
-
     return( summary );
   }
 
   dispose(){
     try {
+      this.object.removeFromParent();
+
+      if( typeof this.protoName === "string" ) {
+        const l = this._canvas.electrodePrototypes.get( this.subject_code );
+        if(l && typeof l === "object")  {
+          delete l[ this.protoName ];
+        }
+      }
+    } catch (e) {}
+
+    try {
       this._textSprite.removeFromParent();
       this._textSprite.material.map.dispose();
       this._textSprite.material.dispose();
       this._textSprite.geometry.dispose();
-    } catch (e) {}
-
-    try {
-      this.object.removeFromParent();
+      if( this._dataTexture ) {
+        this._dataTexture.dispose();
+      }
     } catch (e) {}
 
     this.object.material.dispose();
@@ -422,17 +430,26 @@ class Electrode extends AbstractThreeBrainObject {
     const baseSize = g.size || g.radius || g.width || g.height || 1;
     const protoName = g.prototype_name;
     let geomType = "SphereGeometry";
-    let geomParams = {};
+    let geomParams = g.geomParams;
 
-    if( typeof(protoName) === "string" && g.subtype === "CustomGeometry" ) {
-      const groupObject = this.get_group_object();
-      if( groupObject && groupObject.userData.group_data ) {
-        geomParams = groupObject.userData.group_data[`prototype_${protoName}`];
-        geomType = "CustomGeometry";
+    this.protoName = undefined;
+    if( !geomParams ) {
+      geomParams = {};
+      if( typeof(protoName) === "string" && g.subtype === "CustomGeometry" ) {
+        const groupObject = this.get_group_object();
+        if( groupObject && groupObject.userData.group_data ) {
+          geomParams = groupObject.userData.group_data[`prototype_${protoName}`];
+          this.protoName = protoName;
+          geomType = "CustomGeometry";
+        }
       }
+    } else {
+      this.protoName = protoName;
+      geomType = "CustomGeometry";
     }
     geomParams.radius = baseSize;
     this._params.geomParams = geomParams;
+
     this._geometry = new ElasticGeometry( geomType, geomParams );
     this._geometry.name = `geom_electrode_${ g.name }`;
     this._geometry.computeBoundingSphere();
@@ -594,10 +611,28 @@ class Electrode extends AbstractThreeBrainObject {
 
   }
 
-  useMatrix4( m44 ) {
-    if(!m44 || typeof m44 !== "object" || !m44.isMatrix4 ) { return; }
-    m44.decompose( this.object.position, this.object.quaternion, this.object.scale );
-		this.object.updateMatrix();
+  updateControlPoints ({ which, worldPosition }) {
+    const controlPoints = this._geometry.parameters.controlPoints;
+    if( which ) {
+      if( !worldPosition.isVector3 ) {
+        throw new TypeError("electrode.updateControlPoints: `worldPosition` must be a THREE.Vector3");
+      }
+      if( !isFinite( worldPosition.lengthSq()) ) { return; }
+      if( !Array.isArray( controlPoints.model ) || controlPoints.model.length < 3 ) {
+        throw new RangeError("electrode.updateControlPoints: insufficient prototype controlPoints.")
+      }
+      // no need to update
+      if( which >= 0 && which < controlPoints.model.length ) {
+        let cw = controlPoints.world[ which ];
+        if( !cw || typeof cw !== "object" || !cw.isVector3 ) {
+          cw = new Vector3().copy( worldPosition );
+          controlPoints.world[ which ] = cw;
+        }
+      }
+    }
+
+    const m44 = registerRigidPoints( controlPoints.model , controlPoints.world );
+    this.useMatrix4(m44);
   }
 
   // After everything else is set (including controllers)
@@ -607,6 +642,15 @@ class Electrode extends AbstractThreeBrainObject {
 
     // add to canvas electrode list
     this.register_object( ['electrodes'] );
+    // FIXME: we should add flag instead of checking whether it's custom geom
+    if( typeof this.protoName === "string" ) {
+      // get_or_default( this._canvas[ nm ], this.subject_code, {} )[ this.name ] = this.object;
+      if( !this._canvas.electrodePrototypes.has(this.subject_code) ) {
+        this._canvas.electrodePrototypes.set( this.subject_code, {} );
+      }
+      const prototypeList = this._canvas.electrodePrototypes.get( this.subject_code );
+      prototypeList[ this.protoName ] = this;
+    }
 
     // electrodes must be clickable, ignore the default settings
     this._canvas.add_clickable( this.name, this.object );
@@ -1135,6 +1179,15 @@ class Electrode extends AbstractThreeBrainObject {
 
     if(!isMainRenderer) { return; }
 
+    if( this.matrixNeedsUpdate ) {
+      this.matrixNeedsUpdate = undefined;
+      try {
+        this.updateContactPosition();
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
     // ---- Section 0. check if raw position is 0,0,0 --------------------------
     if( this.isElectrode && !this.isPositionValid ) {
       this.object.visible = false;
@@ -1235,6 +1288,11 @@ class Electrode extends AbstractThreeBrainObject {
     this.state.focusedContact = cid;
     this.updateContactPosition();
     return;
+  }
+
+  useMatrix4( m44 ) {
+    super.useMatrix4( m44 );
+    this.matrixNeedsUpdate = true;
   }
 
   _ensureTemplateCache( subjectCode, names = [] ) {

@@ -564,6 +564,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.controlCenter.addPreset_animation();
     this.controlCenter.addPreset_display_highlights();
 
+    // ---- QR Code ----------
+    this.controlCenter.addPreset_qrcode();
+
     // Update inputs that require selectors since the options might vary
     this.controlCenter.updateSelectorOptions();
 

@@ -11,7 +11,7 @@ const tmpMat4 = new Matrix4();
 
 class DataCube2 extends AbstractThreeBrainObject {
 
-  _filterDataContinuous( dataLB, dataUB, timeSlice ) {
+  async _filterDataContinuous( dataLB, dataUB, timeSlice ) {
     if( dataLB < this.__dataLB ) {
       dataLB = this.__dataLB;
     }
@@ -161,7 +161,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.colorTexture.needsUpdate = true;
   }
-  _filterDataDiscrete( selectedDataValues, timeSlice ) {
+  async _filterDataDiscrete( selectedDataValues, timeSlice ) {
 
     if( Array.isArray( selectedDataValues ) ){
 

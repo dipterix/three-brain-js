@@ -50,6 +50,9 @@ import { register_controls_localization } from '../controls/localization.js';
 // 19. ACPC realignment
 import { registerPresetACPCReAlign } from '../controls/PresetACPCReAlign.js';
 
+// 999. QRCode
+import { registerPresetQRCode } from '../controls/PresetQRCode.js';
+
 // const mouseMoveEvent = { type : "viewerApp.mouse.mousemove" };
 const mouseSingleClickEvent = { type : "viewerApp.mouse.singleClick" };
 const mouseDoubleClickEvent = { type : "viewerApp.mouse.doubleClick" };
@@ -69,6 +72,7 @@ class ViewerControlCenter extends EventDispatcher {
     super();
 
     this.throttleLevel = 4;
+    this.dispatcherEnabled = true;
     this._updateCount = 0;
     this.canvas = viewerApp.canvas;
     this.gui = viewerApp.controllerGUI;
@@ -490,6 +494,9 @@ class ViewerControlCenter extends EventDispatcher {
   // when data is undefined, broadcast controller, otherwise broadcast data
   // only
   broadcast({ data, priority = "deferred", broadcastController = "auto" } = {}){
+
+    if( !this.dispatcherEnabled ) { return; }
+
     if( typeof data === "object" ) {
       Object.assign( this.userData , data );
       this.dispatchEvent({
@@ -558,5 +565,6 @@ ViewerControlCenter = registerPresetElectrodeAnimation( ViewerControlCenter );
 ViewerControlCenter = registerPresetRaymarchingVoxels( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );
 ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
+ViewerControlCenter = registerPresetQRCode( ViewerControlCenter );
 
 export { ViewerControlCenter };

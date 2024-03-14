@@ -15,6 +15,7 @@
     "jspdf": "^2.3.1",
     "lil-gui": "^0.18.2",
     "nifti-reader-js": "^0.5.4",
+    "qrcode-with-logos": "^1.0.5",
     "three": "~0.160.0"
   },
   "devDependencies": {

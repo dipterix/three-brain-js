@@ -73,6 +73,14 @@ class ThrottledEventDispatcher {
     this._listeners.clear();
   }
 
+  dispatchMessage( msg ) {
+    this.dispatch({
+      type: "message",
+      data: msg,
+      muffled: true
+    });
+  }
+
   dispatch({ type, data, callback, immediate = false, muffled = false }){
 
     if( typeof(type) !== "string" || type.length === 0 ) {

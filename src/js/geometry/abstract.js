@@ -170,6 +170,16 @@ class AbstractThreeBrainObject {
   set_visibility( visible ){
     this._visible = visible;
   }
+
+  useMatrix4( m44 ) {
+
+    if(!m44 || typeof m44 !== "object" || !m44.isMatrix4 ) { return; }
+    if( this.object && this.object.isObject3D ){
+      m44.decompose( this.object.position, this.object.quaternion, this.object.scale );
+		  this.object.updateMatrix();
+		  this._canvas.needsUpdate = true;
+    }
+  }
 }
 
 function createBuiltinGeometry (type, {
