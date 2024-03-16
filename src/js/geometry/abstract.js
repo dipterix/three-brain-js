@@ -9,6 +9,8 @@ import {
   PlaneGeometry, SphereGeometry, BoxGeometry
 } from 'three';
 
+const tmpVec3 = new Vector3();
+
 class AbstractThreeBrainObject {
   constructor(g, canvas){
     this._params = g;
@@ -171,11 +173,18 @@ class AbstractThreeBrainObject {
     this._visible = visible;
   }
 
-  useMatrix4( m44 ) {
+  useMatrix4( m44, { applyScale = true } = {} ) {
 
     if(!m44 || typeof m44 !== "object" || !m44.isMatrix4 ) { return; }
     if( this.object && this.object.isObject3D ){
-      m44.decompose( this.object.position, this.object.quaternion, this.object.scale );
+      if( applyScale ) {
+        m44.decompose( this.object.position, this.object.quaternion,
+                        this.object.scale );
+      } else {
+        m44.decompose( this.object.position, this.object.quaternion,
+                       tmpVec3 );
+      }
+
 		  this.object.updateMatrix();
 		  this._canvas.needsUpdate = true;
     }

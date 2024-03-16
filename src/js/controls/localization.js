@@ -521,11 +521,14 @@ class LocElectrode {
   }
 
   reset_position() {
-    this.object.position.copy( this.initialPosition );
-    this.instance._params.position[0] = this.initialPosition.x;
-    this.instance._params.position[1] = this.initialPosition.y;
-    this.instance._params.position[2] = this.initialPosition.z;
+    this._setPosition( this.initialPosition );
     this.update_line();
+    this.updateProjection();
+    // this.object.position.copy( this.initialPosition );
+    // this.instance._params.position[0] = this.initialPosition.x;
+    // this.instance._params.position[1] = this.initialPosition.y;
+    // this.instance._params.position[2] = this.initialPosition.z;
+    // this.update_line();
   }
 
   update_line() {
@@ -621,6 +624,8 @@ class LocElectrode {
     position[0] = pos.x;
     position[1] = pos.y;
     position[2] = pos.z;
+    this.instance.transforms.model2tkr.setPosition( pos );
+    this.instance.resetBuiltinTransforms();
     this.object.position.copy( pos );
   }
 
@@ -1188,6 +1193,7 @@ function register_controls_localization( ViewerControlCenter ){
     const inst = this.canvas.add_object( params );
     window.eee = {
       params: params,
+      geomParams: geomParams,
       inst: inst
     };
   }
@@ -1231,8 +1237,6 @@ function register_controls_localization( ViewerControlCenter ){
   ){
     const electrodes = this.__localize_electrode_list;
     const scode = this.canvas.get_state("target_subject");
-
-    const _regexp = new RegExp(`^${scode}, ([0-9]+) \\- (.*)$`);
 
     electrodes.forEach((el) => {
 
@@ -1786,7 +1790,6 @@ function register_controls_localization( ViewerControlCenter ){
         }
 
         this.canvas.needsUpdate = true;
-
         this.broadcast({
           data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
         });
@@ -1807,13 +1810,15 @@ function register_controls_localization( ViewerControlCenter ){
       pos[ axis ] = step;
       pos.applyQuaternion( this.canvas.crosshairGroup.quaternion );
 
+      pos.add( refine_electrode.object.position );
+      refine_electrode._setPosition( pos )
+      /*
       refine_electrode.object.position.add( pos );
 
-      // refine_electrode.object.position[ axis ] += step;
-      // refine_electrode.object.userData.construct_params.position[ xyzTo123[ axis ] ] += step;
       refine_electrode.object.userData.construct_params.position[0] = refine_electrode.object.position.x
       refine_electrode.object.userData.construct_params.position[1] = refine_electrode.object.position.y
       refine_electrode.object.userData.construct_params.position[2] = refine_electrode.object.position.z
+      */
       refine_electrode.update_line();
       refine_electrode.updateProjection();
       this.broadcast({

@@ -356,7 +356,7 @@ function registerPresetSurface( ViewerControlCenter ){
           options = Object.keys( maps );
 
     const ctrlSurfaceColorType = this.gui
-      .addController('Surface Color', "vertices", {args : options, folderName : folderName })
+      .addController('Surface Color', "none", {args : options, folderName : folderName })
       .onChange((v) => {
 
         switch (v) {
@@ -386,7 +386,7 @@ function registerPresetSurface( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( this.canvas.get_state("surface_color_type", 'vertices') );
+      .setValue( this.canvas.get_state("surface_color_type", 'none') );
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_SURFACE_COLOR,

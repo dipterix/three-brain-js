@@ -82,6 +82,13 @@ class ViewerWrapper {
     this.viewerBootstrapData = undefined;
     // this will be the root element of the viewer
     this.$viewerWrapper = undefined;
+    this.webgl2Enabled = WebGL.isWebGL2Available();
+
+    if( !this.webgl2Enabled ) {
+      const $warning = WebGL.getWebGL2ErrorMessage();
+      this.$container.replaceChildren( $warning );
+      return;
+    }
 
 
     if( this.viewer === undefined ) {
@@ -105,27 +112,20 @@ class ViewerWrapper {
   }
 
   addModal = () => {
+    if( !this.webgl2Enabled ) { return; }
     if( this.$modal ) { return; }
     this.$container.classList.add("threejs-brain-blank-container");
     this.$modal = document.createElement("div");
     this.$modal.classList.add("threejs-brain-modal");
     // check webgl2 availability
     this.$modal.innerText = "Click me to load 3D viewer.";
-
-    if( !WebGL.isWebGL2Available() ) {
-      const $warning = WebGL.getWebGLErrorMessage();
-      const $warningSubtext = document.createElement("small");
-      $warningSubtext.innerHTML = "Please use Chrome/Firefox/Safari for full support. You can force me to render viewer anyway by clicking me, but I might not work properly."
-      $warning.appendChild( $warningSubtext );
-      this.$modal.appendChild( $warning );
-    }
-
     this.$container.innerHTML = "";
     this.$container.appendChild( modal );
     this.$container.addEventListener( "click", this.activateViewer );
   }
 
   activateViewer = () => {
+    if( !this.webgl2Enabled ) { return; }
     this.$container.removeEventListener( "click", this.activateViewer );
 
     if( this.$modal ) {
@@ -146,6 +146,7 @@ class ViewerWrapper {
   }
 
   createViewer( insertViewer = false ) {
+    if( !this.webgl2Enabled ) { return; }
     if( this.initialized ) {
       return this.useCachedViewer( insertViewer );
     }

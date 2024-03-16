@@ -330,9 +330,30 @@ class Electrode extends AbstractThreeBrainObject {
           surfaceMapping = mapConfig.surface,
           volumeMapping = mapConfig.volume;
 
-    // FIXME
+    if( surfaceMapping === "reset" || volumeMapping === "reset" ) {
+      this.useMatrix4( this.transforms.model2tkr );
+      this.state.templateMappingActive = false;
+      this.state.templateSubject = this.subject_code;
+      this.state.templateMappingMethod = "Affine";
+      this.state.templateCoordSys = "MNI305";
+      return;
+    }
+    // check if this is a surface
+    let isSurfaceElectrode = false;
+    if( this.object.userData.localization_instance ) {
+      if( this.object.userData.localization_instance.brainShiftEnabled ) {
+        isSurfaceElectrode = true;
+      }
+    } else if(this._params.is_surface_electrode) {
+      isSurfaceElectrode = true;
+    }
+
+    if( isSurfaceElectrode && surfaceMapping === "sphere.reg" ) {
+      this.mapToTemplateSurface({ subjectCode : subjectCode });
+      return;
+    }
+
     this.mapToTemplateAffine({ subjectCode : subjectCode });
-    // this.mapToTemplateSurface({ subjectCode : subjectCode });
   }
 
   constructor (g, canvas) {
@@ -420,6 +441,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.defaultColor = new Color().set(1, 1, 1);
     this._tmpColor = new Color().set(1, 1, 1);
     this._tmpVec3 = new Vector3();
+    this._tmpMat4 = new Matrix4();
 
     // animation key-values
     // this.animationKeyFrames = {};
@@ -429,32 +451,40 @@ class Electrode extends AbstractThreeBrainObject {
     // build geometry
     const baseSize = g.size || g.radius || g.width || g.height || 1;
     const protoName = g.prototype_name;
-    let geomType = "SphereGeometry";
+    let geomType = g.subtype === "CustomGeometry" ? "CustomGeometry" : "SphereGeometry";
     let geomParams = g.geomParams;
 
+    // geomParams can be in g.geomParams or in group_data
     this.protoName = undefined;
-    if( !geomParams ) {
-      geomParams = {};
-      if( typeof(protoName) === "string" && g.subtype === "CustomGeometry" ) {
-        const groupObject = this.get_group_object();
-        if( groupObject && groupObject.userData.group_data ) {
+    if( typeof(protoName) === "string" ) {
+      const groupObject = this.get_group_object();
+      if( groupObject && groupObject.userData.group_data ) {
+        if( !geomParams || typeof geomParams !== "object" ) {
           geomParams = groupObject.userData.group_data[`prototype_${protoName}`];
-          this.protoName = protoName;
-          geomType = "CustomGeometry";
         }
+        this.protoName = protoName;
       }
     } else {
       this.protoName = protoName;
-      geomType = "CustomGeometry";
     }
-    geomParams.radius = baseSize;
+    if( geomType === "SphereGeometry" ) {
+      if (!geomParams || typeof geomParams !== "object") {
+        geomParams = { radius : baseSize };
+      }
+      this.isElectrodePrototype = false;
+    } else {
+      if (!geomParams || typeof geomParams !== "object") {
+        throw new TypeError("Cannot find proper `geomParams` for the electrode " + g.name);
+      }
+      this.isElectrodePrototype = true;
+    }
     this._params.geomParams = geomParams;
+    this._geometryType = geomType;
 
     this._geometry = new ElasticGeometry( geomType, geomParams );
     this._geometry.name = `geom_electrode_${ g.name }`;
     this._geometry.computeBoundingSphere();
     this._dataTexture = this._geometry.dataTexture;
-    this._geometryType = this._geometry.parameters.type;
     const fixedClearCoat = this._geometry.parameters.fixedClearCoat;
     const transform = this._geometry.parameters.transform;
     const hasTransform = this._geometry.parameters.hasTransform;
@@ -642,8 +672,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     // add to canvas electrode list
     this.register_object( ['electrodes'] );
-    // FIXME: we should add flag instead of checking whether it's custom geom
-    if( typeof this.protoName === "string" ) {
+    if( this.isElectrodePrototype ) {
       // get_or_default( this._canvas[ nm ], this.subject_code, {} )[ this.name ] = this.object;
       if( !this._canvas.electrodePrototypes.has(this.subject_code) ) {
         this._canvas.electrodePrototypes.set( this.subject_code, {} );
@@ -1063,18 +1092,7 @@ class Electrode extends AbstractThreeBrainObject {
         const values = this.state.displayValues;
         const tmpColor = this._tmpColor;
 
-        let getValue;
-        if( Array.isArray( values ) ) {
-          getValue = (i) => {
-            return values[i];
-          };
-        } else {
-          getValue = (i) => {
-            return values;
-          };
-        }
-
-
+        const valueIsArray = Array.isArray( values );
         let v;
 
         // transparent by default;
@@ -1096,7 +1114,7 @@ class Electrode extends AbstractThreeBrainObject {
             w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - 1 - r);
             h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - 1 - c);
             if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
-              v = getValue( i );
+              v = valueIsArray ? values[i] : values;
               if( v === null ) {
                 tmpColor.setHex( 0xc2c2c2 );
               } else {
@@ -1124,7 +1142,7 @@ class Electrode extends AbstractThreeBrainObject {
 
             if( useThresholdArray && !thresholdTestArray[ i ]) { continue; }
 
-            v = getValue( i );
+            v = valueIsArray ? values[i] : values;
             if( v === null ) {
               tmpColor.setHex( 0xc2c2c2 );
             } else {
@@ -1172,12 +1190,22 @@ class Electrode extends AbstractThreeBrainObject {
     super.pre_render({ target : target });
 
     const isMainRenderer = target === CONSTANTS.RENDER_CANVAS.main;
+    if(!isMainRenderer) { return; }
+
+    const displayRepresentation = this._canvas.get_state( 'electrode_representation', 'prototype' );
 
     if( this._geometryType === "SphereGeometry" ) {
+      if( this.protoName !== undefined && displayRepresentation !== "sphere" ) {
+        this.object.visible = false;
+        return;
+      }
       this.object.material.transparent = !isMainRenderer;
+    } else {
+      if( displayRepresentation !== "prototype" ) {
+        this.object.visible = false;
+        return;
+      }
     }
-
-    if(!isMainRenderer) { return; }
 
     if( this.matrixNeedsUpdate ) {
       this.matrixNeedsUpdate = undefined;
@@ -1291,7 +1319,7 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   useMatrix4( m44 ) {
-    super.useMatrix4( m44 );
+    super.useMatrix4( m44, { applyScale : this.isElectrodePrototype } );
     this.matrixNeedsUpdate = true;
   }
 

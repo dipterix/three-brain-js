@@ -174,15 +174,27 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
   }
 
+  setMappingType( type ) {
+    let changed = false;
+    for ( let materialType in this._materials ) {
+      const material = this._materials[ materialType ];
+      changed = material.setMappingType( type ) || changed;
+    }
+    return changed;
+  }
+  getMappingType() {
+    return this._materials.MeshPhysicalMaterial.getMappingType();
+  }
+
   _set_color_from_datacube2( m, bias = 3.0 ){
     // console.debug("Generating surface colors from volume data...");
 
     if( !m || !m.isDataCube2 ){
-      this._material_options.mapping_type.value = CONSTANTS.DEFAULT_COLOR;
+      this.setMappingType( CONSTANTS.DEFAULT_COLOR );
       return;
     }
 
-    if( this._material_options.mapping_type.value === CONSTANTS.DEFAULT_COLOR ) {
+    if( this.getMappingType() === CONSTANTS.DEFAULT_COLOR ) {
       return;
     }
 
@@ -214,8 +226,8 @@ class FreeMesh extends AbstractThreeBrainObject {
      * https://github.com/mrdoob/three.js/blob/be137e6da5fd682555cdcf5c8002717e4528f879/src/renderers/WebGLRenderer.js#L1442
     */
     this._mesh.material.vertexColors = true;
-    this._material_options.sampler_bias.value = bias;
-    this._material_options.sampler_step.value = bias / 2;
+    // this._material_options.sampler_bias.value = bias;
+    // this._material_options.sampler_step.value = bias / 2;
     this._volume_texture.needsUpdate = true;
 
   }
@@ -445,10 +457,7 @@ class FreeMesh extends AbstractThreeBrainObject {
         col_code = CONSTANTS.DEFAULT_COLOR;
     };
 
-    if( this._material_options.mapping_type.value !== col_code ){
-      this._material_options.mapping_type.value = col_code;
-      material_needs_update = true;
-    }
+    material_needs_update = this.setMappingType( col_code );
     if( this._material_options.blend_factor.value !== blend ){
       this._material_options.blend_factor.value = blend;
       material_needs_update = true;
@@ -613,7 +622,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
 
     this._material_options = {
-      'mapping_type'      : { value : CONSTANTS.DEFAULT_COLOR },
+      // 'mapping_type'      : { value : CONSTANTS.DEFAULT_COLOR },
       'volume_map'        : { value : this._volume_texture },
       'volumeMatrixInverse':{ value : new Matrix4() },
       'scale_inv'         : {
@@ -623,8 +632,8 @@ class FreeMesh extends AbstractThreeBrainObject {
         )
       },
       'shift'             : { value : new Vector3() },
-      'sampler_bias'      : { value : 3.0 },
-      'sampler_step'      : { value : 1.5 },
+      // 'sampler_bias'      : { value : 3.0 },
+      // 'sampler_step'      : { value : 1.5 },
       'elec_cols'         : { value : null },
       'elec_locs'         : { value : null },
       'elec_size'         : { value : 0 },
