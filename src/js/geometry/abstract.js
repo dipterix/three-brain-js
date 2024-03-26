@@ -24,6 +24,14 @@ class AbstractThreeBrainObject {
       this.group_name = g.group.group_name;
     }
     this.subject_code = g.subject_code || '';
+    if( canvas.threebrain_instances.has(this.name) ) {
+      const currentInstance = canvas.threebrain_instances.get( this.name );
+      if( currentInstance !== this ) {
+        try {
+          currentInstance.dispose();
+        } catch (e) {}
+      }
+    }
     canvas.threebrain_instances.set( this.name, this );
     this.clickable = g.clickable === true;
     this.world_position = new Vector3();
@@ -114,11 +122,11 @@ class AbstractThreeBrainObject {
     });
   }
 
-  debugVerbose ( message ) {
+  debugVerbose = ( message ) => {
     if( this.debug ) {
       console.debug(`[${ this.constructor.name }]: ${message}`);
     }
-  }
+  };
 
   finish_init(){
     if( this.object ){
@@ -196,7 +204,7 @@ function createBuiltinGeometry (type, {
 	  normal = undefined, channel_map = undefined,
 	  texture_size = [1, 1], transform = undefined,
 	  radius = 1, fix_outline = true,
-	  contact_center = null, channel_numbers = null,
+	  contact_center = null, channel_numbers = null, contact_sizes = null,
 	  model_control_points = null, world_control_points = null
 	} = {} ) {
 
@@ -210,69 +218,6 @@ function createBuiltinGeometry (type, {
   const contactCenter = [new Vector3()];
 
   switch (type) {
-    case 'PlaneGeometry':
-      geom = new PlaneGeometry( radius, radius, 1, 1 );
-      geom.parameters.size = radius;
-      break;
-    case 'BoxGeometry':
-      const uvAttr = new Float32BufferAttribute( new Float32Array([
-
-        0, 1, -1, 2, -1, 2, 0, 1, 0, 0, -1, -1, -1, -1, 0, 0,
-        1, 1, 2, 2, 2, 2, 1, 1, 1, 0, 2, -1, 2, -1, 1, 0,
-        1, 1, 0, 1, 2, 2, -1, 2, 2, 2, -1, 2, 1, 1, 0, 1,
-        1, 0, 0, 0, 2, -1, -1, -1, 2, -1, -1, -1, 1, 0, 0, 0,
-        1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0
-
-/*/
-         2.5, 2.5, 0.5,     0, 1,
-         2.5, 2.5, 0.16,    -1, 2,
-         2.5, 2.5, -0.16,   -1, 2,
-         2.5, 2.5, -0.5,    0, 1,
-         2.5, -2.5, 0.5,    0, 0,
-         2.5, -2.5, 0.16,   -1, -1,
-         2.5, -2.5, -0.16,  -1, -1,
-         2.5, -2.5, -0.5,   0, 0,
-         -2.5, 2.5, -0.5,   1, 1,
-         -2.5, 2.5, -0.16,  2, 2,
-         -2.5, 2.5, 0.16,   2, 2,
-         -2.5, 2.5, 0.5,    1, 1,
-         -2.5, -2.5, -0.5,  1, 0,
-         -2.5, -2.5, -0.16, 2, -1,
-         -2.5, -2.5, 0.16,  2, -1,
-         -2.5, -2.5, 0.5,   1, 0,
-         -2.5, 2.5, -0.5,   1, 1,
-         2.5, 2.5, -0.5,    0, 1,
-         -2.5, 2.5, -0.16,  2, 2,
-         2.5, 2.5, -0.16,   -1, 2,
-         -2.5, 2.5, 0.16,   2, 2,
-         2.5, 2.5, 0.16,    -1, 2,
-         -2.5, 2.5, 0.5,    1, 1,
-         2.5, 2.5, 0.5,     0, 1,
-         -2.5, -2.5, 0.5,   1, 0,
-         2.5, -2.5, 0.5,    0, 0,
-         -2.5, -2.5, 0.16,  2, -1,
-         2.5, -2.5, 0.16,   -1, -1,
-         -2.5, -2.5, -0.16, 2, -1,
-         2.5, -2.5, -0.16,  -1, -1,
-         -2.5, -2.5, -0.5,  1, 0,
-         2.5, -2.5, -0.5,   0, 0,
-         -2.5, 2.5, 0.5,    1, 1,
-         2.5, 2.5, 0.5,     0, 1,
-         -2.5, -2.5, 0.5,   1, 0,
-         2.5, -2.5, 0.5,    0, 0,
-         2.5, 2.5, -0.5,    0, 1,
-         -2.5, 2.5, -0.5,   1, 1,
-         2.5, -2.5, -0.5,   0, 0,
-         -2.5, -2.5, -0.5   1, 0
-
-        //*/
-
-      ]), 2 );
-      geom = new BoxGeometry( radius, radius, 0.3, 1, 1, 3);
-      geom.setAttribute( "uv" , uvAttr );
-      geom.parameters.size = radius;
-      geom.parameters.fixedClearCoat = true;
-      break;
     case 'CustomGeometry':
       geom = new BufferGeometry();
       geom.parameters = {
@@ -330,9 +275,12 @@ function createBuiltinGeometry (type, {
       const cn = Array.isArray( channel_numbers ) ? channel_numbers : [];
       if( Array.isArray(cc) && cc.length >= 3 ) {
         contactCenter.length = 0;
+        const cs = Array.isArray( contact_sizes ) ? contact_sizes : [];
+
         for(let i = 0; i < cc.length/3; i++ ) {
           const cPos = new Vector3().fromArray( cc, i * 3 );
           cPos.chanNum = cn[ i ] ?? (i + 1);
+          cPos.radius = typeof cs[ i ] === "number" ? cs[ i ] : 0.05;
           contactCenter.push( cPos );
         }
       }

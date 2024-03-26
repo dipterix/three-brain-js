@@ -2,7 +2,8 @@ import { AbstractThreeBrainObject, ElasticGeometry } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
   Mesh, Vector2, Vector3, Matrix4, Color,
-  ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer
+  ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
+  SphereGeometry, InstancedMesh, DoubleSide
 } from 'three';
 import { addColorCoat } from '../shaders/addColorCoat.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
@@ -15,6 +16,7 @@ const MATERIAL_PARAMS_BASIC = {
   'reflectivity'  : 0,
   'color'         : 0xffffff,
   'vertexColors'  : false,
+  'side'          : DoubleSide,
 };
 
 const MATERIAL_PARAMS_MORE = {
@@ -321,6 +323,10 @@ class Electrode extends AbstractThreeBrainObject {
         this.mapToTemplate
       )
     } catch (e) {}
+
+    if( this.instancedObjects ) {
+      this.instancedObjects.dispose();
+    }
   }
 
   // fat arrow to make sure listeners are correct for child classes
@@ -377,6 +383,9 @@ class Electrode extends AbstractThreeBrainObject {
 
     // this.animationActive = false;
     // this._animationName = "[None]";
+
+    this.colorNeedsUpdate = true;        // whether updateColors needs to run
+
     this.state = {
       // For inner text
       customLabel       : undefined,
@@ -391,6 +400,7 @@ class Electrode extends AbstractThreeBrainObject {
       },
 
       // updated during update()
+      displayRepresentation: "prototype+sphere", // shape-only, contact-only, or shape+contact
       displayActive     : false,            // whether active keyframe is found for animation
       displayVariable   : "[None]",         // variable name used for displaying
       displayValues     : undefined,        // Array or number, electrode value(s) for displaying
@@ -543,6 +553,43 @@ class Electrode extends AbstractThreeBrainObject {
     this._textSprite.visible = false;
     this.object.add( this._textSprite );
 
+    // Also add instancedMesh within the object
+    this._instancedShaderUniforms = {
+      fixedClearCoat : { value : false },
+      clearcoat      : { value : 0.0 },
+      useDataTexture : { value : 0 },
+      dataTexture    : { value : null },
+    };
+    if( Array.isArray( this.contactCenter ) && this.contactCenter.length > 0 ) {
+      this.hasInstancedMesh = true;
+      const nContacts = this.contactCenter.length;
+      const instancedGeometry = new SphereGeometry( 1 );
+      // materials
+      const instancedMaterial = addColorCoat(
+        new MeshBasicMaterial({
+          'transparent'   : false,
+          'reflectivity'  : 0,
+          'color'         : 0xffffff,
+          'vertexColors'  : false,
+        }),
+        this._instancedShaderUniforms
+      );
+      const instancedObjects = new InstancedMesh( instancedGeometry, instancedMaterial, nContacts );
+      this.instancedObjects = instancedObjects;
+
+      const contactMatrix = new Matrix4().identity();
+      this.contactCenter.forEach( (el, ii) => {
+        const contactRadius = el.radius ?? 0.1;
+        contactMatrix
+          .makeScale(contactRadius, contactRadius, contactRadius)
+          .setPosition( el );
+        instancedObjects.setMatrixAt( ii, contactMatrix );
+        instancedObjects.setColorAt( ii, this.defaultColor );
+      });
+      this.instancedObjects.instanceMatrix.needsUpdate = true;
+      this.object.add( instancedObjects );
+    }
+
     this.object.userData.dispose = () => { this.dispose(); };
   }
 
@@ -683,6 +730,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     // electrodes must be clickable, ignore the default settings
     this._canvas.add_clickable( this.name, this.object );
+    this._canvas.add_clickable( this.name+"__instanced", this.instancedObjects );
 
     // set label size
     const electrodeLabelState = this._canvas.state_data.get("electrode_label");
@@ -719,6 +767,7 @@ class Electrode extends AbstractThreeBrainObject {
     const thresholdActive = this._canvas.get_state( 'threshold_active', false);
     const thresholdVariableName = thresholdActive ? this._canvas.get_state('threshold_variable', "[None]") : "[None]";
     const tVals = this.getKFValues( time , thresholdVariableName );
+    const currentVariableName = this.state.thresholdVariable;
 
     if( tVals === undefined ) {
       this.state.thresholdActive = false;
@@ -737,13 +786,17 @@ class Electrode extends AbstractThreeBrainObject {
       return;
     }
 
+    const currentThresholdValues = this.state.thresholdValues;
+    const currentThresholdTestArrays = this.state.thresholdTestArray;
+    const currentThresholdRanges = this._thresholdRanges;
     // This can be an array or number
     this.state.thresholdActive = true;
     this.state.thresholdValues = tVals;
     this.state.thresholdTest = false;
 
     // test the threshold ranges agaist electrode value(s)
-    const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
+    this._thresholdRanges = this._canvas.get_state('threshold_values');
+    const thresholdRanges = asArray( this._thresholdRanges );
     const operators = this._canvas.get_state('threshold_method');
     const isContinuous = this._canvas.get_state('threshold_type') === "continuous";
 
@@ -759,7 +812,7 @@ class Electrode extends AbstractThreeBrainObject {
 
         let isPassed;
 
-        switch (expression) {
+        switch ( opstr ) {
           case 'v = T1':
             isPassed = ( v ) => { return v == t1; };
             break;
@@ -849,6 +902,15 @@ class Electrode extends AbstractThreeBrainObject {
 
     if( this.state.thresholdTest === false ) {
       this.state.useBasicMaterial = false;
+    } else {
+      if(
+        currentVariableName !== this.state.thresholdVariable ||
+        currentThresholdTestArrays !== this.state.thresholdTestArray ||
+        currentThresholdValues !== this.state.thresholdValues ||
+        currentThresholdRanges !== this._thresholdRanges
+      ) {
+        this.colorNeedsUpdate = true;
+      }
     }
   }
 
@@ -914,6 +976,9 @@ class Electrode extends AbstractThreeBrainObject {
 
     const displayVariableName = this._canvas.get_state('display_variable', "[None]");
     const displayValues = this.getKFValues( time, displayVariableName );
+    const currentDisplayActive = this.state.displayActive;
+    const currentDisplayVariable = this.state.displayVariable;
+    const currentDisplayValues = this.state.displayValues;
 
     if( displayValues === undefined ) {
       // varname not found or invalid
@@ -921,6 +986,7 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.displayVariable  = "[None]";
       this.state.displayValues    = undefined;
       this.state.useBasicMaterial = false;
+      this.colorNeedsUpdate = true;
       return;
     }
 
@@ -931,12 +997,16 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.displayActive = false;
       this.state.displayValues = undefined;
       this.state.useBasicMaterial = false;
-
+      this.colorNeedsUpdate = true;
       return;
     }
 
     this.state.displayActive = true;
     this.state.displayValues = displayValues;
+
+    if( !currentDisplayActive || currentDisplayVariable !== displayVariableName || currentDisplayValues !== displayValues ) {
+      this.colorNeedsUpdate = true;
+    }
 
     if ( this.state.thresholdTest !== false ) {
       this.state.useBasicMaterial = true;
@@ -1009,6 +1079,10 @@ class Electrode extends AbstractThreeBrainObject {
       }
     };
 
+    if( useFixedColor && colorSize > 0 && !fixColor[ 0 ]) {
+      this.colorNeedsUpdate = true;
+    }
+
     for( let i = 0 ; i < colorSize; i++ ) {
       fixColor[ i ] = useFixedColor;
     }
@@ -1029,30 +1103,62 @@ class Electrode extends AbstractThreeBrainObject {
   updateVisibility() {
     // 4. set visibility
     const vis = this._canvas.get_state( 'electrode_visibility', 'all visible');
+    const repr = this._canvas.get_state( 'electrode_representation', 'shape+contact' );
+    const setVisible = ( visible ) => {
+      if( visible ) {
+        this.object.visible = true;
+        if( this.hasInstancedMesh ) {
+          switch (repr) {
+            case 'prototype':
+              this.object.layers.enableAll();
+              this.instancedObjects.visible = false;
+              break;
 
+            case 'contact-only':
+              this.object.layers.disableAll();
+              this.instancedObjects.visible = true;
+              break;
+
+            default:
+              this.object.layers.enableAll();
+              this.instancedObjects.visible = true;
+          }
+        }
+      } else {
+        this.object.visible = false;
+        if( this.hasInstancedMesh ) {
+          this.instancedObjects.visible = false;
+        }
+      }
+    };
     switch (vis) {
       case 'all visible':
-        this.object.visible = true;
+        setVisible( true );
         break;
       case 'hidden':
-        this.object.visible = false;
+        setVisible( false );
         break;
       case 'hide inactives':
         // The electrode has no value, hide
         if( this.state.displayActive && this.state.thresholdTest !== false ){
-          this.object.visible = true;
+          setVisible( true );
         } else {
-          this.object.visible = false;
+          setVisible( false );
         }
         break;
       case 'threshold only':
         // show even the object does not have values
         if( this.state.thresholdTest !== false ){
-          this.object.visible = true;
+          setVisible( true );
         }else{
-          this.object.visible = false;
+          setVisible( false );
         }
         break;
+    }
+
+    if( this.state.displayRepresentation !== repr ) {
+      this.state.displayRepresentation = repr;
+      this.colorNeedsUpdate = true;
     }
   }
 
@@ -1062,21 +1168,94 @@ class Electrode extends AbstractThreeBrainObject {
     // useBasicMaterial  // whether basic material is used
 
     // no need to visualize
-    if( !this.object.visible ) { return; }
+    const objectVisible = this.object.visible,
+          instancedObjectVisible = this.hasInstancedMesh ? this.instancedObjects.visible : false;
+    if( !objectVisible && !instancedObjectVisible ) { return; }
 
     const cmap = this._canvas.currentColorMap();
     const currentMaterial = this.object.material;
+    const params = this._geometry.parameters;
 
     const thresholdPassed = this.state.thresholdTest !== false;
     const useThresholdArray = this.state.thresholdTest === undefined;
     const thresholdTestArray = this.state.thresholdTestArray;
+    const instanceColorArray = instancedObjectVisible ? this.instancedObjects.instanceColor.array : undefined;
 
     // check if fixed color
-    if( this.state.fixColor[0] && this.fixedColor ) {
-      this._shaderUniforms.useDataTexture.value = 0;
-      currentMaterial.color.copy( this.fixedColor.color );
-    } else if( thresholdPassed && this.state.displayActive ) {
-      const params = this._geometry.parameters;
+    if( (this.state.fixColor[0] && this.fixedColor) || !(thresholdPassed && this.state.displayActive) ) {
+      let fixedColor;
+      if( this.state.fixColor[0] && this.fixedColor ) {
+        fixedColor = this.fixedColor.color;
+      } else {
+        fixedColor = this.defaultColor;
+      }
+
+      if( this.colorNeedsUpdate ) {
+        this.colorNeedsUpdate = undefined;
+
+        if( params.useDataTexture && this._dataTexture ) {
+          const useChannelMap = params.useChannelMap;
+          const textureWidth = params.textureWidth;
+          const textureHeight = params.textureHeight;
+          const colorArray = this._dataTexture.image.data;
+          const channelMap = this._geometry.getAttribute("channelMap");
+
+          colorArray.fill(50);
+
+          if( useChannelMap && channelMap ) {
+            const n = channelMap.count;
+            const channelMapArray = channelMap.array;
+
+            let j, r, c, w, h, k, l;
+            for( let i = 0; i < n ; i++ ) {
+              // set RGB 0-255
+              r = channelMapArray[ i * 4 ] - 1;
+              c = channelMapArray[ i * 4 + 1 ] - 1;
+              w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - r);
+              h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - c);
+              if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
+
+                for( l = 0; l < h; l++ ) {
+                  for( k = 0; k < w; k++ ) {
+                    j = r + k + ( c + l ) * textureWidth;
+                    colorArray[ j * 4 ] = fixedColor.r * 255;
+                    colorArray[ j * 4 + 1 ] = fixedColor.g * 255;
+                    colorArray[ j * 4 + 2 ] = fixedColor.b * 255;
+                    colorArray[ j * 4 + 3 ] = 255;
+                  }
+                }
+              }
+            }
+
+          } else {
+            const count = colorArray.length / 4;
+            for(let i = 0; i < count; i++ ) {
+              colorArray[ i * 4 ] = fixedColor.r * 255;
+              colorArray[ i * 4 + 1 ] = fixedColor.g * 255;
+              colorArray[ i * 4 + 2 ] = fixedColor.b * 255;
+              colorArray[ i * 4 + 3 ] = 255;
+            }
+          }
+
+          currentMaterial.color.set(1, 1, 1);
+          this._dataTexture.needsUpdate = true;
+          this._shaderUniforms.useDataTexture.value = 1;
+        } else {
+          currentMaterial.color.copy( fixedColor );
+          this._shaderUniforms.useDataTexture.value = 0;
+        }
+        if( instancedObjectVisible ) {
+          const count = this.instancedObjects.count;
+          for(let i = 0; i < count; i++ ) {
+            instanceColorArray[ i * 3 ] = fixedColor.r;
+            instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
+            instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
+          }
+          this.instancedObjects.instanceColor.needsUpdate = true;
+        }
+      }
+    } else if( this.colorNeedsUpdate ) {
+      this.colorNeedsUpdate = undefined;
 
       if(
         this.state.useBasicMaterial && params.useDataTexture &&
@@ -1088,6 +1267,7 @@ class Electrode extends AbstractThreeBrainObject {
         const textureHeight = params.textureHeight;
         const colorArray = this._dataTexture.image.data;
         const channelMap = this._geometry.getAttribute("channelMap");
+        const fixedColor = this.defaultColor;
 
         const values = this.state.displayValues;
         const tmpColor = this._tmpColor;
@@ -1103,16 +1283,23 @@ class Electrode extends AbstractThreeBrainObject {
           const channelMapArray = channelMap.array;
           const n = Array.isArray( values ) ? Math.min( colorCount, values.length ) : colorCount;
 
+
           let j, r, c, w, h, k, l;
           for( let i = 0; i < n ; i++ ) {
-
-            if( useThresholdArray && !thresholdTestArray[ i ]) { continue; }
+            if( useThresholdArray && !thresholdTestArray[ i ]) {
+              if( instancedObjectVisible ) {
+                instanceColorArray[ i * 3 ] = fixedColor.r;
+                instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
+                instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
+              }
+              continue;
+            }
 
             // set RGB 0-255
             r = channelMapArray[ i * 4 ] - 1;
             c = channelMapArray[ i * 4 + 1 ] - 1;
-            w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - 1 - r);
-            h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - 1 - c);
+            w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - r);
+            h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - c);
             if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
               v = valueIsArray ? values[i] : values;
               if( v === null ) {
@@ -1120,27 +1307,39 @@ class Electrode extends AbstractThreeBrainObject {
               } else {
                 cmap.getColor( v , tmpColor );// .convertLinearToSRGB();
               }
-              tmpColor.multiplyScalar( 255 );
 
-              for( l = 0; l < h; l++ ) {
-                for( k = 0; k < w; k++ ) {
-                  j = r + k + ( c + l ) * textureWidth;
-                  colorArray[ j * 4 ] = tmpColor.r;
-                  colorArray[ j * 4 + 1 ] = tmpColor.g;
-                  colorArray[ j * 4 + 2 ] = tmpColor.b;
-                  colorArray[ j * 4 + 3 ] = 255;
+              if( instancedObjectVisible ) {
+                // tmpColor.convertLinearToSRGB();
+                this.instancedObjects.setColorAt( i, tmpColor );
+              } else {
+                for( l = 0; l < h; l++ ) {
+                  for( k = 0; k < w; k++ ) {
+                    j = r + k + ( c + l ) * textureWidth;
+                    colorArray[ j * 4 ] = tmpColor.r * 255;
+                    colorArray[ j * 4 + 1 ] = tmpColor.g * 255;
+                    colorArray[ j * 4 + 2 ] = tmpColor.b * 255;
+                    colorArray[ j * 4 + 3 ] = 255;
+                  }
                 }
               }
 
             }
           }
+
         } else {
           const colorCount = textureWidth * textureHeight;
           const n = Array.isArray( values ) ? Math.min( colorCount, values.length ) : colorCount;
 
           for( let i = 0; i < n ; i++ ) {
 
-            if( useThresholdArray && !thresholdTestArray[ i ]) { continue; }
+            if( useThresholdArray && !thresholdTestArray[ i ]) {
+              if( instancedObjectVisible ) {
+                instanceColorArray[ i * 3 ] = fixedColor.r;
+                instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
+                instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
+              }
+              continue;
+            }
 
             v = valueIsArray ? values[i] : values;
             if( v === null ) {
@@ -1148,20 +1347,28 @@ class Electrode extends AbstractThreeBrainObject {
             } else {
               cmap.getColor( v , tmpColor );//.convertLinearToSRGB();
             }
-            tmpColor.multiplyScalar( 255 );
 
-            // set RGB 0-255
-            colorArray[ i * 4 ] = tmpColor.r;
-            colorArray[ i * 4 + 1 ] = tmpColor.g;
-            colorArray[ i * 4 + 2 ] = tmpColor.b;
-            colorArray[ i * 4 + 3 ] = 255;
+            if( instancedObjectVisible ) {
+              // tmpColor.convertLinearToSRGB();
+              this.instancedObjects.setColorAt( i, tmpColor );
+            } else {
+              // set RGB 0-255
+              colorArray[ i * 4 ] = tmpColor.r * 255;
+              colorArray[ i * 4 + 1 ] = tmpColor.g * 255;
+              colorArray[ i * 4 + 2 ] = tmpColor.b * 255;
+              colorArray[ i * 4 + 3 ] = 255;
+            }
           }
+
         }
 
 
 
         this._dataTexture.needsUpdate = true;
         this._shaderUniforms.useDataTexture.value = 1;
+        if( instancedObjectVisible ) {
+          this.instancedObjects.instanceColor.needsUpdate = true;
+        }
 
       } else {
         this._shaderUniforms.useDataTexture.value = 0;
@@ -1171,17 +1378,13 @@ class Electrode extends AbstractThreeBrainObject {
           cmap.getColor( this.state.displayValues, currentMaterial.color );
         }
       }
-
-    } else {
-      // use default color
-      this._shaderUniforms.useDataTexture.value = 0;
-      currentMaterial.color.copy( this.defaultColor );
     }
 
     // also set clearcoat
     const clearCoatValue = this._canvas.get_state( "electrode_clearcoat", 0.0 );
     if( typeof clearCoatValue === "number" ) {
       this._shaderUniforms.clearcoat.value = clearCoatValue;
+      this._instancedShaderUniforms.clearcoat.value = clearCoatValue;
     }
   }
 
@@ -1192,19 +1395,25 @@ class Electrode extends AbstractThreeBrainObject {
     const isMainRenderer = target === CONSTANTS.RENDER_CANVAS.main;
     if(!isMainRenderer) { return; }
 
-    const displayRepresentation = this._canvas.get_state( 'electrode_representation', 'prototype' );
+    // check if prototype exists (if yes, hide this electrode sphere)
+    if( this._geometryType === "SphereGeometry" && this.protoName !== undefined ) {
+
+      if( this._superseded === undefined ) {
+        // exists a prototype
+        if( this._canvas.electrodePrototypes.has( this.protoName ) ) {
+          this.object.visible = false;
+          this._superseded = true;
+          return;
+        } else {
+          this._superseded = false;
+        }
+      } else if ( this._superseded ) {
+        return;
+      }
+    }
 
     if( this._geometryType === "SphereGeometry" ) {
-      if( this.protoName !== undefined && displayRepresentation !== "sphere" ) {
-        this.object.visible = false;
-        return;
-      }
       this.object.material.transparent = !isMainRenderer;
-    } else {
-      if( displayRepresentation !== "prototype" ) {
-        this.object.visible = false;
-        return;
-      }
     }
 
     if( this.matrixNeedsUpdate ) {

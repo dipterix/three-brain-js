@@ -6,7 +6,10 @@ const TerserPlugin = require('terser-webpack-plugin');
 
 module.exports = {
   mode: 'production',
-  entry: path.resolve(__dirname, 'src/js/index.js'),
+  entry: {
+    main    : path.resolve(__dirname, 'src/js/index.js'),
+    worker  : path.resolve(__dirname, 'src/js/worker.js'),
+  },
   devtool: 'source-map',
   module: {
     rules: [
@@ -22,14 +25,13 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     chunkFormat: "module",
-    filename: "threebrain.js",
+    filename: "threebrain-[name].js",
     publicPath: "/",
     clean : true,
     globalObject: 'this',
     library: {
       name: 'threeBrain',
       type: 'umd',
-
     },
   },
   plugins: [

@@ -18,12 +18,13 @@ import { CONSTANTS } from './core/constants.js';
 import { ViewerWrapper } from './core/ViewerWrapper.js';
 import { ViewerApp } from './core/ViewerApp.js';
 import { StorageCache } from './core/StorageCache.js';
-import { CanvasFileLoader } from './core/loaders.js';
 
 // Formats
 import { MGHImage } from './formats/MGHImage.js';
+import { NiftiImage } from './formats/NIfTIImage.js';
 import { FreeSurferMesh } from './formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from './formats/FreeSurferNodeValues.js';
+import { debugManager, loaderClasses, workerPool, resolveURL, Cache } from './core/DataLoaders.js';
 
 
 // Addons
@@ -64,10 +65,16 @@ const Drivers = {
 };
 
 const Readers = {
-  FileLoader : CanvasFileLoader,
-  FreeSurferMesh : FreeSurferMesh,
-  FreeSurferNodeValues : FreeSurferNodeValues,
-  MGHImage : MGHImage
+  FreeSurferMesh        : FreeSurferMesh,
+  FreeSurferNodeValues  : FreeSurferNodeValues,
+  MGHImage              : MGHImage,
+  NiftiImage            : NiftiImage,
+  debugManager          : debugManager,
+  loaderClasses         : loaderClasses,
+  resolveURL            : resolveURL,
+  Cache                 : Cache,
 };
 
-export { ViewerApp, ViewerWrapper, StorageCache, Readers, Constants, Drivers, ExternLibs };
+const Workers = workerPool;
+
+export { ViewerApp, ViewerWrapper, StorageCache, Readers, Constants, Drivers, ExternLibs, Workers };

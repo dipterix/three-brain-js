@@ -256,7 +256,7 @@ class ViewerWrapper {
     this.viewer.bootstrap( this.viewerBootstrapData );
   }
 
-  resize( width, height ) {
+  async resize( width, height ) {
     if( this.viewer ){
       this.viewer.resize(
         width ?? this.width,

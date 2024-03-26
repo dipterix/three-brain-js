@@ -385,7 +385,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // Need to check if this is VolumeCube2
     if( g.isVolumeCube2 ) {
-      const niftiData = canvas.get_data("volume_data", g.name, g.group.group_name);
+      const niftiData = g.imageObject ?? canvas.get_data("volume_data", g.name, g.group.group_name);
       this.voxelData = niftiData.image;
       // width, height, depth of the model (not in world)
       this.modelShape = new Vector3().copy( niftiData.shape );
@@ -395,21 +395,30 @@ class DataCube2 extends AbstractThreeBrainObject {
       // this._transform = g.trans_mat * niftiData.model2RAS
       //   -> new transform from model center to tkrRAS
 
-      if( transformSpaceFrom === "model" &&
-          niftiData.model2tkrRAS && niftiData.model2tkrRAS.isMatrix4 ) {
+      if( transformSpaceFrom === "model" ) {
+        // Ignore this comment
         // special:: this is MGH data and transfor is embedded
-        this._transform.copy( niftiData.model2tkrRAS );
+        // if niftiData.model2tkrRAS && niftiData.model2tkrRAS.isMatrix4
+        // this._transform.copy( niftiData.model2tkrRAS );
+
+        // model -> scanner RAS -> tkr ras
+        const subjectData = this._canvas.shared_data.get( this.subject_code );
+        const ras2tkr = subjectData.matrices.tkrRAS_Scanner.clone().invert()
+        this._transform.multiply( niftiData.model2RAS )
+          .premultiply(ras2tkr);
+
       } else {
         // transformSpaceFrom is scannerRAS
         this._transform.multiply( niftiData.model2RAS );
+
       }
       this._originalData = niftiData;
     } else {
       // g.trans_mat is from model to tkrRAS
-      this.voxelData = canvas.get_data('datacube_value_'+g.name, g.name, g.group.group_name);
+      this.voxelData = this._canvas.get_data('datacube_value_'+g.name, g.name, g.group.group_name);
       // width, height, depth of the model (not in world)
       this.modelShape = new Vector3().fromArray(
-        canvas.get_data('datacube_dim_'+g.name, g.name, g.group.group_name)
+        this._canvas.get_data('datacube_dim_'+g.name, g.name, g.group.group_name)
       );
     }
     this.nVoxels = this.modelShape.x * this.modelShape.y * this.modelShape.z;
@@ -522,16 +531,21 @@ class DataCube2 extends AbstractThreeBrainObject {
   }
 
   dispose(){
-    if( this._canvas.has_webgl2 && this._mesh ){
-      this._mesh.material.dispose();
-      this._mesh.geometry.dispose();
-      // this._data_texture.dispose();
-      this.colorTexture.dispose();
+    try {
+      this.object.removeFromParent();
+    } catch (e) {}
 
-      // this._map_data = undefined;
-      // this.voxelData = undefined;
-    }
+    try {
+      if( this.object ){
+        this.object.material.dispose();
+        this.object.geometry.dispose();
+        // this._data_texture.dispose();
+        this.colorTexture.dispose();
 
+        // this._map_data = undefined;
+        // this.voxelData = undefined;
+      }
+    } catch (e) {}
     try {
       this._canvas.$el.removeEventListener(
         "viewerApp.canvas.setVoxelRenderDistance",
@@ -594,6 +608,12 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}) {
     super.pre_render({ target : target });
+    if( this.forceVisible === true ) {
+      this.object.visible = true;
+    } else if( this.forceVisible === false ){
+      this.object.visible = false;
+      return;
+    }
     if( target === CONSTANTS.RENDER_CANVAS.side ) {
       // sliceInstance.sliceMaterial.depthWrite = false;
       // if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
@@ -646,10 +666,45 @@ class DataCube2 extends AbstractThreeBrainObject {
 
 
 function gen_datacube2(g, canvas){
+  if( g && (g.isNiftiImage || g.isMGHImage) ) {
+    if( g.isInvalid ) { return; }
+    const subjectCode = canvas.get_state("target_subject");
+    const fileName = g.fileName ?? "Custom";
+    const name = `Atlas - ${ fileName } (${subjectCode})`;
+
+    g = {
+      clickable: false,
+      color_format: "RGBAFormat",
+      custom_info: "",
+      disable_trans_mat: false,
+      group: { group_name: `Atlas - Custom (${subjectCode})`, group_layer: 0, group_position: [0, 0, 0] },
+      isDataCube2: true,
+      isVolumeCube2: true,
+      keyframes: [],
+      layer: CONSTANTS.LAYER_SYS_MAIN_CAMERA_8,
+      name: name,
+      position: [0, 0, 0],
+      render_order: 1,
+      subject_code: subjectCode,
+      threshold : 0.4,
+      time_stamp: [],
+      trans_mat : null,
+      trans_space_from: "model",
+      type: "datacube2",
+      use_cache: false,
+      value: null,
+      imageObject: g
+    }
+
+    const inst = new DataCube2(g, canvas);
+    // make sure subject array exists
+    canvas.init_subject( inst.subject_code );
+    inst.finish_init();
+    return( inst );
+  }
+
   return( new DataCube2(g, canvas) );
 }
-
-
 
 export { gen_datacube2 };
 

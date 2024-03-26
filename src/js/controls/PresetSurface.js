@@ -87,6 +87,39 @@ function registerPresetSurface( ViewerControlCenter ){
     });
 
 
+
+    const overlayChoices = ['disabled', 'sagittal', 'axial', 'coronal'];
+    const controllerClippingPlane = this.gui
+      .addController(
+        'Clipping Plane', 'disabled',
+        { args : overlayChoices, folderName : folderName }
+      )
+      .onChange((v) => {
+        this.canvas.set_state( "surfaceClippingPlane", v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_CLIPPING_PLANE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_CLIPPING_PLANE,
+        name    : 'Clipping Plane',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let idx = overlayChoices.indexOf( controllerClippingPlane.getValue() ) + 1;
+        if( idx >= overlayChoices.length ) {
+          idx = 0;
+        }
+        controllerClippingPlane.setValue( overlayChoices[ idx ] );
+      }
+    });
+
+
     const ctrlLHStyle = this.gui
       .addController('Left Hemisphere', 'normal', { args : corticalDisplay , folderName : folderName })
       .onChange((v) => {

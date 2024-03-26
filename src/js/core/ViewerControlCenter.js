@@ -38,6 +38,8 @@ import { registerPresetSurface } from '../controls/PresetSurface.js';
 // 15. Highlight selected electrodes and info
 import { registerPresetElectrodes } from '../controls/PresetElectrodes.js';
 
+import { registerDragNDropFile } from '../controls/PresetDragNDropFile.js';
+
 // 16. animation, play/pause, speed, clips...
 import { registerPresetElectrodeAnimation } from '../controls/PresetElectrodeAnimation.js';
 
@@ -561,6 +563,7 @@ ViewerControlCenter = registerPresetSliceOverlay( ViewerControlCenter );
 ViewerControlCenter = registerPresetSwitchSubject( ViewerControlCenter );
 ViewerControlCenter = registerPresetSurface( ViewerControlCenter );
 ViewerControlCenter = registerPresetElectrodes( ViewerControlCenter );
+ViewerControlCenter = registerDragNDropFile( ViewerControlCenter );
 ViewerControlCenter = registerPresetElectrodeAnimation( ViewerControlCenter );
 ViewerControlCenter = registerPresetRaymarchingVoxels( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );

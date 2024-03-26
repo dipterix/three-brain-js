@@ -5,7 +5,7 @@ class CanvasEvent {
     // el must be a DOM element, no check here
     if( el ) {
       if(! el instanceof window.HTMLElement ) {
-        throw Error("CanvasEvent(el): el must be an HTMLElement.")
+        throw new Error("CanvasEvent(el): el must be an HTMLElement.")
       }
       this._el = el;
     } else {

@@ -48,8 +48,45 @@ const compile_free_material = ( material, options ) => {
     return true;
   };
 
-  material.onBeforeCompile = ( shader , renderer ) => {
+  material.setClippingPlaneFromDataCube = ( datacube, normal ) => {
+    if( !datacube ) {
+      delete material.defines.USE_CLIPPING_SLICE;
+      material.needsUpdate = true;
+      return;
+    }
+    if( !datacube.isDataCube ) {
+      throw new TypeError("Must provide a DataCube (slice) instance.");
+      return;
+    }
+    if( !datacube._uniforms.map.value ) {
+      delete material.defines.USE_CLIPPING_SLICE;
+      material.needsUpdate = true;
+      return;
+    }
+    if( !normal.isVector3 ) {
+      throw new TypeError("Plane normal must be a Vector3.");
+      return;
+    }
 
+    const datacubeMatrixWorldInverse = options.clippingMapMatrixWorldInverse.value;
+    const cubeShape = datacube._uniforms.mapShape.value.clone().subScalar(1);
+
+    datacubeMatrixWorldInverse.identity()
+      .scale( cubeShape ).invert()    // IJK -> model
+      .multiply( datacube._uniforms.world2IJK.value );       // world -> IJK -> model
+
+    options.clippingMap.value = datacube._uniforms.map.value; // texture
+
+    const clippingNormal = options.clippingNormal.value.copy( normal ).normalize(); // plane normal
+    if( clippingNormal.lengthSq() < 0.5 ) {
+      clippingNormal.set(1, 0, 0);
+    }
+
+    material.defines.USE_CLIPPING_SLICE = "";
+    material.needsUpdate = true;
+  };
+
+  material.onBeforeCompile = ( shader , renderer ) => {
 
     // shader.uniforms.mapping_type = options.mapping_type;
     shader.uniforms.volume_map = options.volume_map;
@@ -69,20 +106,41 @@ const compile_free_material = ( material, options ) => {
     shader.uniforms.blend_factor = options.blend_factor;
     shader.uniforms.mask_threshold = options.mask_threshold;
 
+    // not using existing threejs implementation
+    shader.uniforms.clippingNormal = options.clippingNormal; // plane normal
+    shader.uniforms.clippingThrough = options.clippingThrough; // plane position
+    shader.uniforms.clippingMap = options.clippingMap;  // texture
+    shader.uniforms.clippingMapMatrixWorldInverse = options.clippingMapMatrixWorldInverse; // model (texture 0, 1) to world matrix
+    shader.uniforms.gamma = options.gamma;  // brightness correction
+
+
     material.userData.shader = shader;
 
     shader.vertexShader = remove_comments(`
-#ifdef USE_CUSTOM_MAPPING_0
-attribute vec3 track_color;
-varying vec3 vTrackColor;
+#if defined( USE_CUSTOM_MAPPING_0 )
+
+  attribute vec3 track_color;
+  varying vec3 vTrackColor;
+
+#elif defined( USE_CUSTOM_MAPPING_1 )
+
+  varying vec3 vPosition;
+
+#elif defined( USE_CUSTOM_MAPPING_2 )
+
+  varying vec3 vPosition;
+
 #endif
 
-#ifdef USE_CUSTOM_MAPPING_1
-varying vec3 vPosition;
-#endif
+#if defined( USE_CLIPPING_SLICE )
 
-#ifdef USE_CUSTOM_MAPPING_2
-varying vec3 vPosition;
+  uniform vec3 clippingThrough;
+  uniform vec3 clippingNormal;
+
+  varying float planeToCameraDistance;
+  varying float vertToCameraProjDist;
+  varying vec3 planePosition;
+
 #endif
 
 varying float reflectProd;
@@ -97,16 +155,40 @@ varying float reflectProd;
 vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
 reflectProd = abs( dot( normalize( normal ), cameraRay ) );
 
-#ifdef USE_CUSTOM_MAPPING_0
-vTrackColor = track_color;
+#if defined( USE_CUSTOM_MAPPING_0 )
+
+  vTrackColor = track_color;
+
+#elif defined( USE_CUSTOM_MAPPING_1 )
+
+  vPosition = position;
+
+#elif defined( USE_CUSTOM_MAPPING_2 )
+
+  vPosition = position;
+
 #endif
 
-#ifdef USE_CUSTOM_MAPPING_1
-vPosition = position;
-#endif
+#if defined( USE_CLIPPING_SLICE )
 
-#ifdef USE_CUSTOM_MAPPING_2
-vPosition = position;
+  vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+  mat4 projectionViewMatrix = projectionMatrix * viewMatrix;
+
+  // distance from camera to plane
+  planeToCameraDistance = dot( clippingThrough - cameraPosition.xyz , clippingNormal );
+  vertToCameraProjDist = dot( worldPosition.xyz - cameraPosition.xyz , clippingNormal );
+
+  planePosition = dot( clippingThrough - worldPosition.xyz, clippingNormal ) * clippingNormal + worldPosition.xyz;
+
+  if(
+    ( planeToCameraDistance > 0.0 && vertToCameraProjDist < planeToCameraDistance ) ||
+    ( planeToCameraDistance < 0.0 && vertToCameraProjDist > planeToCameraDistance )
+  ) {
+    gl_Position = projectionViewMatrix * vec4(planePosition, 1.0);
+  } else {
+    gl_Position = projectionViewMatrix * modelMatrix * vec4( position, 1.0 );
+  }
+
 #endif
 `)
     );
@@ -118,19 +200,21 @@ uniform mat4 volumeMatrixInverse;
 uniform float blend_factor;
 uniform float mask_threshold;
 
-#ifdef USE_CUSTOM_MAPPING_1
-uniform vec3 scale_inv;
-uniform sampler3D volume_map;
-#endif
+#if defined( USE_CUSTOM_MAPPING_1 )
 
-#ifdef USE_CUSTOM_MAPPING_2
-uniform float elec_size;
-uniform float elec_active_size;
-uniform sampler2D elec_cols;
-uniform sampler2D elec_locs;
-uniform vec3 shift;
-uniform float elec_radius;
-uniform float elec_decay;
+  uniform vec3 scale_inv;
+  uniform sampler3D volume_map;
+
+#elif defined( USE_CUSTOM_MAPPING_2 )
+
+  uniform float elec_size;
+  uniform float elec_active_size;
+  uniform sampler2D elec_cols;
+  uniform sampler2D elec_locs;
+  uniform vec3 shift;
+  uniform float elec_radius;
+  uniform float elec_decay;
+
 #endif
 
 
@@ -139,24 +223,41 @@ uniform float elec_decay;
 
 varying mediump float reflectProd;
 
-#ifdef USE_CUSTOM_MAPPING_0
-varying mediump vec3 vTrackColor;
+#if defined( USE_CUSTOM_MAPPING_0 )
+
+  varying mediump vec3 vTrackColor;
+
+#elif defined( USE_CUSTOM_MAPPING_1 )
+
+  varying mediump vec3 vPosition;
+
+#elif defined( USE_CUSTOM_MAPPING_2 )
+
+  varying mediump vec3 vPosition;
+
 #endif
 
-#ifdef USE_CUSTOM_MAPPING_1
-varying mediump vec3 vPosition;
+
+#if defined( USE_CLIPPING_SLICE )
+
+  uniform mat4 clippingMapMatrixWorldInverse;
+  uniform sampler3D clippingMap;
+  uniform float gamma;
+
+  varying float planeToCameraDistance;
+  varying float vertToCameraProjDist;
+  varying vec3 planePosition;
+
 #endif
 
-#ifdef USE_CUSTOM_MAPPING_2
-varying mediump vec3 vPosition;
-#endif
 `) + shader.fragmentShader;
 
 shader.fragmentShader = shader.fragmentShader.replace(
       "void main() {",
       remove_comments(
 `
-#ifdef USE_CUSTOM_MAPPING_1
+#if defined( USE_CUSTOM_MAPPING_1 )
+
 vec3 sample1(vec3 p) {
   vec4 re = vec4( 0.0 );
   vec3 threshold = vec3( 0.007843137, 0.007843137, 0.007843137 );
@@ -260,9 +361,9 @@ vec3 sample1(vec3 p) {
 
   return( vColor.rgb );
 }
-#endif
 
-#ifdef USE_CUSTOM_MAPPING_2
+#elif defined( USE_CUSTOM_MAPPING_2 )
+
 vec3 sample2( vec3 p ) {
   // p = (position + shift) * scale_inv
   vec3 eloc;
@@ -299,6 +400,7 @@ vec3 sample2( vec3 p ) {
   }
   return (re / count);
 }
+
 #endif
 
 `) + "\nvoid main() {\n");
@@ -310,30 +412,26 @@ vec3 sample2( vec3 p ) {
       remove_comments(
 `
 
-vec4 vColor2 = vec4( vColor.rgb , 1.0 );
+#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
-  vColor2.a = 0.0;
-}
+	vec4 vColor2 = vec4( vColor.rgb , 1.0 );
 
+  #if defined( USE_CUSTOM_MAPPING_0 )
 
-#ifdef USE_CUSTOM_MAPPING_0
+    vColor2.rgb = vTrackColor.rgb;
 
-  vColor2.rgb = vTrackColor.rgb;
+  #elif defined( USE_CUSTOM_MAPPING_1 )
 
-#endif
+    vColor2.rgb = sample1( vPosition + vec3(0.5,-0.5,0.5) ).rgb;
 
-#ifdef USE_CUSTOM_MAPPING_1
+  #elif defined( USE_CUSTOM_MAPPING_2 )
 
-  vColor2.rgb = sample1( vPosition + vec3(0.5,-0.5,0.5) ).rgb;
+    if( elec_active_size > 0.0 ){
+      vColor2.rgb = sample2( vPosition + shift ).rgb;
+    }
 
-#endif
+  #endif
 
-#ifdef USE_CUSTOM_MAPPING_2
-
-  if( elec_active_size > 0.0 ){
-    vColor2.rgb = sample2( vPosition + shift ).rgb;
-  }
 
 #endif
 
@@ -346,14 +444,68 @@ if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
       remove_comments(
 `
 #include <dithering_fragment>
-// vColor2.rgb = vColor.rgb / 2.0 + mix( vColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
-gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
-if( vColor2.a == 0.0 ) {
-  gl_FragColor.a = 0.0;
-  gl_FragDepth = gl_DepthRange.far;
-} else {
+
+#if defined( USE_CLIPPING_SLICE )
+
+  if(
+    (
+      ( planeToCameraDistance > 0.0 && vertToCameraProjDist < planeToCameraDistance ) ||
+      ( planeToCameraDistance < 0.0 && vertToCameraProjDist > planeToCameraDistance )
+    )
+  ) {
+
+
+    // raycast from camera to plane through worldPosition
+    vec3 planePositionTexture = (clippingMapMatrixWorldInverse * vec4( planePosition , 1.0 )).xyz;
+
+    if(
+      any(greaterThan( planePositionTexture, vec3(1.0) )) ||
+      any(lessThan( planePositionTexture, vec3(0.0) ))
+    ) {
+      discard;
+    } else {
+      float intensity = texture(clippingMap, planePositionTexture).r;
+
+      if( abs(gamma) > 0.03 ) {
+        intensity = exp( gamma * intensity * -10.0 );
+        gl_FragColor.rgb = vec3( ( intensity - 1.0 ) / ( exp( gamma * -10.0 ) - 1.0 ) );
+      } else {
+        gl_FragColor.rgb =  vec3( intensity );
+      }
+
+      if( gl_FragColor.r < 0.0078125 ) {
+        discard;
+      }
+
+    }
+
+  } else {
+    if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
+      discard;
+    }
+    if( vertToCameraProjDist * planeToCameraDistance <= 0.0 ) {
+      discard;
+    }
+
+    #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+
+      gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
+
+    #endif
+  }
+
+#elif defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+
   gl_FragDepth = gl_FragCoord.z;
-}
+
+  if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
+    discard;
+  }
+
+  gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
+
+#endif
+
 `
       )
     );

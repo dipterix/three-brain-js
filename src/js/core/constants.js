@@ -75,6 +75,7 @@ CONSTANTS.KEY_CYCLE_ELECTRODES_PREV   = "Comma";        // `,` - choosing previo
 CONSTANTS.KEY_CYCLE_ELEC_VISIBILITY   = "KeyV";         // `v` - toggle electrode visibility
 CONSTANTS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "KeyV";  // `⇧V` - toggle electrode label visibility
 CONSTANTS.KEY_CYCLE_ELEC_OUTLINE      = "KeyO";         // `o` - cycle through outline options
+CONSTANTS.KEY_CYCLE_ELEC_SHAPE        = "KeyO";         // `⇧O` - cycle through electrode shapes
 CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `p` - cycle through surfaces types
 CONSTANTS.KEY_CYCLE_MATERIAL          = "KeyM";         // `⇧M` - change surface material types (lighting model)
 CONSTANTS.KEY_CYCLE_VOXEL_TYPE        = "KeyA";         // `a` - change voxel (volume) to be displayed
@@ -85,6 +86,7 @@ CONSTANTS.KEY_OVERLAY_SAGITTAL        = "KeyS";         // `⇧S` - toggle sagit
 CONSTANTS.KEY_MOVE_CORONAL            = "KeyE";         // `q/⇧Q` - move coronal forward/backward
 CONSTANTS.KEY_MOVE_AXIAL              = "KeyQ";         // `w/⇧W` - move axial forward/backward
 CONSTANTS.KEY_MOVE_SAGITTAL           = "KeyW";         // `e/⇧E` - move sagittal forward/backward
+CONSTANTS.KEY_CYCLE_CLIPPING_PLANE    = "KeyC";         // `c` - Change clipping plane
 CONSTANTS.KEY_CYCLE_ANIMATION         = "KeyD";         // `d/⇧D` - cycle through animation clips or values
 CONSTANTS.KEY_TOGGLE_ANIMATION        = "KeyS";         // `s` - play/pause timer
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_R = "Digit1";     // `1/⇧1` - adjust electrode locations along Right/Left axis
@@ -111,6 +113,7 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_PREV   = ",";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_VISIBILITY   = "v";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "⇧V";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_OUTLINE      = "o";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_SHAPE        = "⇧O";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE           = "p";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR     = "k";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_MATERIAL          = "⇧M";
@@ -120,6 +123,7 @@ CONSTANTS.TOOLTIPS.KEY_OVERLAY_SAGITTAL        = "⇧S";
 CONSTANTS.TOOLTIPS.KEY_MOVE_CORONAL            = "e/E";
 CONSTANTS.TOOLTIPS.KEY_MOVE_AXIAL              = "q/Q";
 CONSTANTS.TOOLTIPS.KEY_MOVE_SAGITTAL           = "w/W";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_CLIPPING_PLANE    = "c";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION         = "d/D";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION        = "s";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_EDITOR       = "`";
@@ -171,6 +175,7 @@ CONSTANTS.FOLDERS = {
   'hemisphere-material'   : 'Surface Settings',
   'electrode-style'       : 'Electrode Settings',
   'electrode-mapping'     : 'Electrode Settings',
+  'dragdrop'              : 'Custom Geometry Settings',
   'animation'             : 'Data Visualization',
   'highlight-selection'   : 'Data Visualization',
   'localization'          : 'Electrode Localization',

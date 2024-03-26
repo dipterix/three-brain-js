@@ -6,6 +6,7 @@ import { ViewerCanvas } from './ViewerCanvas.js';
 import { MouseKeyboard } from './MouseKeyboard.js';
 import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
+import { CanvasFileLoader2 } from './DataLoaders.js';
 
 
 const _updateDataStartEvent = {
@@ -44,12 +45,15 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
-
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
 
     // data
     this.geoms = [];
     this.settings = {};
+
+    this.fileLoader = new CanvasFileLoader2({
+      logger: this.debugVerbose
+    });
 
     // ---- initialize : DOM elements ------------------------------------------
     /** The layout is:
@@ -126,7 +130,8 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.$wrapper,
       width ?? this.$wrapper.clientWidth,
       height ?? this.$wrapper.clientHeight,
-      250, false, cache, this.debug, true );
+      250, false, this.debug, true,
+      this.fileLoader );
 
     // Add listeners for mouse
     this.mouseKeyboard = new MouseKeyboard( this );
@@ -152,16 +157,23 @@ class ViewerApp extends ThrottledEventDispatcher {
 
   setProgressBar({
     // 0 - 100
-    progress, message, autoHide = true } = {}) {
+    progress, message, details, autoHide = true } = {}) {
 
     if( progress < 0 ) { return; }
     if( progress >= 100 ) { progress = 100; }
+
+    const oldProgress = this.__progress;
     this.__progress = progress;
+    if( message ) {
+      this.__message = message;
+    }
     this.$progress.style.width = `${ progress }%`;
 
-    if( message ) {
-      this.debugVerbose(`[ViewerApp.setProgressBar]: ${ message }`);
-      this.$informationText.innerHTML = `<small>${ message }</small>`;
+    if( oldProgress !== progress ) {
+      this.debugVerbose(`[ViewerApp.setProgressBar ${ Math.floor(this.__progress) }%]: ${ message } (${ details ?? "no details" })`);
+    }
+    if( this.__message ) {
+      this.$informationText.innerHTML = `<small>${ this.__message }<br /><br />${ details ?? "" }</small>`;
     } else {
       this.$informationText.innerHTML = "";
     }
@@ -207,20 +219,27 @@ class ViewerApp extends ThrottledEventDispatcher {
       message   : "Loading configuration files..."
     });
 
+    this.fileLoader.alterFlag();
+    const currentLoaderFlag = this.fileLoader.flag;
+
     const fileReader = new FileReader();
     this.__fileReader = fileReader;
 
     /**
      * The render process is async and may take time
      * If new data come in and this.render is called,
-     * then this.__fileReader will be altered, and this reader
+     * then this.fileLoader.flag will be altered, and this reader
      * is obsolete. In such case, abandon the rendering process
      * as there is a new process rendering up-to-date data
      */
-    const readerIsObsolete = () => {
-      const re = this.__fileReader !== fileReader;
+    const readerIsObsolete = ( step ) => {
+      const re = currentLoaderFlag !== this.fileLoader.flag;
       if( re ) {
-        this.debugVerbose( "[ViewerApp.bootstrap]: configuration is obsolete, abandon current process to yield." );
+        if( step ) {
+          this.debugVerbose( `[ViewerApp.bootstrap]: configuration is obsolete, abandon current process at step [${step}] to yield.` );
+        } else {
+          this.debugVerbose( "[ViewerApp.bootstrap]: configuration is obsolete, abandon current process to yield." );
+        }
       }
       return ( re );
     };
@@ -230,7 +249,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       viewerData.settings = bootstrapData.settings;
 
       this.setProgressBar({
-        progress  : 20,
+        progress  : 5,
         message   : "Updating viewer data..."
       });
 
@@ -255,10 +274,10 @@ class ViewerApp extends ThrottledEventDispatcher {
       fileReader.onload = (evt) => {
 
         fileReader.onload = undefined;
-        if( readerIsObsolete() ) { return; }
+        if( readerIsObsolete( "parsing consiguration" ) ) { return; }
 
         this.setProgressBar({
-          progress  : 10,
+          progress  : 5,
           message   : "Parsing configurations..."
         });
 
@@ -279,16 +298,26 @@ class ViewerApp extends ThrottledEventDispatcher {
     window.settings = this.settings;
     window.canvas = this.canvas;
     window.controllerGUI = this.controllerGUI;
+    this.debug = true;
+    this.canvas.debug = true;
     this.canvas.addNerdStats();
+    this.fileLoader.debug = true;
   }
 
   async updateData({ data, reset = false, isObsolete = false }) {
+    // Stop all workers
+    await this.fileLoader.stopWorkers();
 
     this.dispatch( _updateDataStartEvent );
 
     const _isObsolete = ( args ) => {
-      if( typeof isObsolete !== 'function' ) { return isObsolete; }
-      try { return isObsolete( args ); } catch (e) { return false; }
+      let re = false;
+      if( typeof isObsolete !== 'function' ) {
+        re = isObsolete;
+      } else {
+        try { re = isObsolete( args ); } catch (e) {}
+      }
+      return re;
     }
     if( _isObsolete( "Updating viewer data" ) ) { return; }
 
@@ -317,6 +346,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.canvas.debug = this.debug;
     this.canvas.mainCamera.needsReset = reset === true;
     // this.shiny.set_token( this.settings.token );
+    const workerURL = this.settings.worker_script;
+    this.fileLoader.workerScript = workerURL;
+    this.fileLoader.setCacheEnabled( data.settings.enable_cache || false );
 
     if( this.debug ) {
       this.enableDebugger();
@@ -349,26 +381,36 @@ class ViewerApp extends ThrottledEventDispatcher {
     if( _isObsolete("Loading group data") ) { return; }
 
     this.setProgressBar({
-      progress  : 20,
+      progress  : 10,
       message   : "Loading group data..."
     });
 
     const nGroups = this.groups.length;
-    let count = 0, progressIncrement = 0.5 / nGroups * 75;
+    let count = 1, progressIncrement = 0.5 / nGroups * 40;
 
-    const groupPromises = this.groups.map(async (g, ii) => {
+    const groupPromises = {};
+    this.groups.map((g, ii) => {
       this.setProgressBar({
         progress : this.__progress + progressIncrement,
         message : `Loading group: ${g.name}`
       });
 
-      await this.canvas.add_group(g, this.settings.cache_folder);
-      count++;
+      g._loaded = false;
 
-      this.setProgressBar({
-        progress : this.__progress + progressIncrement,
-        message : `Loaded ${count} (out of ${ nGroups }): ${g.name}`
+      groupPromises[ g.name ] = this.canvas.add_group(g, this.settings.cache_folder, ( msg ) => {
+        this.setProgressBar({
+          progress : this.__progress,
+          details : `Loading ${count} (out of ${ nGroups }): ${g.name}<br />${msg}`
+        });
+      }).then(() => {
+        g._loaded = true;
+        count++;
+        this.setProgressBar({
+          progress : this.__progress + progressIncrement,
+          message : `Loaded group: ${g.name}`
+        });
       });
+
     })
 
     // in the meanwhile, sort geoms
@@ -376,39 +418,76 @@ class ViewerApp extends ThrottledEventDispatcher {
       return( a.render_order - b.render_order );
     });
 
-    // wait for all groups to get loaded
-    await Promise.all( groupPromises );
-
-    this.setProgressBar({
-      progress : 95,
-      message : "Group data loaded. Generating geometries..."
-    });
+    for( let groupName in groupPromises ) {
+      if( groupName.startsWith("_") ) {
+        await groupPromises[groupName];
+      }
+    }
 
     if( _isObsolete("Adding geometries") ) { return; }
 
     const nGeoms = this.geoms.length;
-    progressIncrement = 5 / nGeoms;
-    const geomPromises = this.geoms.map( async(g) => {
+    const geomPromises = [];
+    this.geoms.forEach( (g) => {
+
       try {
 
-        await this.canvas.add_object( g );
+        if( g && g.group && typeof g.group.group_name === "string" ) {
+          const groupPromise = groupPromises[ g.group.group_name ];
+          if( groupPromise ) {
+            geomPromises.push(
+              groupPromise.then(
+                () => {
+                  if( _isObsolete("Loaded group data") ) { return; }
+                  this.setProgressBar({
+                    progress : this.__progress + 40 / nGeoms,
+                    message : `Adding object ${g.name}`
+                  });
+                  this.canvas.add_object( g, ( msg ) => {
+                    this.setProgressBar({
+                      progress : this.__progress,
+                      details : msg
+                    });
+                  } );
+                }
+              )
+            );
+            return;
+          }
+        }
+
+        if( _isObsolete("Loaded group data") ) { return; }
         this.setProgressBar({
-          progress : this.__progress + progressIncrement,
-          message : `Added object ${g.name}`
+          progress : this.__progress + 40 / nGeoms,
+          message : `Adding object ${g.name}`
         });
+        this.canvas.add_object( g, ( msg ) => {
+          this.setProgressBar({
+            progress : this.__progress,
+            details : msg
+          });
+        } );
 
       } catch (e) {
 
         console.warn(e);
 
       }
+
     });
 
-    await Promise.all( geomPromises );
-    if( _isObsolete() ) { return; }
+    this.setProgressBar({
+      progress : this.__progress,
+      message : "Waiting for the file loaders..."
+    });
+
+    if( geomPromises.length ) {
+      await Promise.all( geomPromises );
+    }
+    if( _isObsolete("finalization") ) { return; }
 
     this.setProgressBar({
-      progress : 100,
+      progress : 90,
       message : "Finalizing..."
     });
 
@@ -458,6 +537,11 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // Make sure it's hidden though progress will hide it
     this.$informationContainer.style.display = 'none';
+
+    this.setProgressBar({
+      progress : 100,
+      message : "Done."
+    });
 
     this.dispatch( _updateDataEndEvent );
 
@@ -559,6 +643,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     if( enabledPresets.includes( "acpcrealign" )) {
       this.controlCenter.addPreset_acpcrealign();
     }
+
+    // ---- Custom File upload -------------------------------------------------
+    this.controlCenter.addPreset_dragdrop();
 
     // ---- Data Visualization -------------------------------------------------
     this.controlCenter.addPreset_animation();

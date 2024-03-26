@@ -5,7 +5,7 @@ class ThrottledEventDispatcher {
     // el must be a DOM element, no check here
     if( $wrapper ) {
       if(! $wrapper instanceof window.HTMLElement ) {
-        throw Error("new ThrottledEventDispatcher($wrapper): `$wrapper` must be an HTMLElement.")
+        throw new Error("new ThrottledEventDispatcher($wrapper): `$wrapper` must be an HTMLElement.")
       }
       this.$wrapper = $wrapper;
     } else {
@@ -194,11 +194,11 @@ class ThrottledEventDispatcher {
     return [ ...this._listeners.keys() ];
   }
 
-  debugVerbose( message ) {
+  debugVerbose = ( message ) => {
     if( this.debug ) {
       console.debug( message )
     }
-  }
+  };
 }
 
 export { ThrottledEventDispatcher };

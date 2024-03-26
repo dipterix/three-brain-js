@@ -5,6 +5,9 @@ import { Vector3, Vector4, Matrix4, ShortType, IntType, FloatType, UnsignedByteT
 class MGHImage {
   constructor ( data ) {
     this.isMGHImage = true;
+    this.isInvalid = true;
+
+    if( !data ) { return; }
 
     // data is binary file buffer
     let raw = data;
@@ -174,6 +177,8 @@ class MGHImage {
 
     this.model2tkrRAS = this.ijk2tkrRAS.clone().multiply( shift );
 
+    this.isInvalid = false;
+
   }
 
   normalize () {
@@ -226,6 +231,34 @@ class MGHImage {
     this.ijkIndexOrder = NaN;
     this.model2RAS = NaN;
     this.model2tkrRAS = NaN;
+  }
+
+  copy( el ) {
+    this.isMGHImage = el.isMGHImage;
+    this.isInvalid = el.isInvalid;
+    if(this.isInvalid) { return this; }
+    this._MGHHeader = el._MGHHeader;
+    this.header = el.header;
+    this.ijk2tkrRAS = new Matrix4().copy( el.ijk2tkrRAS );
+    this.affine = new Matrix4().copy( el.affine );
+    this.shape = new Vector3().copy( el.shape );
+    this.ijkIndexOrder = new Vector3().copy( el.ijkIndexOrder );
+    this.model2RAS = new Matrix4().copy( el.model2RAS );
+    this.model2tkrRAS = new Matrix4().copy( el.model2tkrRAS );
+
+    this.image = el.image;
+    this.imageDataType = el.imageDataType;
+
+    if( el.dataIsInt16 ) {
+      this.dataIsInt16 = true;
+    } else if( el.dataIsInt32 ) {
+      this.dataIsInt32 = true;
+    } else if( el.dataIsFloat32 ) {
+      this.dataIsFloat32 = true;
+    } else if( el.dataIsUInt8 ) {
+      this.dataIsUInt8 = true;
+    }
+    return this;
   }
 
 }

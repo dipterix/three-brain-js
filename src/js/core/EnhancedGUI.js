@@ -316,6 +316,7 @@ class EnhancedGUI extends GUI {
     return ({
       onChange : () => {},
       setValue : () => {},
+      destroy  : () => {},
       isfake : true
     });
   }
@@ -352,24 +353,36 @@ class EnhancedGUI extends GUI {
 
   setFromDictionary( args ){
     const keys = [
-      "Background Color", "Camera Position", "Display Coordinates", "Show Panels",
-      "Slice Mode", "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
+      "Background Color", "Camera Position", "Display Coordinates",
+
+      "Show Panels", "Slice Brightness", "Slice Mode",
+      "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
-      "Render Distance", "Surface Type", "Surface Material",
+      "Render Distance",
+      "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
+      "Voxel Min", "Voxel Max",
+
+      "Surface Type", "Clipping Plane", "Surface Material",
       "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
       "Left Hemisphere", "Right Hemisphere", "Left Opacity", "Right Opacity",
-      "Map Electrodes", "Surface Mapping", "Volume Mapping", "Visibility",
-      "Display Data", "Display Range", "Threshold Data", "Threshold Range",
-      "Threshold Method", "Video Mode", "Speed", "Play/Pause",
-      "Show Legend", "Show Time", "Highlight Box", "Info Text",
-      "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity", "Voxel Min", "Voxel Max",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
-      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift",
-      "Outlines", "Left Mesh Clipping", "Right Mesh Clipping"
+      "Left Mesh Clipping", "Right Mesh Clipping",
+
+      "Map Electrodes", "Surface Mapping", "Volume Mapping",
+      "Visibility", "Electrode Shape", "Outlines",
+
+      "Display Data", "Display Range", "Threshold Data", "Threshold Range",
+      "Threshold Method", "Additional Data",
+      "Video Mode", "Speed", "Play/Pause",
+      "Show Legend", "Show Time", "Highlight Box", "Info Text",
+      "Time",
+
+      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {
       const value = data[k];
+      delete data[k];
       if( value !== undefined ){
         const controller = this.getController( k, "", false );
         if( !controller.isfake ) {
@@ -382,6 +395,18 @@ class EnhancedGUI extends GUI {
         }
       }
     });
+
+    for(let k in data) {
+      try {
+        const controller = this.getController( k, "", false );
+        if( !controller.isfake ) {
+          console.debug(`Initialize setting ${ k } -> ${ value }`);
+          controller.setValue( value );
+        }
+      } catch (e) {
+        console.warn(`Cannot initialize settings ${ k } (not supported)`);
+      }
+    }
 
   }
 

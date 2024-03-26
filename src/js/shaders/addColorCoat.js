@@ -22,8 +22,17 @@ varying vec2 vUv;
 
 vUv = uv;
 
-// uniform vec3 cameraPosition; - camera position in world space
-vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
+mat4 pmv = projectionMatrix * modelViewMatrix;
+
+// Orthopgraphic camera, camera position in theory is at infinite,
+
+// Ideally the following calculation should generate correct results
+// vOrigin will be interpolated in fragmentShader, hence project and unproject
+vec4 vOriginProjected = pmv * vec4( position, 1.0 );
+vOriginProjected.z = -vOriginProjected.w;
+vec3 vOrigin = (inverse(pmv) * vOriginProjected).xyz;
+
+vec3 cameraRay = normalize( position.xyz - vOrigin.xyz );
 
 reflectProd = abs( dot( normalize( normal ), cameraRay ) );
 `)
@@ -52,12 +61,11 @@ if( useDataTexture ) {
 }
 
 gl_FragDepth = gl_FragCoord.z;
-if( fixedClearCoat ) {
-  if( any( greaterThan( vUv , vec2(1.0) ) ) || any( lessThan( vUv , vec2(0.0) ) ) ) {
-    diffuseColor.rgb = vec3( 0.0 );
-    diffuseColor.a = 0.15;
-  }
-} else if ( clearcoat2 > 0.0 && reflectProd < clearcoat2 ) {
+if( any( greaterThan( vUv , vec2(1.0) ) ) || any( lessThan( vUv , vec2(0.0) ) ) ) {
+  diffuseColor.rgb = vec3( 0.0 );
+  diffuseColor.a = 0.15;
+}
+if ( !fixedClearCoat && clearcoat2 > 0.0 && reflectProd < clearcoat2 ) {
   diffuseColor.rgb = vec3( 0.0 );
   gl_FragDepth = gl_DepthRange.near;
 }

@@ -21,7 +21,7 @@ import { HauntedArcballControls } from './HauntedArcballControls.js';
 import { HauntedOrthographicCamera } from './HauntedOrthographicCamera.js';
 import { AnimationParameters } from './AnimationParameters.js';
 import { CanvasContext2D } from './context.js';
-import { CanvasFileLoader } from './loaders.js';
+import { CanvasFileLoader2 } from './DataLoaders.js';
 import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
@@ -79,10 +79,6 @@ const _subjectStateChangedEvent = {
 
 */
 
-// A storage to cache large objects such as mesh data
-const cached_storage = new StorageCache();
-
-
 class ViewerCanvas extends ThrottledEventDispatcher {
 
   // private
@@ -90,8 +86,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // public
 
   constructor(
-    el, width, height, side_width = 250, shiny_mode=false, cache = false,
-    debug = false, has_webgl2 = true
+    el, width, height, side_width = 250, shiny_mode=false,
+    debug = false, has_webgl2 = true, fileLoader = undefined
   ) {
 
     super( el );
@@ -102,16 +98,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.isViewerCanvas = true;
     this.debug = debug;
     this.debugVerbose('Debug Mode: ON.');
-    if(cache === true){
-      this.use_cache = true;
-      this.cache = cached_storage;
-    }else if ( cache === false ){
-      this.use_cache = false;
-      this.cache = cached_storage;
-    }else{
-      this.use_cache = true;
-      this.cache = cache;
-    }
 
     // DOM container information
     this.$el = el;
@@ -376,7 +362,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.setFontSize();
 
 		// File loader
-    this.fileLoader = new CanvasFileLoader( this, false );
+    this.fileLoader = fileLoader ?? new CanvasFileLoader2({
+      logger: this.debugVerbose
+    });
 
     this.activated = false;
     this.$el.addEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
@@ -476,8 +464,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   // Generic method to add objects
-  add_object(g){
+  add_object(g, onProgress) {
     this.debugVerbose('Generating geometry '+g.type);
+
+    if( onProgress ) {
+      onProgress(`Generating ${g.type}`);
+    }
+
     let gen_f = GeometryFactory[ g.type ],
         inst = gen_f(g, this);
 
@@ -488,6 +481,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // make sure subject array exists
     this.init_subject( inst.subject_code );
 
+    if( onProgress ) {
+      onProgress(`Finalizing ${g.type}`);
+    }
 
     inst.finish_init();
     return( inst );
@@ -510,13 +506,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // Add geom groups. This function can be async if the group contains
   // cached data. However, if there is no external data needed, then this
   // function is synchronous
-  add_group(g, cache_folder = 'threebrain_data'){
-    var gp = new Object3D();
-
+  _addBasicGroup( g ) {
+    let gp = new Object3D();
     gp.name = 'group_' + g.name;
     asArray(g.layer).forEach( (ii) => { gp.layers.enable( ii ) } );
     gp.position.fromArray( g.position );
-
     if(g.trans_mat !== null){
       let trans = new Matrix4();
       trans.set(...g.trans_mat);
@@ -535,7 +529,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if(!g.group_data || typeof g.group_data !== "object") {
       g.group_data = {};
     }
-
     gp.userData.group_data = g.group_data;
     this.group.set( g.name, gp );
     this.add_to_scene(gp);
@@ -616,26 +609,87 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
     }
 
+    return gp;
+  }
+
+  async add_group (g, cache_folder = 'threebrain_data', onProgress = null) {
+    const gp = this._addBasicGroup( g );
+
     // Async loading group cached data
 
     const cached_items = asArray( g.cached_items );
 
-    const loadGroups = async () => {
-      // Async loading cached items
-      for( let ii in cached_items ) {
-        const nm = cached_items[ ii ];
-        const cache_info = g.group_data[nm];
-        if(
-          !cache_info || typeof(cache_info) !== "object" ||
-          typeof cache_info.file_name !== "string"
-        ) { continue; }
-        const path = (cache_folder + g.cache_name + '/' + cache_info.file_name).replaceAll(/[\\\/]+/g, "/");
-        this.debugVerbose(`Loading group [${ g.name }] data: [${ path }]`);
-        const item = this.fileLoader.read( path );
-        if( item && !item.data ) {
-          await item.promise;
+    const promises = [];
+    cached_items.forEach((nm) => {
+      const cache_info = g.group_data[nm];
+      if(
+        !cache_info || typeof(cache_info) !== "object" ||
+        typeof cache_info.file_name !== "string"
+      ) { return; }
+      const path = (cache_folder + g.cache_name + '/' + cache_info.file_name).replaceAll(/[\\\/]+/g, "/");
+      this.debugVerbose(`Loading group [${ g.name }] data: [${ path }]`);
+
+      /*
+      return new Promise((resolve, reject) => {
+        this.fileLoader2.load(
+          path,
+          ( v ) => {
+            console.log([path, v]);
+            if( v && typeof(v) === "object" ) {
+              for(let key in v) {
+                if( key !== "_originalData_") {
+                  g.group_data[key] = v[key];
+                }
+              }
+              if ("_originalData_" in v) {
+                if( !(nm in g.group_data) ) {
+                  g.group_data[ nm ] = v[ "_originalData_" ];
+                } else {
+                  const item = g.group_data[ nm ];
+                  if( typeof item === "object" && item !== null && item.is_cache ) {
+                    g.group_data[ nm ] = v[ "_originalData_" ];
+                  }
+                }
+              }
+            }
+            resolve();
+          },
+          undefined,
+          ( e ) => {
+            console.warn(e);
+            resolve();
+          }
+        )
+      });
+
+      /*/
+      const onProgressInternal = ( progress ) => {
+        let msg = '';
+        let fname = path;
+        try {
+          fname = path.split("/");
+          fname = fname[ fname.length - 1 ];
+
+          if( progress.lengthComputable && progress.total > 0 ) {
+            const perc = Math.floor(progress.loaded / progress.total * 100);
+            msg = `${fname} (${ perc }&percnt;)`;
+          } else {
+            const size = Math.floor( progress.loaded / 1024 / 1024 );
+            msg = `${fname} (${ size }MB)`;
+          }
+        } catch (e) {
+          msg = `${fname} ${msg}`
         }
-        const v = this.fileLoader.parse( path );
+        try {
+          if( typeof onProgress === "function" ) {
+            onProgress(msg);
+          } else {
+            console.debug(msg);
+          }
+
+        } catch (e) {}
+      };
+      const onLoad = ( v ) => {
         if( v && typeof(v) === "object" ) {
           for(let key in v) {
             if( key !== "_originalData_") {
@@ -653,32 +707,65 @@ class ViewerCanvas extends ThrottledEventDispatcher {
             }
           }
         }
+      };
+      const onError = ( e ) => {
+        console.warn(e);
       }
+      const p = new Promise( (resolve, reject) => {
+        this.fileLoader.load(
+          path,
+          v => {
+            resolve( onLoad(v) );
+          },
+          onProgressInternal,
+          reject
+        );
+      });
+      promises.push( p );
 
-      // special case, if group name is "__global_data", then set group variable
-      if( g.name === '__global_data' && g.group_data ){
-        // this has to be done again to make sure cached data are set properly
-        for( let _n in g.group_data ){
-          this.shared_data.set(_n.substring(15), g.group_data[ _n ]);
-        }
+      /*
+      const p = this.fileLoader
+        .loadAsync( path, onProgressInternal )
+        .then( onLoad )
+        .catch( onError );
+      promises.push( p );
+      */
 
-        const media_content = this.shared_data.get(".media_content");
-        if( media_content ){
-          for(let video_name in media_content){
-            const content = media_content[video_name];
-            if( !content.is_url ){
-              content.url = (cache_folder + g.cache_name + '/' + content.url).replaceAll(/[\\\/]+/g, "/");
-              content.is_url = true;
-              const blob = await fetch(content.url).then(r => r.blob());
-              content.url = URL.createObjectURL(blob);
-            }
-          }
-        }
+    });
 
+    if(promises.length) {
+      try {
+        await Promise.all( promises );
+      } catch (e) {
+        console.warn(e.message);
       }
     }
 
-    return loadGroups();
+    // special case, if group name is "__global_data", then set group variable
+    if( g.name === '__global_data' && g.group_data ){
+      // this has to be done again to make sure cached data are set properly
+      for( let _n in g.group_data ){
+        this.shared_data.set(_n.substring(15), g.group_data[ _n ]);
+      }
+
+      /*
+      const media_content = this.shared_data.get(".media_content");
+      if( media_content ){
+        for(let video_name in media_content){
+          const content = media_content[video_name];
+          if( !content.is_url ){
+            content.url = (cache_folder + g.cache_name + '/' + content.url).replaceAll(/[\\\/]+/g, "/");
+            content.is_url = true;
+            const blob = await fetch(content.url).then(r => r.blob());
+            content.url = URL.createObjectURL(blob);
+          }
+        }
+      }
+      */
+
+    }
+
+    // return loadGroups();
   }
 
   // Debug stats (framerate)
@@ -795,7 +882,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.title = undefined;
 
     this.subject_codes.length = 0;
-    this.fileLoader.dispose();
     this.electrodes.clear();
     this.electrodePrototypes.clear();
     this.slices.clear();
@@ -1934,6 +2020,34 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.ct_scan.set( subject_code, {} );
       this.surfaces.set(subject_code, {} );
       this.atlases.set( subject_code, {} );
+
+      this._addBasicGroup({
+        cache_name: `${ subject_code }/mri`,
+        cached_items: [],
+        disable_trans_mat: false,
+        group_data: {},
+        layer: 0,
+        name: `Atlas - Custom (${ subject_code })`,
+        parent_group: null,
+        position: [0, 0, 0],
+        subject_code: subject_code,
+        trans_mat: null,
+      });
+
+      this._addBasicGroup({
+        cache_name: `${ subject_code }/surf`,
+        cached_items: [],
+        disable_trans_mat: false,
+        group_data: {},
+        layer: 0,
+        name: `Surface - Custom (${ subject_code })`,
+        parent_group: null,
+        position: [0, 0, 0],
+        subject_code: subject_code,
+        trans_mat: null,
+      });
+
+      // group_data: Object { template_subject: "cvs_avg35_inMNI152", surface_type: "pial", subject_code: "mni152_c", … }
     }
   }
 

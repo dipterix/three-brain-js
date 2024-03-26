@@ -4,6 +4,8 @@ import { min2, sub2 } from '../utils.js';
 class FreeSurferNodeValues {
 
   constructor( data ) {
+    this.isInvalid = true;
+    if( !data ) { return; }
     const raw = data;
 
     let reader = new DataView( data );
@@ -41,6 +43,8 @@ class FreeSurferNodeValues {
       this.setFrame( 0 );
     }
 
+    this.isInvalid = false;
+
   }
 
   setFrame( frame ) {
@@ -58,6 +62,21 @@ class FreeSurferNodeValues {
   dispose() {
     this.vertexData = NaN;
     this._frameData = NaN;
+  }
+
+  copy( el ) {
+    this.isInvalid = el.isInvalid;
+    this.nVertices = el.nVertices;
+    this.nFrames = el.nFrames;
+
+    this.vertexData = el.vertexData;
+    this._frameData = el._frameData;
+
+    this.max = el.max;
+    this.min = el.min;
+
+    this.isFreeSurferNodeValues = true;
+    return this;
   }
 
 }

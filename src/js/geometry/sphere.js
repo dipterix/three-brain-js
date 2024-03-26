@@ -1962,7 +1962,7 @@ function add_electrode2 (g, canvas){
   const subject_code = g.subject_code;
 
   if( !subject_code ){
-    throw Error("No subject code in `add_electrode2`");
+    throw new Error("No subject code in `add_electrode2`");
   }
 
   if( g.group && g.group.group_name ){

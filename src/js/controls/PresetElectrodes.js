@@ -132,8 +132,36 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
-    this.canvas.set_state("outline_state", "auto");
+    const elecShapeOptions = ['prototype+sphere', 'contact-only', 'prototype'];
+    const elecShapeCtrl =  this.gui
+      .addController( 'Electrode Shape', initialSelection,
+                      { args : elecShapeOptions, folderName : folderName } )
+      .onChange(( v ) => {
+        this.canvas.set_state( 'electrode_representation', v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+      .setValue( 'prototype+sphere' );
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_ELEC_SHAPE,
+      shiftKey  : true,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_SHAPE,
+        name    : 'Electrode Shape',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let selectedIndex = ( elecShapeOptions.indexOf( elecShapeCtrl.getValue() ) + 1) % elecShapeOptions.length;
+        if( selectedIndex >= 0 ){
+          elecShapeCtrl.setValue( elecShapeOptions[ selectedIndex ] );
+        }
+      }
+    });
 
+    this.canvas.set_state("outline_state", "auto");
     const outlineOptions = ["auto", "on", "off"];
     const controllerElectrodeOutline = this.gui.addController( 'Outlines', "auto",
                       { args : outlineOptions, folderName : folderName } )

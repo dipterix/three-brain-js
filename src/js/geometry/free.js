@@ -2,7 +2,7 @@ import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
          MeshPhysicalMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
-         Data3DTexture, Color } from 'three';
+         Data3DTexture, Color, Vector4 } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
@@ -24,6 +24,12 @@ const MATERIAL_PARAMS_MORE = {
   'clearcoat' : 0,
   'clearcoatRoughness' : 1,
   'specularIntensity' : 1
+}
+
+const PLANE_NORMAL_BASIS = {
+  'axial'     : new Vector3().set(0, 0, 1),
+  'sagittal'  : new Vector3().set(1, 0, 0),
+  'coronal'   : new Vector3().set(0, 1, 0),
 }
 
 // freemesh
@@ -233,15 +239,26 @@ class FreeMesh extends AbstractThreeBrainObject {
   }
 
   switch_material( material_type, update_canvas = false ){
+
     if( material_type in this._materials ){
+      const vertexColors = this.object.material.vertexColors;
+      const opacity = this.object.material.opacity;
       const _m = this._materials[ material_type ];
-      const _o = this._canvas.get_state("surface_opacity_left") || 0;
+      let _o;
+
+      /*
+      if( this.hemisphere.toLocaleLowerCase().startsWith("r") ) {
+        _o = this._canvas.get_state("surface_opacity_right") || 0;
+      } else {
+        _o = this._canvas.get_state("surface_opacity_left") || 0;
+      }
+      */
 
       this._material_type = material_type;
-      this._mesh.material = _m;
-      this._mesh.material.vertexColors = true;
-      this._mesh.material.opacity = _o;
-      this._mesh.material.needsUpdate = true;
+      this.object.material = _m;
+      this.object.material.vertexColors = vertexColors;
+      this._mesh.material.opacity = opacity;
+      this.object.material.needsUpdate = true;
       if( update_canvas ){
         this._canvas.needsUpdate = true;
       }
@@ -362,35 +379,42 @@ class FreeMesh extends AbstractThreeBrainObject {
       return;
     }
 
-    this.object.visible = false;
+    if( this.forceVisible ) {
+      this.object.visible = true;
+    } else if( this.forceVisible === false ){
+      this.object.visible = false;
+      return;
+    } else {
+      this.object.visible = false;
 
-    const surfaceType = this._canvas.get_state("surface_type", "none");
-    if( this.isSubcortical ) {
-      const subcorticalDisplay = this._canvas.get_state("subcortical_display");
-      if( subcorticalDisplay === "both" || subcorticalDisplay === this.hemisphere ) {
-        this.object.visible = true;
-        this.object.material.opacity = this._canvas.get_state(`subcortical_opacity_${ this.hemisphere }`, 1.0);
-      }
-    } else if( this.surface_type === surfaceType ) {
-      const materialType = this._canvas.get_state(`material_type_${ this.hemisphere }`, null);
-      if( materialType !== "hidden" ) {
-        this.object.visible = true;
-        this.set_display_mode( materialType );
-        // this.set_visibility( materialType !== 'hidden' );
-        this.object.material.wireframe = materialType === 'wireframe';
-        this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
-
-        let threshold = 1.0;
-        if( this.hemisphere === "left" ) {
-          threshold = this._canvas.get_state( "surface_mesh_clipping_left", 1.0 );
-        } else if ( this.hemisphere === "right" ) {
-          threshold = this._canvas.get_state( "surface_mesh_clipping_right", 1.0 );
+      const surfaceType = this._canvas.get_state("surface_type", "none");
+      if( this.isSubcortical ) {
+        const subcorticalDisplay = this._canvas.get_state("subcortical_display");
+        if( subcorticalDisplay === "both" || subcorticalDisplay === this.hemisphere ) {
+          this.object.visible = true;
+          this.object.material.opacity = this._canvas.get_state(`subcortical_opacity_${ this.hemisphere }`, 1.0);
         }
-        this._material_options.mask_threshold.value = threshold;
-      }
-    }
+      } else if( this.surface_type === surfaceType ) {
+        const materialType = this._canvas.get_state(`material_type_${ this.hemisphere }`, null);
+        if( materialType !== "hidden" ) {
+          this.object.visible = true;
+          this.set_display_mode( materialType );
+          // this.set_visibility( materialType !== 'hidden' );
+          this.object.material.wireframe = materialType === 'wireframe';
+          this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
 
-    if( !this.object.visible ) { return; }
+          let threshold = 1.0;
+          if( this.hemisphere === "left" ) {
+            threshold = this._canvas.get_state( "surface_mesh_clipping_left", 1.0 );
+          } else if ( this.hemisphere === "right" ) {
+            threshold = this._canvas.get_state( "surface_mesh_clipping_right", 1.0 );
+          }
+          this._material_options.mask_threshold.value = threshold;
+        }
+      }
+
+      if( !this.object.visible ) { return; }
+    }
 
     this._check_material( false );
 
@@ -398,11 +422,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     if( !this.isROI && this.object.material.transparent && this.object.material.opacity < 0.5 ) {
       this.object.material.depthWrite = false;
       this.object.renderOrder = -1000;
-      this.object.material.side = FrontSide;
+      // this.object.material.side = FrontSide;
     } else {
       this.object.renderOrder = this._geometry.boundingSphere.center.dot( mainCameraPositionNormalized ) + this._geometry.boundingSphere.radius / 2.0;
       this.object.material.depthWrite = true;
-      this.object.material.side = DoubleSide;
+      // this.object.material.side = DoubleSide;
     }
 
 
@@ -484,6 +508,29 @@ class FreeMesh extends AbstractThreeBrainObject {
       // need to get current active datacube2
       this._set_color_from_datacube2(inst, this._blend_sigma);
     }
+
+    // set bias
+    const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
+    this._material_options.gamma.value = bias;
+
+    const clippingPlaneName = this._canvas.get_state( "surfaceClippingPlane", "disabled" );
+    if(
+      this.surface_type === "pial" ||
+      this.surface_type === "white" ||
+      this.surface_type === "smoothwm"
+    ) {
+      const datacube = this._canvas.get_state("activeSliceInstance");
+
+      const normal = PLANE_NORMAL_BASIS[ clippingPlaneName ];
+      if( normal ) {
+        this.object.material.setClippingPlaneFromDataCube(
+          datacube, normal
+        );
+      } else {
+        this.object.material.setClippingPlaneFromDataCube( null );
+      }
+    }
+
   }
 
   constructor(g, canvas){
@@ -502,8 +549,9 @@ class FreeMesh extends AbstractThreeBrainObject {
     // actuall subject
     this.subject_code = this._params.subject_code;
     // display subject
-    this.display_code = canvas.get_data('subject_code', this._params.name,
-                                        this.group_name) || this.subject_code;
+    this.display_code = g.display_code ?? (
+      canvas.get_data('subject_code', this._params.name, this.group_name) || this.subject_code
+    );
     this.hemisphere = this._params.hemisphere || 'left';
     this.surface_type = this._params.surface_type;
     this.misc_name = '_misc_' + this.subject_code;
@@ -514,7 +562,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     // STEP 2: data settings
     this._geometry = new BufferGeometry();
 
-    const loaderData = this._canvas.get_data('free_vertices_'+this.name, this.name, this.group_name);
+    const loaderData = g.meshObject ?? this._canvas.get_data('free_vertices_'+this.name, this.name, this.group_name);
     if( loaderData.isFreeSurferMesh ) {
 
       this.__nvertices = loaderData.nVertices;
@@ -641,7 +689,14 @@ class FreeMesh extends AbstractThreeBrainObject {
       'elec_radius'       : { value: 10.0 },
       'elec_decay'        : { value : 0.15 },
       'blend_factor'      : { value : 0.4 },
-      'mask_threshold'    : { value : 0.0 }
+      'mask_threshold'    : { value : 0.0 },
+
+      'clippingNormal'    : { value : new Vector3() },
+      'clippingThrough'   : { value : this._canvas.crosshairGroup.position },
+      'clippingMap'       : { value : null },
+      'clippingMapMatrixWorldInverse' : { value : new Matrix4() },
+      'gamma'             : { value : 0.0 },
+
     };
 
     this._materials = {
@@ -654,8 +709,8 @@ class FreeMesh extends AbstractThreeBrainObject {
         this._material_options
       )
     };
-    this._materials.MeshPhysicalMaterial.color.copy( this._materialColor );
-    this._materials.MeshLambertMaterial.color.copy( this._materialColor );
+    this._materials.MeshPhysicalMaterial.color = this._materialColor;
+    this._materials.MeshLambertMaterial.color = this._materialColor;
 
     //gb.faces = faces;
 
@@ -709,6 +764,63 @@ class FreeMesh extends AbstractThreeBrainObject {
 
 
 function gen_free(g, canvas){
+  if( g.isFreeSurferMesh ) {
+    const subjectCode = canvas.get_state("target_subject");
+    const surfaceType = g.fileName ?? "Custom";
+    let hemisphere = g.hemisphere;
+
+    if( typeof hemisphere !== "string" || hemisphere.length === 0 || ["r", "l", "R", "L"].indexOf( hemisphere[0] ) === -1) {
+      const positionArray = g.position;
+      const nItems = positionArray.length / 3;
+      let rAxis = 0;
+      for(let i = 0; i < nItems; i++ ) {
+        rAxis += positionArray[ i * 3 ] / nItems;
+      }
+      if( rAxis > 0 ) {
+        hemisphere = "right";
+      } else {
+        hemisphere = "left";
+      }
+    }
+    const hemi = hemisphere.toLocaleLowerCase()[0];
+    if( hemi === "l" ) {
+      hemisphere = "Left";
+    } else {
+      hemisphere = "Right";
+    }
+
+    const param = {
+      "name"    : `FreeSurfer ${ hemisphere } Hemisphere - ${ surfaceType } (${ subjectCode })`,
+      "type"    : "free",
+      "render_order"  : 1,
+      "time_stamp"    : [],
+      "position": [0,0,0],
+      "trans_mat"     : null,
+      "disable_trans_mat" :false,
+      "value"   : null,
+      "clickable"     : false,
+      "layer"   : CONSTANTS.LAYER_SYS_MAIN_CAMERA_8,
+      "group"   : {
+        "group_name": `Surface - Custom (${ subjectCode })`,
+        "group_layer"   : 0,
+        "group_position": [0,0,0]
+      },
+      "use_cache"     : false,
+      "custom_info"   : "",
+      "subject_code"  : subjectCode,
+      "display_code"  : subjectCode,
+      "keyframes"     : [],
+      "hemisphere"    : hemisphere.toLocaleLowerCase(),
+      "surface_type"  : surfaceType,
+      "meshObject"    : g
+    };
+
+    const inst = new FreeMesh(param, canvas);
+    // make sure subject array exists
+    canvas.init_subject( inst.subject_code );
+    inst.finish_init();
+    return( inst );
+  }
   return( new FreeMesh(g, canvas) );
 }
 

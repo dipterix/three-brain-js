@@ -6,6 +6,8 @@ class FreeSurferMesh {
   index;
 
   constructor( data ) {
+    this.isInvalid = true;
+    if( !data ) { return; }
     const raw = data;
 
     let reader = new DataView( data );
@@ -39,12 +41,23 @@ class FreeSurferMesh {
     }
 
     this.isFreeSurferMesh = true;
+    this.isInvalid = false;
 
   }
 
   dispose() {
     this.position = NaN;
     this.index = NaN;
+  }
+
+  copy( el ) {
+    this.isInvalid = el.isInvalid;
+    this.nVertices = el.nVertices;
+    this.nFaces = el.nFaces;
+    this.position = el.position;
+    this.index = el.index;
+    this.isFreeSurferMesh = true;
+    return this;
   }
 
 }

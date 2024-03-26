@@ -6,6 +6,8 @@ import {
 
 class NiftiImage {
   constructor ( data ) {
+    this.isInvalid = true;
+    if(!data) { return; }
     // parse nifti
     if (nifti.isCompressed(data)) {
         data = nifti.decompress(data);
@@ -121,6 +123,7 @@ class NiftiImage {
       tOrigTranslate.z,
     );
     this.model2tkrRAS.multiply( shift );
+    this.isInvalid = false;
 
   }
 
@@ -170,6 +173,45 @@ class NiftiImage {
     this.shape = NaN
     this.ijkIndexOrder = NaN;
     this.model2RAS = NaN
+  }
+
+  copy( el ) {
+    this.isInvalid = el.isInvalid;
+    if(this.isInvalid) { return this; }
+
+    this.header = el.header;
+    this.image = el.image;
+    this.imageDataType = el.imageDataType;
+
+    if( el.dataIsInt8 ) {
+      this.dataIsInt8 = true;
+    } else if( el.dataIsInt16 ) {
+      this.dataIsInt16 = true;
+    } else if( el.dataIsInt32 ) {
+      this.dataIsInt32 = true;
+    } else if( el.dataIsFloat32 ) {
+      this.dataIsFloat32 = true;
+    } else if( el.dataIsFloat64 ) {
+      this.dataIsFloat64 = true;
+    } else if( el.dataIsUInt8 ) {
+      this.dataIsUInt8 = true;
+    } else if( el.dataIsUInt16 ) {
+      this.dataIsUInt16 = true;
+    } else if( el.dataIsUInt32 ) {
+      this.dataIsUInt32 = true;
+    }
+
+    this.isNiftiImage = true;
+
+    this.affine = new Matrix4().copy( el.affine );
+    this.shape = new Vector3().copy( el.shape );
+    this.ijkIndexOrder = new Vector3().copy( el.ijkIndexOrder );
+
+    this.model2RAS = new Matrix4().copy( el.model2RAS );
+
+    this.model2tkrRAS = new Matrix4().copy( el.model2tkrRAS );
+
+    return this;
   }
 
 }

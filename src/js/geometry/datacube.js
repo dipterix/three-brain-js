@@ -28,6 +28,61 @@ const tmpMat4 = new Matrix4();
 const tmpQuaternion = new Quaternion();
 
 class DataCube extends AbstractThreeBrainObject {
+
+  replaceSliceData( niftiData ) {
+    let dataTextureType = UnsignedByteType;
+
+    if( niftiData.imageDataType === undefined ) {
+      // float64 array, not supported
+      let imageMin = Infinity, imageMax = -Infinity;
+      niftiData.image.forEach(( v ) => {
+        if( imageMin > v ){ imageMin = v; }
+        if( imageMax < v ){ imageMax = v; }
+      })
+      this.cubeData = new Uint8Array( niftiData.image.length );
+      const slope = 255 / (imageMax - imageMin),
+            intercept = 255 - imageMax * slope,
+            threshold = g.threshold || 0;
+      niftiData.image.forEach(( v, ii ) => {
+        const d = v * slope + intercept;
+        if( d > threshold ) {
+          this.cubeData[ ii ] = d;
+        } else {
+          this.cubeData[ ii ] = 0;
+        }
+      })
+    } else {
+      niftiData.normalize();
+      this.cubeData = niftiData.image;
+      dataTextureType = niftiData.imageDataType;
+    }
+
+    this.cubeShape.copy( niftiData.shape );
+    const affine = niftiData.affine.clone();
+
+    const subjectData = this._canvas.shared_data.get( this.subject_code );
+    if( subjectData && typeof subjectData === "object" && subjectData.matrices ) {
+      affine.copy( subjectData.matrices.Torig )
+        .multiply( subjectData.matrices.Norig.clone().invert() )
+        .multiply( niftiData.affine );
+    }
+    this._uniforms.world2IJK.value.copy( affine ).invert();
+
+    this.dataTexture = new Data3DTexture(
+      this.cubeData, this.cubeShape.x, this.cubeShape.y, this.cubeShape.z
+    );
+    this.dataTexture.minFilter = NearestFilter;
+    this.dataTexture.magFilter = NearestFilter;
+    this.dataTexture.format = RedFormat;
+    this.dataTexture.type = dataTextureType;
+    this.dataTexture.unpackAlignment = 1;
+    this.dataTexture.needsUpdate = true;
+
+    // Generate shader
+    this._uniforms.map.value = this.dataTexture;
+    this._uniforms.mapShape.value.copy( this.cubeShape );
+  }
+
   constructor(g, canvas){
     super(g, canvas);
 

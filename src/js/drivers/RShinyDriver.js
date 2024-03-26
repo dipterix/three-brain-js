@@ -299,11 +299,11 @@ class RShinyDriver {
     this._shiny.setInputValue(inputId, value, { priority : priority });
   }
 
-  debugVerbose( message ) {
+  debugVerbose = ( message ) => {
     if( this.debug ) {
-      console.debug( message )
+      console.debug( message );
     }
-  }
+  };
 
   driveBackground( color ) {
     const c = asColor( color, new Color() );
@@ -405,6 +405,11 @@ class RShinyDriver {
     }
     const instance = this.canvas.threebrain_instances.get( instanceName );
     instance.useMatrix4( m44 );
+    if( instance.transforms.model2tkr.isMatrix4 ) {
+      instance.transforms.model2tkr.copy( m44 );
+      instance.resetBuiltinTransforms();
+    }
+
   }
 
   // localization

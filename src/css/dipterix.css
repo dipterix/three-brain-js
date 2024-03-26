@@ -130,6 +130,14 @@
 	--string-color: #ffbf00;
 }
 
+.threejs-brain-canvas .threejs-control .lil-gui .title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+}
+
+
 .threejs-brain-canvas.dark-viewer .threejs-control .lil-gui .title {
   background-color: var(--title-background-color);
 }
@@ -141,6 +149,14 @@
 
 .threejs-control .lil-gui.root > .title {
   text-align: center;
+}
+
+
+
+.threejs-control .lil-gui .controller > .name {
+  text-overflow: ellipsis;
+  overflow-x: hidden;
+  max-width: 75%;
 }
 
 
