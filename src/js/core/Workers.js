@@ -156,6 +156,7 @@ class WorkerPool {
         token: uuid
       });
       let timeOut = item.timeOut;
+      /*
       if( isFinite( timeOut ) ) {
         if( timeOut < 0 ) { timeOut = 0; }
         setTimeout(() => {
@@ -170,6 +171,7 @@ class WorkerPool {
           }
         }, timeOut);
       }
+      */
     };
     item.terminate = ( force = false ) => {
       if( !force && !item.idle ) {
