@@ -117,18 +117,23 @@ const compile_free_material = ( material, options ) => {
     material.userData.shader = shader;
 
     shader.vertexShader = remove_comments(`
-#if defined( USE_CUSTOM_MAPPING_0 )
 
-  attribute vec3 track_color;
-  varying vec3 vTrackColor;
+#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-#elif defined( USE_CUSTOM_MAPPING_1 )
+  #if defined( USE_CUSTOM_MAPPING_0 )
 
-  varying vec3 vPosition;
+    attribute vec3 track_color;
+    varying vec3 vTrackColor;
 
-#elif defined( USE_CUSTOM_MAPPING_2 )
+  #elif defined( USE_CUSTOM_MAPPING_1 )
 
-  varying vec3 vPosition;
+    varying vec3 vPosition;
+
+  #elif defined( USE_CUSTOM_MAPPING_2 )
+
+    varying vec3 vPosition;
+
+  #endif
 
 #endif
 
@@ -155,17 +160,21 @@ varying float reflectProd;
 vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
 reflectProd = abs( dot( normalize( normal ), cameraRay ) );
 
-#if defined( USE_CUSTOM_MAPPING_0 )
+#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  vTrackColor = track_color;
+  #if defined( USE_CUSTOM_MAPPING_0 )
 
-#elif defined( USE_CUSTOM_MAPPING_1 )
+    vTrackColor = track_color;
 
-  vPosition = position;
+  #elif defined( USE_CUSTOM_MAPPING_1 )
 
-#elif defined( USE_CUSTOM_MAPPING_2 )
+    vPosition = position;
 
-  vPosition = position;
+  #elif defined( USE_CUSTOM_MAPPING_2 )
+
+    vPosition = position;
+
+  #endif
 
 #endif
 
@@ -196,47 +205,40 @@ reflectProd = abs( dot( normalize( normal ), cameraRay ) );
     shader.fragmentShader = remove_comments(`
 precision mediump sampler2D;
 precision mediump sampler3D;
-uniform mat4 volumeMatrixInverse;
-uniform float blend_factor;
+
 uniform float mask_threshold;
 
-#if defined( USE_CUSTOM_MAPPING_1 )
+#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  uniform vec3 scale_inv;
-  uniform sampler3D volume_map;
+  uniform float blend_factor;
 
-#elif defined( USE_CUSTOM_MAPPING_2 )
+  #if defined( USE_CUSTOM_MAPPING_0 )
 
-  uniform float elec_size;
-  uniform float elec_active_size;
-  uniform sampler2D elec_cols;
-  uniform sampler2D elec_locs;
-  uniform vec3 shift;
-  uniform float elec_radius;
-  uniform float elec_decay;
+    varying vec3 vTrackColor;
 
-#endif
+  #elif defined( USE_CUSTOM_MAPPING_1 )
 
+    uniform mat4 volumeMatrixInverse;
+    uniform vec3 scale_inv;
+    uniform sampler3D volume_map;
 
-// uniform float sampler_bias;
-// uniform float sampler_step;
+    varying vec3 vPosition;
 
-varying mediump float reflectProd;
+  #elif defined( USE_CUSTOM_MAPPING_2 )
 
-#if defined( USE_CUSTOM_MAPPING_0 )
+    uniform float elec_size;
+    uniform float elec_active_size;
+    uniform sampler2D elec_cols;
+    uniform sampler2D elec_locs;
+    uniform vec3 shift;
+    uniform float elec_radius;
+    uniform float elec_decay;
 
-  varying mediump vec3 vTrackColor;
+    varying vec3 vPosition;
 
-#elif defined( USE_CUSTOM_MAPPING_1 )
-
-  varying mediump vec3 vPosition;
-
-#elif defined( USE_CUSTOM_MAPPING_2 )
-
-  varying mediump vec3 vPosition;
+  #endif
 
 #endif
-
 
 #if defined( USE_CLIPPING_SLICE )
 
@@ -250,156 +252,163 @@ varying mediump float reflectProd;
 
 #endif
 
+varying float reflectProd;
+
 `) + shader.fragmentShader;
 
 shader.fragmentShader = shader.fragmentShader.replace(
       "void main() {",
       remove_comments(
 `
-#if defined( USE_CUSTOM_MAPPING_1 )
 
-vec3 sample1(vec3 p) {
-  vec4 re = vec4( 0.0 );
-  vec3 threshold = vec3( 0.007843137, 0.007843137, 0.007843137 );
+#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  vec3 ijk = (volumeMatrixInverse * vec4(p, 1.0)).xyz + vec3(0.5);
+  #if defined( USE_CUSTOM_MAPPING_1 )
 
-  re = texture( volume_map, ijk.xyz * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
+  vec3 sample1(vec3 p) {
+    vec4 re = vec4( 0.0 );
+    vec3 threshold = vec3( 0.007843137, 0.007843137, 0.007843137 );
 
-  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
+    vec3 ijk = (volumeMatrixInverse * vec4(p, 1.0)).xyz + vec3(0.5);
 
-  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, -0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, 0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( -0.5, -0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.5, -0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.5, 0.0 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, -0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, -0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, -0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, -0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.5 )) * scale_inv );
-  if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
-    return re.rgb;
-  }
-
-  return( vColor.rgb );
-}
-
-#elif defined( USE_CUSTOM_MAPPING_2 )
-
-vec3 sample2( vec3 p ) {
-  // p = (position + shift) * scale_inv
-  vec3 eloc;
-  vec3 ecol;
-  vec2 p2 = vec2( 0.0, 0.5 );
-  vec3 re = vec3( 0.0 );
-  float count = 0.0;
-  float len = 0.0;
-  float start = 0.5;
-  float end = elec_active_size;
-  float step = 1.0;
-  float decay = 0.0;
-
-  if( elec_size > 0.0 ) {
-    start /= elec_size;
-    end /= elec_size;
-    step /= elec_size;
-  }
-  if( elec_radius > 0.0 ) {
-    decay = elec_decay / elec_radius;
-  }
-
-  for( p2.x = start; p2.x < end; p2.x += step ){
-    eloc = texture( elec_locs, p2 ).rgb;
-    len = max( length( ( eloc * 255.0 - 128.0 ) - p ) , 3.0 );
-    if( len < elec_radius ){
-      ecol = texture( elec_cols, p2 ).rgb;
-      re += 1.0 + ( ecol - 1.0 ) * exp( - len * decay );
-      count += 1.0;
+    re = texture( volume_map, ijk.xyz * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
     }
+
+    re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, -0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.0, 0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( -0.5, -0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.5, -0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.5, 0.0 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, -0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.5, 0.0, 0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, -0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( -0.5, 0.0, 0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, -0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, 0.5, 0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, -0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    re = texture( volume_map, (ijk.xyz + vec3( 0.0, -0.5, 0.5 )) * scale_inv );
+    if( re.a > 0.0 && ( re.r > threshold.r || re.g > threshold.g || re.b > threshold.b ) ){
+      return re.rgb;
+    }
+
+    return( vColor.rgb );
   }
-  if( count == 0.0 ){
-    return ( vColor.rgb );
+
+  #elif defined( USE_CUSTOM_MAPPING_2 )
+
+  vec3 sample2( vec3 p ) {
+    // p = (position + shift) * scale_inv
+    vec3 eloc;
+    vec3 ecol;
+    vec2 p2 = vec2( 0.0, 0.5 );
+    vec3 re = vec3( 0.0 );
+    float count = 0.0;
+    float len = 0.0;
+    float start = 0.5;
+    float end = elec_active_size;
+    float step = 1.0;
+    float decay = 0.0;
+
+    if( elec_size > 0.0 ) {
+      start /= elec_size;
+      end /= elec_size;
+      step /= elec_size;
+    }
+    if( elec_radius > 0.0 ) {
+      decay = elec_decay / elec_radius;
+    }
+
+    for( p2.x = start; p2.x < end; p2.x += step ){
+      eloc = texture( elec_locs, p2 ).rgb;
+      len = max( length( ( eloc * 255.0 - 128.0 ) - p ) , 3.0 );
+      if( len < elec_radius ){
+        ecol = texture( elec_cols, p2 ).rgb;
+        re += 1.0 + ( ecol - 1.0 ) * exp( - len * decay );
+        count += 1.0;
+      }
+    }
+    if( count == 0.0 ){
+      return ( vColor.rgb );
+    }
+    return (re / count);
   }
-  return (re / count);
-}
+
+  #endif
 
 #endif
 
@@ -472,6 +481,7 @@ vec3 sample2( vec3 p ) {
       } else {
         gl_FragColor.rgb =  vec3( intensity );
       }
+      gl_FragColor.a = 1.0;
 
       if( gl_FragColor.r < 0.0078125 ) {
         discard;

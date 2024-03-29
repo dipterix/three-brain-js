@@ -36,6 +36,7 @@ import { asColor, invertColor, colorLuma } from '../utility/color.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
 import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
+import { getThreeBrainInstance } from '../geometry/abstract.js';
 import { gen_sphere } from '../geometry/sphere.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { gen_datacube } from '../geometry/datacube.js';
@@ -93,6 +94,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     super( el );
 
     this._tmpVec3 = new Vector3();
+    this._tmpVec3A = new Vector3();
     this._tmpMat4 = new Matrix4();
 
     this.isViewerCanvas = true;
@@ -419,8 +421,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         // normal left-click
         const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
 
-        // right-click
-        if( event.detail.button == 2 ) {
+        // right-click, or the slice mode is snap-to-electrode
+        if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
           // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
 
           crosshairPosition.centerCrosshair = true;
@@ -711,25 +713,26 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const onError = ( e ) => {
         console.warn(e);
       }
-      const p = new Promise( (resolve, reject) => {
-        this.fileLoader.load(
-          path,
-          v => {
-            resolve( onLoad(v) );
-          },
-          onProgressInternal,
-          reject
-        );
-      });
-      promises.push( p );
 
-      /*
-      const p = this.fileLoader
-        .loadAsync( path, onProgressInternal )
-        .then( onLoad )
-        .catch( onError );
-      promises.push( p );
-      */
+      if( this.fileLoader.cacheEnabled ) {
+        const p = new Promise( (resolve, reject) => {
+          this.fileLoader.load(
+            path,
+            v => {
+              resolve( onLoad(v) );
+            },
+            onProgressInternal,
+            reject
+          );
+        });
+        promises.push( p );
+      } else {
+        const p = this.fileLoader
+          .loadAsync( path, onProgressInternal )
+          .then( onLoad )
+          .catch( onError );
+        promises.push( p );
+      }
 
     });
 
@@ -1275,6 +1278,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         // instState.focusedContact will always >= 0
         if( intersectPoint ) {
           intersectPoint.copy( instState.contactPositions.tkrRAS );
+
+          if( this.get_state("sideCameraTrackMainCamera") === "snap-to-electrode" ) {
+            intersectPoint.centerCrosshair = true;
+          }
         }
         if( inst.contactCenter.length === 1 ) {
           // one contact case
@@ -1558,16 +1565,76 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
 
     // Set crosshair quaternion and positions
-    if( this.get_state("sideCameraTrackMainCamera", false) ) {
-      this.crosshairGroup.position.set( 0, 0, 0 );
-      this.crosshairGroup.quaternion.copy( this.mainCamera.quaternion );
+    const slicerState = this.get_state("sideCameraTrackMainCamera", "canonical");
+    switch( slicerState )
+    {
+      case "snap-to-electrode":
+        const electrode = getThreeBrainInstance( this.object_chosen );
+        if( electrode && electrode.isElectrodePrototype ) {
+          if( electrode.direction.lengthSq() > 0 ) {
 
-      this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-      this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-    } else {
-      this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
-      this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-      this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+            const cameraNormalized = this._tmpVec3A.copy( this.mainCamera.position ).normalize();
+            const dir = this._tmpVec3.copy( cameraNormalized )
+              .cross( electrode.direction )
+              .cross( electrode.direction )
+              .normalize();
+
+            if( dir.lengthSq() > 0.999 ) {
+              const crossProd = dir.dot(cameraNormalized);
+
+              const elm4 = this._tmpMat4.identity().elements;
+              if( Math.abs( crossProd ) > 0.71 ) { // 45 degrees
+                // dir is the normal of the plane
+                const z = dir.multiplyScalar( Math.sign( crossProd ) );
+                const y = electrode.direction;
+                const isYUp = y.dot( this.mainCamera.up ) >= 0;
+                const x = this._tmpVec3A.copy( y ).cross( z );
+                if( isYUp ) {
+                  elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
+                  elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
+                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+                } else {
+                  elm4[0] = -x.x; elm4[1] = -x.y; elm4[2] = -x.z;
+                  elm4[4] = -y.x; elm4[5] = -y.y; elm4[6] = -y.z;
+                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+                }
+              } else {
+                // dir is the up of the plane
+                const z = electrode.direction;
+                if( z.dot( cameraNormalized ) < 0 ) {
+                  z.multiplyScalar( -1 );
+                }
+                const x = dir.copy( this.mainCamera.up )
+                  .cross( z )
+                  .normalize();
+                const y = this._tmpVec3A.copy( z ).cross( x );
+                elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
+                elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
+                elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+              }
+
+              this._tmpMat4.decompose(
+                this.crosshairGroup.position,
+                this.crosshairGroup.quaternion,
+                this.crosshairGroup.scale
+              );
+
+              break;
+            }
+
+          }
+        }
+      case "line-of-sight":
+        this.crosshairGroup.position.set( 0, 0, 0 );
+        this.crosshairGroup.quaternion.copy( this.mainCamera.quaternion );
+        this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        break;
+
+      default:
+        this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
+        this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     }
     this.crosshairGroup.position.copy( this._crosshairPosition );
 

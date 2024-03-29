@@ -200,13 +200,13 @@ class SideCanvas {
 
 
   get headerText () {
-    if( this.mainCanvas.get_state("sideCameraTrackMainCamera", false) ) {
+    if( this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical") !== "canonical" ) {
       switch ( this.type ) {
         case 'coronal':
           return "Normal (Horizontal)";
           break;
         case 'axial':
-          return "First-Person";
+          return "Line of Sight";
           break;
         case 'sagittal':
           return "Normal (Vertical)";

@@ -22,6 +22,12 @@ module.exports = {
       },
     ],
   },
+  resolve: {
+    fallback: {
+      // "stream": require.resolve("stream-browserify")
+      "stream": false
+    }
+  },
   output: {
     path: path.resolve(__dirname, 'dist'),
     chunkFormat: "module",

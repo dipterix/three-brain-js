@@ -247,7 +247,7 @@ class DataCube extends AbstractThreeBrainObject {
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
-    if( this._canvas.get_state("sideCameraTrackMainCamera", false) ) {
+    if( this._canvas.get_state("sideCameraTrackMainCamera", "canonical") !== "canonical" ) {
       if( this.dataTexture.magFilter !== LinearFilter ) {
         this.dataTexture.magFilter = LinearFilter;
         this.dataTexture.needsUpdate = true;
@@ -331,7 +331,7 @@ class DataCube extends AbstractThreeBrainObject {
 
     // data cube must have groups. The group is directly added to scene,
     // regardlessly
-    let gp = this.get_group_object();
+    let gp = this.getGroupObject3D();
     this.groupObject = gp;
 
     // Move gp to global scene as its center is always 0,0,0

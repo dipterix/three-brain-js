@@ -1545,7 +1545,7 @@ class Sphere extends AbstractThreeBrainObject {
     );
 
     // get electrode group and get the group
-    const group = this.get_group_object();
+    const group = this.getGroupObject3D();
     if( group ) {
       const worldToModel = group.matrixWorld.clone().invert();
       newPosition.applyMatrix4( worldToModel );

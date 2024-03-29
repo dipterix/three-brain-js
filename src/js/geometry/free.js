@@ -31,7 +31,6 @@ const PLANE_NORMAL_BASIS = {
   'sagittal'  : new Vector3().set(1, 0, 0),
   'coronal'   : new Vector3().set(0, 1, 0),
 }
-
 // freemesh
 // CONSTANTS.DEFAULT_COLOR = 0;
 // CONSTANTS.VERTEX_COLOR = 1;
@@ -204,6 +203,14 @@ class FreeMesh extends AbstractThreeBrainObject {
       return;
     }
 
+    if(
+      typeof this.surface_type !== "string" ||
+      ['pial', 'white', 'smoothwm'].indexOf( this.surface_type ) === -1
+    ) {
+      this.setMappingType( CONSTANTS.DEFAULT_COLOR );
+      return;
+    }
+
     this._volume_texture.image = m.colorTexture.image;
     this._volume_texture.format = m.colorTexture.format;
 
@@ -359,9 +366,13 @@ class FreeMesh extends AbstractThreeBrainObject {
   }
 
   dispose(){
-    this._mesh.material.dispose();
-    this._mesh.geometry.dispose();
     try {
+      this.object.removeFromParent();
+    } catch (e) {}
+
+    try {
+      this.object.material.dispose();
+      this.object.geometry.dispose();
       this._volume_texture.dispose();
     } catch (e) {}
   }
@@ -520,12 +531,23 @@ class FreeMesh extends AbstractThreeBrainObject {
       this.surface_type === "smoothwm"
     ) {
       const datacube = this._canvas.get_state("activeSliceInstance");
-
       const normal = PLANE_NORMAL_BASIS[ clippingPlaneName ];
-      if( normal ) {
-        this.object.material.setClippingPlaneFromDataCube(
-          datacube, normal
-        );
+      if( datacube && normal ) {
+        const slicerState = this._canvas.get_state("sideCameraTrackMainCamera", "canonical");
+        switch (slicerState) {
+          case 'snap-to-electrode':
+            this._tmpVec3.copy( normal )
+              .applyQuaternion( this._canvas.crosshairGroup.quaternion );
+            break;
+
+          case 'line-of-sight':
+            this._tmpVec3.copy( this._canvas.mainCamera.position );
+            break;
+
+          default:
+            this._tmpVec3.copy( normal );
+        }
+        this.object.material.setClippingPlaneFromDataCube( datacube, this._tmpVec3 );
       } else {
         this.object.material.setClippingPlaneFromDataCube( null );
       }
@@ -542,6 +564,9 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     this.type = 'FreeMesh';
     this.isFreeMesh = true;
+
+    this._tmpVec3 = new Vector3();
+    this._tmpVec3A = new Vector3();
 
     // STEP 1: initial settings
     // when subject brain is messing, subject_code will be template subject such as N27,
@@ -563,7 +588,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._geometry = new BufferGeometry();
 
     const loaderData = g.meshObject ?? this._canvas.get_data('free_vertices_'+this.name, this.name, this.group_name);
-    if( loaderData.isFreeSurferMesh ) {
+    if( loaderData.isSurfaceMesh ) {
 
       this.__nvertices = loaderData.nVertices;
       this._geometry.setIndex( new BufferAttribute(loaderData.index, 1, false) );
@@ -615,7 +640,7 @@ class FreeMesh extends AbstractThreeBrainObject {
         'free_vertices_' + sphereName,
         sphereName, sphereGroupName);
       if ( sphereData ) {
-        if( sphereData.isFreeSurferMesh ) {
+        if( sphereData.isSurfaceMesh ) {
           if( this.__nvertices === sphereData.nVertices ) {
             this._geometry.setAttribute( 'spherePosition', new BufferAttribute(sphereData.position, 3) );
           }
@@ -764,7 +789,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
 
 function gen_free(g, canvas){
-  if( g.isFreeSurferMesh ) {
+  if( g.isSurfaceMesh ) {
     const subjectCode = canvas.get_state("target_subject");
     const surfaceType = g.fileName ?? "Custom";
     let hemisphere = g.hemisphere;
@@ -789,13 +814,55 @@ function gen_free(g, canvas){
       hemisphere = "Right";
     }
 
+    // get surface space
+    // https://bids-specification.readthedocs.io/en/stable/appendices/coordinate-systems.html#image-based-coordinate-systems
+    const transform = new Matrix4();
+    try {
+      let space = "";
+      const spaceParsed = surfaceType.toLocaleLowerCase().match(/[_]{0,1}space-([a-z0-9]+)([_\.]|$)/g);
+      if( Array.isArray( spaceParsed ) && spaceParsed.length > 0 ) {
+        space = spaceParsed[0].split("-")[1];
+      }
+      /*
+      // MNI305
+      fsaverage*, fsaverageSym*, MNI305
+      // MNI152
+      fsLR, MNI152*
+      // T1
+      scanner
+
+       canvas.getTransforms("mni152_b")
+          MNI305_tkrRAS: Object { elements: (16) […] }
+          Norig: Object { elements: (16) […] }
+          Torig: Object { elements: (16) […] }
+          tkrRAS_MNI305: Object { elements: (16) […] }
+          tkrRAS_Scanner: Object { elements: (16) […] }
+          xfm: Object { elements: (16) […] }
+      */
+      const subjectMatrices = canvas.getTransforms( subjectCode );
+      if( space.startsWith("scan") ) {
+        // Surface is in ScannerRAS, needs to be in tkrRAS
+        transform.copy( subjectMatrices.tkrRAS_Scanner ).invert();
+      } else if ( space.startsWith("fsaverage") || space.startsWith("mni305") ) {
+        // Surface is in MNI305, needs to be in tkrRAS
+        transform.copy( subjectMatrices.MNI305_tkrRAS );
+      } else if ( space.startsWith("fsl") || space.startsWith("mni152") ) {
+        // Surface is in MNI152, needs to be in tkrRAS (152 -> 305 -> tkr)
+        transform.copy( CONSTANTS.MNI305_to_MNI152 ).invert()
+          .premultiply( subjectMatrices.MNI305_tkrRAS );
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+
+
     const param = {
       "name"    : `FreeSurfer ${ hemisphere } Hemisphere - ${ surfaceType } (${ subjectCode })`,
       "type"    : "free",
       "render_order"  : 1,
       "time_stamp"    : [],
       "position": [0,0,0],
-      "trans_mat"     : null,
+      "trans_mat"     : transform,
       "disable_trans_mat" :false,
       "value"   : null,
       "clickable"     : false,

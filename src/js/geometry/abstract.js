@@ -112,7 +112,7 @@ class AbstractThreeBrainObject {
 
   }
 
-  get_group_object(){
+  getGroupObject3D(){
     return(this._canvas.group.get( this.group_name ));
   }
 
@@ -140,7 +140,7 @@ class AbstractThreeBrainObject {
       }
 
       if( this.group_name ){
-        this.get_group_object().add( this.root_object || this.object );
+        this.getGroupObject3D().add( this.root_object || this.object );
       } else {
         this._canvas.add_to_scene( this.root_object || this.object );
       }
@@ -152,12 +152,15 @@ class AbstractThreeBrainObject {
       }
 
       if( this.object.isMesh || this.object.isSprite ){
-        if( Array.isArray(this._params.trans_mat) &&
-            this._params.trans_mat.length === 16 ) {
+        if( this._params.trans_mat ) {
           let trans = new Matrix4();
-          trans.set(...this._params.trans_mat);
-          this.object.userData.trans_mat = trans;
 
+          if( Array.isArray(this._params.trans_mat) && this._params.trans_mat.length === 16 ) {
+            trans.set(...this._params.trans_mat);
+          } else if ( typeof this._params.trans_mat === "object" && this._params.trans_mat.isMatrix4 ) {
+            trans.copy( this._params.trans_mat );
+          }
+          this.object.userData.trans_mat = trans;
           if( !this._params.disable_trans_mat ) {
             this.object.applyMatrix4(trans);
           }
@@ -205,7 +208,8 @@ function createBuiltinGeometry (type, {
 	  texture_size = [1, 1], transform = undefined,
 	  radius = 1, fix_outline = true,
 	  contact_center = null, channel_numbers = null, contact_sizes = null,
-	  model_control_points = null, world_control_points = null
+	  model_control_points = null, world_control_points = null,
+	  model_direction = null
 	} = {} ) {
 
   let geom, useTexture = true;
@@ -216,6 +220,7 @@ function createBuiltinGeometry (type, {
     world : []
   };
   const contactCenter = [new Vector3()];
+  const modelDirection = new Vector3();
 
   switch (type) {
     case 'CustomGeometry':
@@ -285,6 +290,14 @@ function createBuiltinGeometry (type, {
         }
       }
 
+      const md = model_direction;
+      if( Array.isArray(cc) && md.length === 3 ) {
+        modelDirection.fromArray(md).normalize();
+        if( isNaN( modelDirection.lengthSq() ) ) {
+          modelDirection.set(0, 0, 0);
+        }
+      }
+
       break;
 
     default: {
@@ -321,6 +334,7 @@ function createBuiltinGeometry (type, {
   geom.parameters.transform = m44;
   geom.parameters.controlPoints = controlPoints;
   geom.parameters.contactCenter = contactCenter;
+  geom.parameters.modelDirection = modelDirection;
 
 
   return {
@@ -384,4 +398,18 @@ class ElasticGeometry extends BufferGeometry {
 
 }
 
-export { AbstractThreeBrainObject, ElasticGeometry };
+function getThreeBrainInstance( object ) {
+  if( !object ) { return; }
+  if( typeof object !== "object" ) { return; }
+  if( object.isThreeBrainObject ){ return object; }
+  if( object.isObject3D ) {
+    const inst = object.userData.instance;
+    if( inst && inst.isThreeBrainObject ) {
+      return inst;
+    }
+    return;
+  }
+  return;
+}
+
+export { AbstractThreeBrainObject, ElasticGeometry, getThreeBrainInstance };

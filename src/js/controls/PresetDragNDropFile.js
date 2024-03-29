@@ -12,141 +12,258 @@ import { gen_free } from '../geometry/free.js';
 // 14. electrode mapping
 // 16. Highlight selected electrodes and info
 
-function processFormatedFile({ file, canvas, gui, cls, folderName, generator, useColor }) {
-  const fileName = file.name;
-  return file.arrayBuffer()
-    .then((buffer) => {
-      const image = new cls( buffer );
-      image.fileName = fileName;
-      const inst = generator( image, canvas );
-      inst.forceVisible = true;
-      if( inst.isFreeMesh ) {
-        inst.object.material.vertexColors = false;
-        inst.object.layers.enable( CONSTANTS.LAYER_USER_ALL_SIDE_CAMERAS_4 );
-      }
+const colorMap = {};
 
-      const innerFolderName = `${folderName} > ${ fileName }`;
+function normalizeImageName( fileName ) {
+  return fileName.toLowerCase().replaceAll(/\.(nii|nii\.gz|mgz|mgh)$/g, "");
+}
 
-      // Add visibility controler
-      const visibilityName = `Visibility - ${ fileName }`;
-      let ctrl = gui.getController( visibilityName, innerFolderName, true );
-      if( ctrl.isfake ) {
-        ctrl = gui.addController(
-          visibilityName, "visible",
-          {
-            args: ["visible", "hidden"],
-            folderName : innerFolderName
-          }
-        );
-      }
-      ctrl.onChange((v) => {
-        if(!v) { return; }
-        switch ( v ) {
-          case 'visible':
-            inst.forceVisible = true;
-            break;
-          case 'hidden':
-            inst.forceVisible = false;
-            break;
-          default:
-            // code
-        };
-        canvas.needsUpdate = true;
-      })
-      .setValue("visible");
+async function updateColorMap( gui ) {
+  for( let fname in colorMap ) {
+    const color = colorMap[ fname ];
+    gui.getController( `Color - ${ fname }` ).setValue( color );
+  }
+}
 
-      // color controller
-      const colorName = `Color - ${ fileName }`;
-      ctrl = gui.getController( colorName, innerFolderName, true );
-      ctrl.destroy();
-      if( useColor ) {
-        let defaultColor = `#${ Math.floor(Math.random()*16777215).toString(16) }`;
-        // guess color from file name
-        if( fileName.length > 7 && fileName[fileName.length - 7] === "." ) {
-          let tmp = "";
-          for(let j = fileName.length - 6; j < fileName.length; j++ ) {
-            const c = fileName[ j ].toLowerCase();
-            if( "0123456789abcdef".includes(c) ) {
-              tmp += c;
-            } else {
-              break;
-            }
-          }
-          if(tmp.length === 6) {
-            defaultColor = `#${tmp}`;
-          }
-        }
-        gui.addController(
-          colorName, "#FFFFFF",
-          {
-            isColor: true,
-            folderName : innerFolderName
-          }
-        )
-        .onChange((v) => {
-          if(!v) { return; }
-          if( inst.isFreeMesh ) {
-            inst._materialColor.set( v );
-            inst.object.material.vertexColors = false;
-          }
-          canvas.needsUpdate = true;
-        })
-        .setValue( defaultColor );
-      }
+function addVisibilityController({ inst, canvas, gui, fileName, parentFolder }) {
+  const visibilityName = `Visibility - ${ fileName }`;
+  const innerFolderName = `${parentFolder} > ${fileName}`
+  const opts = ["visible", "hidden"];
 
-      // transparency
-      const opacityName = `Opacity - ${ fileName }`;
-      ctrl = gui.getController( opacityName, innerFolderName, true );
-      if( ctrl.isfake ) {
-        ctrl = gui.addController(
-          opacityName, 1,
-          {
-            folderName : innerFolderName
-          }
-        ).min(0).max(1);
+  // get default values
+  let defaultValue;
+  let defaultCtrl = gui.getController( "Visibility (all surfaces)", parentFolder, true );
+  if( defaultCtrl.isfake ) {
+    defaultCtrl = gui.getController( "Visibility (all volumes)", parentFolder, true );
+  }
+  if( !defaultCtrl.isfake ) {
+    defaultValue = defaultCtrl.getValue();
+  }
+  if( typeof defaultValue !== "string" || opts.indexOf( defaultValue ) === -1 ) {
+    defaultValue = "visible";
+  }
+
+  let ctrl = gui.getController( visibilityName, innerFolderName, true );
+  if( ctrl.isfake ) {
+    ctrl = gui.addController(
+      visibilityName, "visible",
+      {
+        args: opts,
+        folderName : innerFolderName
       }
-      ctrl.onChange(v => {
-        if(!v) { v = 0; }
-        if( v < 0.99 ) {
-          inst.object.material.transparent = true;
-          inst.object.material.opacity = v;
+    );
+  }
+  ctrl.onChange((v) => {
+    if(!v) { return; }
+    switch ( v ) {
+      case 'visible':
+        inst.forceVisible = true;
+        break;
+      case 'hidden':
+        inst.forceVisible = false;
+        break;
+      default:
+        // code
+    };
+    canvas.needsUpdate = true;
+  }).setValue(defaultValue);
+}
+
+function addOpacityController({ inst, canvas, gui, fileName, parentFolder }) {
+  const innerFolderName = `${parentFolder} > ${fileName}`
+  const opacityName = `Opacity - ${ fileName }`;
+
+  // get default values
+  let defaultValue;
+  let defaultCtrl = gui.getController( "Opacity (all surfaces)", parentFolder, true );
+  if( defaultCtrl.isfake ) {
+    defaultCtrl = gui.getController( "Opacity (all volumes)", parentFolder, true );
+  }
+  if( !defaultCtrl.isfake ) {
+    defaultValue = defaultCtrl.getValue();
+  }
+  if( typeof defaultValue !== "number" ) {
+    defaultValue = 1.0;
+  }
+
+  let ctrl = gui.getController( opacityName, innerFolderName, true );
+  if( ctrl.isfake ) {
+    ctrl = gui.addController(
+      opacityName, 1,
+      {
+        folderName : innerFolderName
+      }
+    ).min(0).max(1).step(0.1);
+  }
+  ctrl.onChange(v => {
+    if(!v) { v = 0; }
+    if( v < 0.99 ) {
+      inst.object.material.transparent = true;
+      inst.object.material.opacity = v;
+    } else {
+      inst.object.material.transparent = false;
+    }
+    canvas.needsUpdate = true;
+  }).setValue( defaultValue );
+
+}
+
+function addColorController({ inst, canvas, gui, fileName, parentFolder }) {
+  const innerFolderName = `${parentFolder} > ${fileName}`
+  const colorName = `Color - ${ fileName }`;
+
+  let ctrl = gui.getController( colorName, innerFolderName, true );
+  let defaultColor = colorMap[ fileName ];
+
+  if( ctrl.isfake ) {
+    if( fileName.length > 7 && fileName[fileName.length - 7] === "." ) {
+      let tmp = "";
+      for(let j = fileName.length - 6; j < fileName.length; j++ ) {
+        const c = fileName[ j ].toLowerCase();
+        if( "0123456789abcdef".includes(c) ) {
+          tmp += c;
         } else {
-          inst.object.material.transparent = false;
+          break;
         }
-        canvas.needsUpdate = true;
-      }).setValue(1);
+      }
+      if(tmp.length === 6) {
+        defaultColor = `#${tmp}`;
+      }
+    }
+    ctrl = gui.addController(
+      colorName, "#FFFFFF",
+      {
+        isColor: true,
+        folderName : innerFolderName
+      }
+    );
+  } else {
+    defaultColor = ctrl.getValue();
+  }
 
-      gui.openFolder(innerFolderName);
-      canvas.needsUpdate = true;
+  if( typeof defaultColor !== "string" || defaultColor.length !== 7 ) {
+    defaultColor = Math.floor(Math.random()*16777215).toString(16);
+    defaultColor = `#${ "0".repeat( 6 - defaultColor.length ) }${ defaultColor }`;
+  }
+  ctrl.onChange((v) => {
+    if(!v) { return; }
+    if( inst.isFreeMesh ) {
+      inst._materialColor.set( v );
+      inst.object.material.vertexColors = false;
+    }
+    canvas.needsUpdate = true;
+  })
+  .setValue( defaultColor );
 
-      return {
-        fileName: file.name,
-        instance: inst
-      };
-    });
+}
+
+function postProcessVolume( data, fileName, gui, folderName, canvas ) {
+  data.fileName = fileName;
+  const inst = gen_datacube2( data, canvas );
+  inst.forceVisible = true;
+  const innerFolderName = `${folderName} > Additional Volumes > ${ fileName }`;
+
+  // Add visibility controler
+  addVisibilityController({
+    inst              : inst,
+    canvas            : canvas,
+    gui               : gui,
+    fileName          : fileName,
+    innerFolderName   : innerFolderName
+  });
+
+  // transparency
+  addOpacityController({
+    inst        : inst,
+    canvas      : canvas,
+    gui         : gui,
+    fileName    : fileName,
+    parentFolder: parentFolder
+  });
+
+  canvas.needsUpdate = true;
+}
+
+function postProcessSurface( data, fileName, gui, folderName, canvas ) {
+  data.fileName = fileName;
+  const inst = gen_free( data, canvas );
+  inst.forceVisible = true;
+  const parentFolder = `${folderName} > Additional Surfaces`;
+  const innerFolderName = `${folderName} > Additional Surfaces > ${ fileName }`;
+
+  // Add visibility controler
+  addVisibilityController({
+    inst        : inst,
+    canvas      : canvas,
+    gui         : gui,
+    fileName    : fileName,
+    parentFolder: parentFolder
+  });
+
+  // transparency
+  addOpacityController({
+    inst        : inst,
+    canvas      : canvas,
+    gui         : gui,
+    fileName    : fileName,
+    parentFolder: parentFolder
+  });
+
+  // Color
+  addColorController({
+    inst        : inst,
+    canvas      : canvas,
+    gui         : gui,
+    fileName    : fileName,
+    parentFolder: parentFolder
+  });
+
+  canvas.needsUpdate = true;
+}
+
+function postProcessText( data, fileName, gui, folderName, canvas ) {
+  window.dnd = data;
+  if( Array.isArray( data ) ) {
+    // treated as csv/tsv table
+    if( !data.length ) { return; }
+
+    const sample = data[ 0 ];
+    if( !sample || typeof sample !== "object" ) { return; }
+
+    if( sample["Filename"] && sample["Color"] ) {
+      // this is a colormap
+      data.forEach(el => {
+        const fname = normalizeImageName( sample["Filename"] );
+        const color = sample["Color"];
+        if ( typeof color === "string" && color.length === 7 ) {
+          colorMap[ fname ] = color;
+        }
+      });
+      updateColorMap( gui );
+      return;
+    }
+  }
 }
 
 function registerDragNDropFile( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_dragdrop = function(){
     const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const fileNames = new Map();
 
     const dndctrl = this.gui.addController( "Dragdrop Uploader", () => {}, { folderName : folderName } );
     const $dragdropWrapper = document.createElement("div");
     $dragdropWrapper.style.width = "100%";
-    $dragdropWrapper.style.height = "60px";
+    $dragdropWrapper.style.minHeight = "60px";
     $dragdropWrapper.style.border = "1px dashed var(--text-color)";
+    $dragdropWrapper.style.textAlign = "center";
     $dragdropWrapper.style.borderRadius = "1em";
-    $dragdropWrapper.style.display = "flex";
-    $dragdropWrapper.style.display = "flex";
-    $dragdropWrapper.style.alignItems = "center";
-    $dragdropWrapper.style.justifyContent = "center";
+    $dragdropWrapper.style.padding = "0.5em";
     $dragdropWrapper.style.transition = "color 0.3s ease-in-out, background-color 0.3s ease-in-out";
-
 
     const $dragdropText = document.createElement("span");
     $dragdropText.style.lineHeight = "var(--widget-height)";
-    $dragdropText.innerHTML = "Drag files here<br /><small>nii, mgz, surface</small>";
-    $dragdropText.style.pointerEvent = "none";
+    $dragdropText.innerHTML = "Drag files here<br /><small>Volumes (nii[.gz], mgz), surfaces (fs, gii), colormaps (csv, tsv)</small>";
+    $dragdropText.style.pointerEvents = "none";
     $dragdropWrapper.appendChild($dragdropText);
 
     const highLightStyle = () => {
@@ -160,45 +277,44 @@ function registerDragNDropFile( ViewerControlCenter ){
       $dragdropWrapper.style.color = "var(--text-color)";
     }
 
-    const fileNames = [];
-
-    const processFile = (file) => {
+    const processFile = async (file) => {
+      window.ffff = file;
       const fileName = file.name;
       const gui = this.gui;
       const canvas = this.canvas;
       const filenameLowerCase = fileName.toLowerCase();
-      if( filenameLowerCase.endsWith("nii") || filenameLowerCase.endsWith("nii.gz") ) {
-        return processFormatedFile({
-          file      : file,
-          canvas    : canvas,
-          gui       : gui,
-          cls       : NiftiImage,
-          folderName: `${folderName} > Additional Volumes`,
-          generator : gen_datacube2,
-          useColor  : false
-        });
+      let dataType = "surface";
+      if(
+        filenameLowerCase.endsWith("nii") ||
+        filenameLowerCase.endsWith("nii.gz") ||
+        filenameLowerCase.endsWith("mgz") ||
+        filenameLowerCase.endsWith("mgh")
+      ) {
+        dataType = "volume";
+      } else if (
+        filenameLowerCase.endsWith("json") ||
+        filenameLowerCase.endsWith("csv") ||
+        filenameLowerCase.endsWith("tsv")
+      ) {
+        dataType = "text";
       }
-      if( filenameLowerCase.endsWith("mgz") || filenameLowerCase.endsWith("mgh") ) {
-        return processFormatedFile({
-          file      : file,
-          canvas    : canvas,
-          gui       : gui,
-          cls       : MGHImage,
-          folderName: `${folderName} > Additional Volumes`,
-          generator : gen_datacube2,
-          useColor  : false
-        });
-      }
-      return processFormatedFile({
-        file      : file,
-        canvas    : canvas,
-        gui       : gui,
-        cls       : FreeSurferMesh,
-        folderName: `${folderName} > Additional Surfaces`,
-        generator : gen_free,
-        useColor  : true
-      });
 
+      let postProcess;
+      switch ( dataType ) {
+        case 'volume':
+          postProcess = postProcessVolume;
+          break;
+        case 'surface':
+          postProcess = postProcessSurface;
+          break;
+        default:
+          postProcess = postProcessText;
+      }
+
+      const data = await this.canvas.fileLoader.loadFromResponse ( file );
+      const normalizedFilename = normalizeImageName( fileName );
+      fileNames.set( normalizedFilename , 1 );
+      postProcess( data, normalizedFilename, gui, folderName, canvas );
     };
 
     $dragdropWrapper.ondrop = (ev) => {
@@ -210,23 +326,13 @@ function registerDragNDropFile( ViewerControlCenter ){
           // If dropped items aren't files, reject them
           if (item.kind === "file") {
             const file = item.getAsFile();
-            processFile( file )
-            .then( re => {
-              if( re && typeof re === "object" && typeof re.fileName === "string" ) {
-                fileNames.push( re.fileName );
-              }
-            });
+            processFile( file );
           }
         });
       } else {
         // Use DataTransfer interface to access the file(s)
         [...ev.dataTransfer.files].forEach((file, i) => {
-          processFile( file )
-          .then( re => {
-            if( re && typeof re === "object" && typeof re.fileName === "string" ) {
-              fileNames.push( re.fileName );
-            }
-          });
+          processFile( file );
         });
       }
 
@@ -255,7 +361,7 @@ function registerDragNDropFile( ViewerControlCenter ){
       .onChange(v => {
         if( typeof v !== "string" || !(v === "visible" || v === "hidden") ) { return; }
 
-        fileNames.forEach( fname => {
+        fileNames.forEach( (_, fname) => {
           const ctrler = this.gui.getController( `Visibility - ${ fname }`, surfaceFolderName, true );
           ctrler.setValue( v );
         });
@@ -268,7 +374,7 @@ function registerDragNDropFile( ViewerControlCenter ){
       .min(0).max(1)
       .onChange(v => {
         if( !v ) { v = 0; }
-        fileNames.forEach( fname => {
+        fileNames.forEach( (_, fname) => {
           const ctrler = this.gui.getController( `Opacity - ${ fname }`, surfaceFolderName, true );
           ctrler.setValue( v );
         });

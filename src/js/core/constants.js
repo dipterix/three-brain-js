@@ -61,6 +61,7 @@ CONSTANTS.ZINDEX_BASE = 1;
 
 // You can only change which key is pressed. However, you cannot change shift & ctrl or alt
 // To do that you must go into the code
+CONSTANTS.KEY_DEBUG                   = "KeyD";         // `cmd+opt+shift+D` - Debug
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
 CONSTANTS.KEY_CYCLE_SLICE_MODE        = "KeyM";         // `m` - cycle through slice mode
 CONSTANTS.KEY_CYCLE_LEFT              = "BracketLeft";  // `[` - cycle through left hemisphere material

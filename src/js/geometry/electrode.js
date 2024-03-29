@@ -425,7 +425,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     };
 
-
+    this.direction = new Vector3().set(0, 0, 1);
     this.transforms = {
       model2tkr       : null,  // will set soon
       spherePosition  : new Vector3(),
@@ -467,7 +467,7 @@ class Electrode extends AbstractThreeBrainObject {
     // geomParams can be in g.geomParams or in group_data
     this.protoName = undefined;
     if( typeof(protoName) === "string" ) {
-      const groupObject = this.get_group_object();
+      const groupObject = this.getGroupObject3D();
       if( groupObject && groupObject.userData.group_data ) {
         if( !geomParams || typeof geomParams !== "object" ) {
           geomParams = groupObject.userData.group_data[`prototype_${protoName}`];
@@ -710,6 +710,25 @@ class Electrode extends AbstractThreeBrainObject {
 
     const m44 = registerRigidPoints( controlPoints.model , controlPoints.world );
     this.useMatrix4(m44);
+  }
+
+  updateElectrodeDirection() {
+    if(!this.isElectrodePrototype) {
+      return this.direction.set(0, 0, 1);
+    }
+    this.object.updateMatrixWorld();
+    const matrixWorld = this.object.matrixWorld;
+    const modelDirection = this._geometry.parameters.modelDirection;
+    if( modelDirection.lengthSq() < 0.1 ) {
+      this.direction.set(0, 0, 1);
+    } else {
+      this.direction.copy( modelDirection );
+    }
+
+    this.direction.applyMatrix4( matrixWorld )
+      .sub( this._tmpVec3.setFromMatrixPosition( matrixWorld ) )
+      .normalize();
+    return this.direction;
   }
 
   // After everything else is set (including controllers)
@@ -1529,6 +1548,7 @@ class Electrode extends AbstractThreeBrainObject {
 
   useMatrix4( m44 ) {
     super.useMatrix4( m44, { applyScale : this.isElectrodePrototype } );
+    this.updateElectrodeDirection();
     this.matrixNeedsUpdate = true;
   }
 
@@ -1657,7 +1677,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     // TODO: do we need to consider group matrix???
     // get electrode group and get the group
-    // const group = this.get_group_object();
+    // const group = this.getGroupObject3D();
     // if( group ) {
     //   const worldToModel = group.matrixWorld.clone().invert();
     //   newPosition.applyMatrix4( worldToModel );

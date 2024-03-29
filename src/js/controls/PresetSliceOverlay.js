@@ -35,26 +35,29 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
 
-    const sliceModeOptions = ["canonical", "line-of-sight"];
-    let defaultVal = "canonical";
-    if( this.canvas.get_state("sideCameraTrackMainCamera", false) ) {
-      defaultVal = "line-of-sight";
-    }
+    const sliceModeOptions = ["canonical", "line-of-sight", "snap-to-electrode"];
 
     const controllerSliceMode = this.gui
       .addController( 'Slice Mode', "canonical", {
         args: sliceModeOptions, folderName: folderName
       })
       .onChange((v) => {
-        if( v === "line-of-sight" ){
-          this.canvas.set_state("sideCameraTrackMainCamera", true);
-        }else{
-          this.canvas.set_state("sideCameraTrackMainCamera", false);
+        if( typeof v !== "string" ) { return; }
+        switch ( v ) {
+          case "line-of-sight":
+            this.canvas.set_state("sideCameraTrackMainCamera", "line-of-sight");
+            break;
+          case "snap-to-electrode":
+            this.canvas.set_state("sideCameraTrackMainCamera", "snap-to-electrode");
+            break;
+
+          default:
+            this.canvas.set_state("sideCameraTrackMainCamera", "canonical");
         }
         this.canvas.needsUpdate = true;
         this.broadcast();
       })
-      .setValue( defaultVal );
+      .setValue( "canonical" );
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_SLICE_MODE,

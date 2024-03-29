@@ -88,7 +88,7 @@ function registerPresetSurface( ViewerControlCenter ){
 
 
 
-    const overlayChoices = ['disabled', 'sagittal', 'axial', 'coronal'];
+    const overlayChoices = ['disabled', 'axial', 'coronal', 'sagittal'];
     const controllerClippingPlane = this.gui
       .addController(
         'Clipping Plane', 'disabled',

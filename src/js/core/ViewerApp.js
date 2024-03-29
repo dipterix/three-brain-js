@@ -173,7 +173,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.debugVerbose(`[ViewerApp.setProgressBar ${ Math.floor(this.__progress) }%]: ${ message } (${ details ?? "no details" })`);
     }
     if( this.__message ) {
-      this.$informationText.innerHTML = `<small>${ this.__message }<br /><br />${ details ?? "" }</small>`;
+      this.$informationText.innerHTML = `<small>${ this.__message }<br />&nbsp;&nbsp;${ details ?? "" }</small>`;
     } else {
       this.$informationText.innerHTML = "";
     }
@@ -304,6 +304,20 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.fileLoader.debug = true;
   }
 
+  disableDebugger() {
+    if( !this.debug ) { return; }
+    this.debug = false;
+    this.canvas.debug = false;
+    // this.canvas.addNerdStats();
+    this.fileLoader.debug = false;
+    delete window.app;
+    delete window.groups;
+    delete window.geoms;
+    delete window.settings;
+    delete window.canvas;
+    delete window.controllerGUI;
+  }
+
   async updateData({ data, reset = false, isObsolete = false }) {
     // Stop all workers
     await this.fileLoader.stopWorkers();
@@ -389,27 +403,55 @@ class ViewerApp extends ThrottledEventDispatcher {
     let count = 1, progressIncrement = 0.5 / nGroups * 40;
 
     const groupPromises = {};
-    this.groups.map((g, ii) => {
+    const queueGroup = ( g, { message, lazy = false } = {} ) => {
+
+      let item;
+      if( groupPromises[ g.name ] ) {
+        item = groupPromises[ g.name ];
+        if( item.promise ) { return item; }
+      } else {
+        item = {
+          loaded: false,
+          definition: g,
+        };
+        groupPromises[ g.name ] = item;
+      }
+
+      if( lazy ) { return item; }
+
       this.setProgressBar({
         progress : this.__progress + progressIncrement,
         message : `Loading group: ${g.name}`
       });
 
-      g._loaded = false;
+      item.loaded = false;
 
-      groupPromises[ g.name ] = this.canvas.add_group(g, this.settings.cache_folder, ( msg ) => {
+      item.promise = this.canvas.add_group(g, this.settings.cache_folder, ( msg ) => {
         this.setProgressBar({
           progress : this.__progress,
-          details : `Loading ${count} (out of ${ nGroups }): ${g.name}<br />${msg}`
+          message: message,
+          details : `from group ${g.name} (${count}/${ nGroups }) <br />&nbsp;&nbsp;loading ${msg}`
         });
       }).then(() => {
-        g._loaded = true;
+        item.loaded = true;
         count++;
         this.setProgressBar({
           progress : this.__progress + progressIncrement,
           message : `Loaded group: ${g.name}`
         });
       });
+
+      return item;
+    };
+
+    this.groups.forEach((g, ii) => {
+
+      if( g.name.startsWith("_") ) {
+        // Must load before loading any object
+        queueGroup( g );
+      } else {
+        queueGroup( g, { lazy: true } );
+      }
 
     })
 
@@ -419,60 +461,53 @@ class ViewerApp extends ThrottledEventDispatcher {
     });
 
     for( let groupName in groupPromises ) {
-      if( groupName.startsWith("_") ) {
-        await groupPromises[groupName];
-      }
+      const promise = groupPromises[ groupName ].promise;
+      if( promise ) { await promise; }
     }
 
     if( _isObsolete("Adding geometries") ) { return; }
 
     const nGeoms = this.geoms.length;
     const geomPromises = [];
-    this.geoms.forEach( (g) => {
+    const queueObject = ( g ) => {
+      if( _isObsolete("Loaded group data") ) { return; }
+      const message = `Adding object ${g.name}`;
+      this.setProgressBar({
+        progress : this.__progress + 40 / nGeoms,
+        message : message
+      });
 
       try {
-
-        if( g && g.group && typeof g.group.group_name === "string" ) {
-          const groupPromise = groupPromises[ g.group.group_name ];
-          if( groupPromise ) {
-            geomPromises.push(
-              groupPromise.then(
-                () => {
-                  if( _isObsolete("Loaded group data") ) { return; }
-                  this.setProgressBar({
-                    progress : this.__progress + 40 / nGeoms,
-                    message : `Adding object ${g.name}`
-                  });
-                  this.canvas.add_object( g, ( msg ) => {
-                    this.setProgressBar({
-                      progress : this.__progress,
-                      details : msg
-                    });
-                  } );
-                }
-              )
-            );
-            return;
-          }
-        }
-
-        if( _isObsolete("Loaded group data") ) { return; }
-        this.setProgressBar({
-          progress : this.__progress + 40 / nGeoms,
-          message : `Adding object ${g.name}`
-        });
         this.canvas.add_object( g, ( msg ) => {
           this.setProgressBar({
             progress : this.__progress,
+            message : message,
             details : msg
           });
-        } );
-
+        });
+        this.setProgressBar({
+          progress : this.__progress,
+          message : `Added object ${g.name}`
+        });
       } catch (e) {
-
-        console.warn(e);
-
+        console.warn( e );
       }
+
+    };
+    this.geoms.forEach( (g) => {
+      const message = `Adding object ${g.name}`;
+
+      let groupPromise = null;
+      if( g && g.group && typeof g.group.group_name === "string" ) {
+        let queuedGroupItem = groupPromises[ g.group.group_name ];
+        if( queuedGroupItem && !queuedGroupItem.loaded ) {
+          const promise = queueGroup( queuedGroupItem.definition, { lazy: false, message: message } )
+            .promise.then(() => { queueObject( g ); });
+          geomPromises.push( promise );
+          return;
+        }
+      }
+      queueObject( g );
 
     });
 
@@ -490,6 +525,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       progress : 90,
       message : "Finalizing..."
     });
+
 
     // ---- Finalizing: add controllers ----------------------------------------
     this.updateControllers({ reset : true });
@@ -607,6 +643,13 @@ class ViewerApp extends ThrottledEventDispatcher {
     // ---- Add Presets --------------------------------------------------------
     const enabledPresets = this.settings.control_presets;
     this.controlCenter = new ViewerControlCenter( this );
+    this.controlCenter.toggleDebugger = () => {
+      if( this.debug ) {
+        this.disableDebugger();
+      } else {
+        this.enableDebugger();
+      }
+    }
     // ---- Defaults -----------------------------------------------------------
     this.controlCenter.addPreset_background();
     this.controlCenter.addPreset_setCameraPosition2();

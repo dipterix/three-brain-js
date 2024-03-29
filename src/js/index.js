@@ -10,6 +10,7 @@ import * as download from 'downloadjs';
 import { json2csv } from 'json-2-csv';
 import ClipboardJS from 'clipboard';
 import nifti from 'nifti-reader-js';
+import gifti from 'gifti-reader-js';
 import { svd, registerRigidPoints } from './Math/svd.js';
 import QrCodeWithLogo from "qrcode-with-logos";
 
@@ -24,8 +25,9 @@ import { MGHImage } from './formats/MGHImage.js';
 import { NiftiImage } from './formats/NIfTIImage.js';
 import { FreeSurferMesh } from './formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from './formats/FreeSurferNodeValues.js';
-import { debugManager, loaderClasses, workerPool, resolveURL, Cache } from './core/DataLoaders.js';
+import { debugManager, loaderClasses, resolveURL, Cache } from './core/DataLoaders.js';
 
+import { workerPool } from './core/Workers.js';
 
 // Addons
 import { RShinyDriver } from './drivers/RShinyDriver.js'
@@ -56,6 +58,7 @@ const ExternLibs = {
   downloadjs        : download,
   ClipboardJS       : ClipboardJS,
   nifti             : nifti,
+  gifti             : gifti,
   QRCode            : QrCodeWithLogo,
   registration      : { svd : svd, registerRigidPoints : registerRigidPoints },
 };

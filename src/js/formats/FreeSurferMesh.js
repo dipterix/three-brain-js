@@ -41,13 +41,15 @@ class FreeSurferMesh {
     }
 
     this.isFreeSurferMesh = true;
+    this.isSurfaceMesh = true;
     this.isInvalid = false;
 
   }
 
   dispose() {
-    this.position = NaN;
-    this.index = NaN;
+    this.isInvalid = true;
+    this.position = null;
+    this.index = null;
   }
 
   copy( el ) {
@@ -56,6 +58,7 @@ class FreeSurferMesh {
     this.nFaces = el.nFaces;
     this.position = el.position;
     this.index = el.index;
+    this.isSurfaceMesh = true;
     this.isFreeSurferMesh = true;
     return this;
   }

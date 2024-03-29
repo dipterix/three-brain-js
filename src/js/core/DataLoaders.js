@@ -1,282 +1,72 @@
 import { Loader, FileLoader, LoadingManager, EventDispatcher } from 'three';
+import { Cache } from './StorageCache.js';
+import { workerLoaders, asyncLoaderAvailable,
+  startWorker, stopWorker } from './Workers.js';
+
+import { parse as csvParse } from 'papaparse';
 import { NiftiImage } from '../formats/NIfTIImage.js';
 import { MGHImage } from '../formats/MGHImage.js';
+import { GiftiMesh } from '../formats/GIfTIMesh.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
-import { Cache } from './StorageCache.js';
 
-const workerLoaders = {};
-let useWorkerLoaders = true;
+const debugManager = new LoadingManager();
+debugManager.onStart = function ( url, itemsLoaded, itemsTotal ) {
+  console.debug( 'Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+};
+debugManager.onLoad = function ( ) {
+  console.debug( 'Loading complete!');
+};
+debugManager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
+  console.debug( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+};
+debugManager.onError = function ( url ) {
+  console.debug( 'There was an error loading ' + url );
+};
+const silentManager = new LoadingManager();
+silentManager.onStart = function ( url, itemsLoaded, itemsTotal ) { };
+silentManager.onLoad = function ( ) { };
+silentManager.onProgress = function ( url, itemsLoaded, itemsTotal ) { };
+silentManager.onError = function ( url ) { };
 
-function asyncLoaderAvailable( name, workerScript ) {
-  if( typeof workerScript !== "string") { return false; }
-  if( !useWorkerLoaders ) { return false; }
-  if( typeof name !== "string") { return false; }
-  if(!window) { return false; }
-  if(!window.Worker) { return false; }
-  if(!workerLoaders[ name ]) { return false; }
-  return ["workerLoaders", name];
-}
+function simpleLoad (loader, url, postMessage, token) {
 
-class WorkerPool {
-  constructor( workerScript, logger, size = 8 ) {
-    this.workerScript = workerScript;
-    this.size = Math.ceil( size );
-    if( this.size <= 0 ) { this.size = 1; }
-    this._pool = new Map();
-    this._dispatcher = new EventDispatcher();
-    if( logger ) {
-      this.logger = logger;
-    } else {
-      this.logger = console.debug;
-    }
-  }
+  Cache.enabled = false;
 
-  _spawnWorker() {
-    let uuid = '';
-    const item = {
-      idle: false,
-      timeOut : 15000,
-      onError : undefined,
-      onProgress: undefined,
-      onResult : undefined,
-      startWorker : undefined,
-      terminate : undefined,
-    };
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const charactersLength = characters.length;
-    while( uuid === "" || this._pool.has(uuid) ) {
-      let counter = 0;
-      while (counter < 8) {
-        uuid += characters.charAt(Math.floor(Math.random() * charactersLength));
-        counter += 1;
-        if( counter == 4 ) {
-          uuid += "-";
+  loader.load(
+    url,
+    ( obj ) => {
+      postMessage({
+        token: token,
+        status: "done",
+        object: obj
+      })
+    },
+    ( progress ) => {
+      postMessage({
+        token: token,
+        status: "progress",
+        object: {
+          lengthComputable: progress.lengthComputable,
+          loaded    : progress.loaded,
+          timeStamp : progress.timeStamp,
+          total     : progress.total,
+          type      : progress.type
         }
-      }
+      })
+    },
+    (e) => {
+      postMessage({
+        token: token,
+        status: "error",
+        object: e
+      })
     }
-    this._pool.set(uuid, item);
+  );
 
-    const setIdle = (idle) => {
-      if(idle) {
-        this.logger(`Worker ${ uuid } -> idle`);
-        item.idle = true;
-        item.timeOut = 15000;
-        this._dispatcher.dispatchEvent({
-          type : "WorkerPool.idle",
-          uuid: uuid
-        });
-      } else {
-        this.logger(`Worker ${ uuid } -> busy`);
-        item.idle = false;
-      }
-    }
-
-    const worker = new window.Worker( this.workerScript );
-    const errorHandler = (e) => {
-      if( item.idle ) { return; }
-      const f = item.onError;
-      item.onError = undefined;
-      item.onResult = undefined;
-
-      setIdle(true);
-      if( typeof f === "function" ) { f(e); }
-    };
-    const resultHandler = (data) => {
-      if( item.idle ) { return; }
-      const f = item.onResult;
-      item.onError = undefined;
-      item.onResult = undefined;
-
-      setIdle(true);
-      if( typeof f === "function" ) { f(data); }
-    };
-    const progressHandler = (progress) => {
-      if( item.idle ) { return; }
-      const f = item.onProgress;
-      if( typeof f === "function" ) {
-        try {
-          f(progress);
-        } catch (e) {}
-      }
-    }
-
-    worker.onerror = errorHandler;
-    worker.onmessageerror = errorHandler;
-    worker.onmessage = (e) => {
-      if( item.idle ) { return; }
-      if( e.data && typeof e.data === "object" && typeof e.data.status === "string") {
-        switch ( e.data.status ) {
-          case 'scheduled':
-            if( e.data.object !== undefined ) {
-              resultHandler( e.data.object );
-              return;
-            }
-            break;
-          case 'progress':
-            if( e.data.object !== undefined ) {
-              progressHandler( e.data.object );
-              return;
-            }
-            break;
-          case 'done':
-            resultHandler( e.data.object );
-            return;
-            break;
-          case 'error':
-            errorHandler( e.data.object );
-            break;
-        };
-      } else {
-        errorHandler( new TypeError("Worker does not return with proper message event.") );
-      }
-    };
-
-    item.startWorker = ({ methodNames, args } = {}) => {
-      if(!item.idle) { throw new Error("Worker is not idle"); }
-      setIdle( false );
-      worker.postMessage({
-        methodNames: methodNames,
-        args: args,
-        token: uuid
-      });
-      let timeOut = item.timeOut;
-      if( isFinite( timeOut ) ) {
-        if( timeOut < 0 ) { timeOut = 0; }
-        setTimeout(() => {
-          if(!item.idle) {
-            errorHandler(new Error("Worker timeout."));
-          }
-        }, timeOut);
-      }
-    };
-    item.terminate = () => {
-      if( !item.idle ) {
-        try {
-          errorHandler(new Error("Worker has been terminated."));
-        } catch (e) {}
-      }
-      item.idle = false;
-      item.onError = undefined;
-      item.onResult = undefined;
-      worker.terminate();
-      this._pool.delete( uuid )
-    }
-    setIdle( true );
-    return uuid;
-  }
-
-  _spawn() {
-    const newSize = this.size - this._pool.size;
-    if( newSize < 1 ) { return; }
-    this.logger(`Spawning ${ newSize } parallel workers...`);
-    for( let i = 0 ; i < newSize ; i++ ) {
-      this._spawnWorker();
-    }
-  }
-
-  _startWorker( uuid, methodNames, args, { onResult, onError, onProgress, timeOut } = {} ) {
-    this.logger(`Starting worker ${uuid} -> threeBrain.${ methodNames.join(".") }`);
-    const item = this._pool.get( uuid );
-    item.onError = onError;
-    item.onResult = onResult;
-    item.onProgress = onProgress;
-    if( typeof timeOut === "number" ) {
-      item.timeOut = timeOut;
-    }
-    item.startWorker({ methodNames : methodNames, args : args });
-  }
-
-  startWorker({ methodNames, args, onProgress, timeOut = 15000 } = {}) {
-    return new Promise((resolve, reject) => {
-
-      try {
-        this._spawn();
-      } catch (e) {
-        reject(e);
-        return;
-      }
-
-      const tryStartWorker = () => {
-        if( !useWorkerLoaders ) {
-          reject("Async workers are turned off.");
-          return;
-        }
-        const uuids = [...this._pool.keys()];
-        for(let i = 0; i < uuids.length; i++) {
-          const uuid = uuids[ i ];
-          const item = this._pool.get( uuid );
-          if( item.idle ) {
-            this._startWorker( uuid, methodNames, args, {
-              onResult: resolve, onError: reject,
-              onProgress : onProgress, timeOut: timeOut
-            });
-            return;
-          }
-        }
-        throw new Error("No available worker.");
-      }
-
-      try {
-        tryStartWorker();
-        return;
-      } catch (e) {
-        this.logger(`Awaiting... (${e.message})`);
-      }
-
-      const handler = () => {
-        try {
-          tryStartWorker();
-          this._dispatcher.removeEventListener("WorkerPool.idle", handler);
-          return;
-        } catch (e) {
-          this.logger(`Awaiting... (${e.message})`);
-        }
-      };
-
-      this._dispatcher.addEventListener("WorkerPool.idle", handler);
-    });
-  }
-
-  stopWorkers() {
-    this._pool.forEach(item => {
-      item.terminate();
-    });
-  }
+  // no return since the postMessage is done in async
+  return;
 }
-const workerURL = [];
-const workerPool = {};
-
-async function startWorker( url, { methodNames, args, onProgress, logger, timeOut = 15000 } = {} ) {
-  if( !useWorkerLoaders ) {
-    throw new Error("Async workers disabled.");
-  }
-  let pool;
-  let idx = workerURL.indexOf(url);
-  if(idx == -1) {
-    pool = new WorkerPool( url, logger );
-    const idx = workerURL.length;
-    workerURL.push(url);
-    workerPool[ idx ] = pool;
-  } else {
-    pool = workerPool[ idx ];
-    if( logger ) {
-      pool.logger = logger;
-    }
-  }
-  return await pool.startWorker({
-    methodNames : methodNames, args : args,
-    onProgress : onProgress, timeOut : timeOut });
-}
-async function stopWorker( url ) {
-  let pool;
-  let idx = workerURL.indexOf(url);
-  if(idx > -1) {
-    pool = workerPool[ idx ];
-    pool.stopWorkers();
-  }
-}
-
 
 function resolveURL( url ) {
   if( url.startsWith("#") ) {
@@ -493,11 +283,8 @@ class BasicLoader extends Loader {
         resolve( data );
       })
       .catch((e) => {
-        if( useWorkerLoaders ) {
-          // useWorkerLoaders = false;
-          scope.logger(e);
-          scope.logger("Unable to resolve parallel worker (see warning above). Trying to use regular loader: " + (resolved.resolvedUrl ?? url));
-        }
+        scope.logger(e);
+        scope.logger("Unable to resolve parallel worker (see warning above). Trying to use regular loader: " + (resolved.resolvedUrl ?? url));
         scope.load( resolved.resolvedUrl, (v) => {
           scope.logger("Successfully retrieved via synchronus loader: " + resolved.resolvedUrl);
           resolve(v);
@@ -515,6 +302,20 @@ class JSONLoader extends BasicLoader {
 
   parse( json ) {
     return json;
+  }
+}
+
+class CSVLoader extends BasicLoader {
+
+  responseType = 'csv';
+  loaderName = 'CSVLoader';
+  mimeType = undefined; // so text string is returned
+
+  parse( csv, config ) {
+    return csvParse( csv, {
+      header: true,
+      dynamicTyping: true,
+    }).data;
   }
 }
 
@@ -536,6 +337,16 @@ class MGHLoader extends BasicLoader {
   }
 }
 
+class GiftiLoader extends BasicLoader {
+  responseType = "text";
+  loaderName = "GiftiLoader";
+  mimeType = undefined; // so text string is returned
+
+  parse( buffer ) {
+    return new GiftiMesh( buffer );
+  }
+}
+
 class FreeSurferMeshLoader extends BasicLoader {
   responseType = "arraybuffer";
   loaderName = "FreeSurferMeshLoader";
@@ -554,71 +365,12 @@ class FreeSurferNodeLoader extends BasicLoader {
   }
 }
 
-const debugManager = new LoadingManager();
-debugManager.onStart = function ( url, itemsLoaded, itemsTotal ) {
-  console.debug( 'Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
-};
-
-debugManager.onLoad = function ( ) {
-  console.debug( 'Loading complete!');
-};
-
-debugManager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
-  console.debug( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
-};
-
-debugManager.onError = function ( url ) {
-  console.debug( 'There was an error loading ' + url );
-};
-const silentManager = new LoadingManager();
-silentManager.onStart = function ( url, itemsLoaded, itemsTotal ) { };
-silentManager.onLoad = function ( ) { };
-silentManager.onProgress = function ( url, itemsLoaded, itemsTotal ) { };
-silentManager.onError = function ( url ) { };
-
-function simpleLoad (loader, url, postMessage, token) {
-
-  Cache.enabled = false;
-
-  loader.load(
-    url,
-    ( obj ) => {
-      postMessage({
-        token: token,
-        status: "done",
-        object: obj
-      })
-    },
-    ( progress ) => {
-      postMessage({
-        token: token,
-        status: "progress",
-        object: {
-          lengthComputable: progress.lengthComputable,
-          loaded    : progress.loaded,
-          timeStamp : progress.timeStamp,
-          total     : progress.total,
-          type      : progress.type
-        }
-      })
-    },
-    (e) => {
-      postMessage({
-        token: token,
-        status: "error",
-        object: e
-      })
-    }
-  );
-
-  // no return since the postMessage is done in async
-  return;
-}
-
 const loaderClasses = {
   "JSONLoader"  : JSONLoader,
+  "CSVLoader"   : CSVLoader,
   "NiftiLoader" : NiftiLoader,
   "MGHLoader"   : MGHLoader,
+  "GiftiLoader" : GiftiLoader,
   "FreeSurferMeshLoader": FreeSurferMeshLoader,
   "FreeSurferNodeLoader": FreeSurferNodeLoader
 }
@@ -643,14 +395,14 @@ function guessLoaderType( url ) {
     loaderType = "NiftiLoader";
   } else if ( urlLowerCase.endsWith("mgh") || urlLowerCase.endsWith("mgz") ) {
     loaderType = "MGHLoader";
-  } else if (
-    urlLowerCase.endsWith("sulc") || urlLowerCase.endsWith("curv")
-  ) {
+  } else if ( urlLowerCase.endsWith("gii") || urlLowerCase.endsWith("gii.gz") ) {
+    loaderType = "GiftiLoader";
+  } else if ( urlLowerCase.endsWith("sulc") || urlLowerCase.endsWith("curv") ) {
     loaderType = "FreeSurferNodeLoader";
-  } else if (
-    urlLowerCase.endsWith("json")
-  ) {
+  } else if ( urlLowerCase.endsWith("json") ) {
     loaderType = "JSONLoader";
+  } else if ( urlLowerCase.endsWith("csv") || urlLowerCase.endsWith("tsv") ) {
+    loaderType = "CSVLoader";
   } else {
     loaderType = "FreeSurferMeshLoader";
   }
@@ -722,6 +474,49 @@ class CanvasFileLoader2 extends Loader {
     }, onProgress, onError );
   }
 
+  loadFromResponse ( response, altType ) {
+    return new Promise((resolve, reject) => {
+      const loaderType = guessLoaderType( response.name ) || guessLoaderType( altType );
+      if( loaderType === undefined ) {
+        const err = new Error(`Unknown format for file: ${ response.name }`);
+        reject( err );
+        return;
+      }
+      const loaderCls = loaderClasses[ loaderType ];
+      const loader = new loaderCls( this.manager, {
+        logger: this.logger,
+      });
+
+      let p;
+      switch ( loader.responseType ) {
+  			case 'arraybuffer':
+  				p = response.arrayBuffer();
+  				break;
+  			case 'blob':
+  				p = response.blob();
+  				break;
+  			case 'document':
+  			  p = response.text()
+  					.then( text => {
+  						const parser = new DOMParser();
+  						return parser.parseFromString( text, loader.mimeType );
+  					});
+  				break;
+  			case 'json':
+  			  p = response.json();
+  			  break;
+  			default:
+  			  p = response.text();
+  		};
+  		p.then(data => {
+  		  resolve( loader.parse( data ) );
+  		})
+  		.catch(reject);
+
+    });
+
+  }
+
   loadAsync( url, onProgress ) {
     const currentFlag = this.flag;
     const loaderType = guessLoaderType( url );
@@ -780,6 +575,11 @@ class CanvasFileLoader2 extends Loader {
               "_originalData_": new MGHImage().copy( data.data )
             };
             break;
+          case 'GiftiLoader':
+            return {
+              "_originalData_": new GiftiMesh().copy( data.data )
+            };
+            break;
           case 'FreeSurferMeshLoader':
             return {
               "_originalData_": new FreeSurferMesh().copy( data.data )
@@ -806,4 +606,4 @@ class CanvasFileLoader2 extends Loader {
 
 }
 
-export { loaderClasses, debugManager, workerLoaders, CanvasFileLoader2, workerPool, resolveURL, Cache };
+export { loaderClasses, debugManager, silentManager, CanvasFileLoader2, resolveURL, Cache, workerLoaders };

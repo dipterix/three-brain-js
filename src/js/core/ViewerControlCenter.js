@@ -206,6 +206,21 @@ class ViewerControlCenter extends EventDispatcher {
       }
     });
 
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_DEBUG,
+      shiftKey  : true,
+      ctrlKey   : true,
+      altKey    : true,
+      metaKey   : false,
+      tooltip   : null,
+      callback  : ( event ) => {
+        if( typeof this.toggleDebugger === "function" ) {
+          this.toggleDebugger();
+        }
+      }
+    });
+
     // Installs driver
     this.canvas.$el.addEventListener( "viewerApp.controller.setValue" , this._onDriveController );
 
