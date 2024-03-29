@@ -11,6 +11,12 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     return;
   };
 
+  ViewerControlCenter.prototype.getActiveSlice = function(){
+    const instance = this.canvas.get_state( "activeSliceInstance" );
+    if( instance && instance.isDataCube ) { return instance; }
+    return;
+  };
+
 
   ViewerControlCenter.prototype.addPreset_voxel = function(){
     const folderName = CONSTANTS.FOLDERS['atlas'] || 'Volume Settings';
@@ -66,6 +72,10 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         this.gui.hideControllers(['Voxel Min', 'Voxel Max'], folderName);
         applyDiscreteSelection();
       }
+
+      const dataSliceInstance = this.getActiveSlice();
+      dataSliceInstance.setOverlay( dataCubeInstance );
+
       // this.fire_change({ 'atlas_type' : v });
       this.broadcast();
       this.canvas.needsUpdate = true;
@@ -99,7 +109,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     });
 
     // Controls how the datacube should be displayed
-    const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'main camera'];
+    const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'anat. slices', 'main camera'];
     const ctrlDC2Display = this.gui
       .addController(
         'Voxel Display', 'side camera',
@@ -121,6 +131,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         });
 
         // TODO use event dispatcher
+        this.canvas.set_state("voxelDisplay", v);
         this.canvas.set_state( "surface_color_refresh", Date() );
         this.canvas.needsUpdate = true;
       })
@@ -145,12 +156,13 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     });
 
     // Controls the opacity of the voxels
+    this.canvas.set_state("overlayAlpha", -1);
     this.gui
       .addController('Voxel Opacity', 0.0, { folderName : folderName })
       .min(0).max(1).decimals(2)
-      .onChange((v) => {
-        const inst = this.getActiveDataCube2(),
-              opa = v < 0.001 ? -1 : v;
+      .onChange( async (v) => {
+        const opa = v < 0.001 ? -1 : v;
+        let inst = this.getActiveDataCube2();
         // mesh.material.uniforms.alpha.value = opa;
         if( inst ){
           inst.object.material.uniforms.alpha.value = opa;
@@ -159,6 +171,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             inst.updatePalette();
           }
         }
+        this.canvas.set_state("overlayAlpha", opa);
         // this.fire_change({ 'atlas_alpha' : opa });
         this.broadcast();
         this.canvas.needsUpdate = true;

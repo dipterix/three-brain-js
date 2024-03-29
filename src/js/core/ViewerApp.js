@@ -54,6 +54,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.fileLoader = new CanvasFileLoader2({
       logger: this.debugVerbose
     });
+    this.fileLoader.debug = this.debug;
 
     // ---- initialize : DOM elements ------------------------------------------
     /** The layout is:
@@ -319,9 +320,6 @@ class ViewerApp extends ThrottledEventDispatcher {
   }
 
   async updateData({ data, reset = false, isObsolete = false }) {
-    // Stop all workers
-    await this.fileLoader.stopWorkers();
-
     this.dispatch( _updateDataStartEvent );
 
     const _isObsolete = ( args ) => {

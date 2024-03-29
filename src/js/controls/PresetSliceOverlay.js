@@ -270,12 +270,19 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
 
   ViewerControlCenter.prototype.addPreset_sideViewElectrodeThreshold = function(){
     const folderName = CONSTANTS.FOLDERS[ 'side-electrode-dist' ];
+
+    const renderDistances = {
+      near: 0.5,
+      far: 0.5
+    };
+
     // show electrodes trimmed
-    this.gui.addController('Render Distance', 0.4, { folderName : folderName })
+    this.gui.addController('Frustum Near', 0.5, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
+        renderDistances.near = v;
         this.canvas.setVoxelRenderDistance({
-          distance : v
+          distance : renderDistances
         });
         // type : "viewerApp.canvas.setVoxelRenderDistance",
         // this.canvas.sideCanvasList.coronal.renderThreshold = v;
@@ -284,7 +291,22 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 0.4 );
+
+    this.gui.addController('Frustum Far', 0.5, { folderName : folderName })
+      .min(0.1).max(222).step(0.1)
+      .onChange((v) => {
+        renderDistances.far = v;
+        this.canvas.setVoxelRenderDistance({
+          distance : renderDistances
+        });
+        // type : "viewerApp.canvas.setVoxelRenderDistance",
+        // this.canvas.sideCanvasList.coronal.renderThreshold = v;
+        // this.canvas.sideCanvasList.axial.renderThreshold = v;
+        // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+      .setValue( 0.5 );
   }
 
   return( ViewerControlCenter );
