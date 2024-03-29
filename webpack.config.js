@@ -20,6 +20,12 @@ module.exports = {
           'css-loader',
         ]
       },
+      {
+        test: /\.(jpg|png)$/i,
+        use: [
+          'file-loader',
+        ]
+      },
     ],
   },
   resolve: {

@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "css-loader": "^6.7.3",
+    "file-loader": "^6.2.0",
     "style-loader": "^3.3.1",
     "terser-webpack-plugin": "^5.3.6",
     "webpack": "^5.45.1",
