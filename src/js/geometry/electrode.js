@@ -312,6 +312,9 @@ class Electrode extends AbstractThreeBrainObject {
       if( this._dataTexture ) {
         this._dataTexture.dispose();
       }
+      if( this._textMap ) {
+        this._textMap.dispose();
+      }
     } catch (e) {}
 
     this.object.material.dispose();

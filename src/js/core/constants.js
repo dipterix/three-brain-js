@@ -1,7 +1,9 @@
 import { Vector3, Matrix4 } from 'three';
 // Defined all the constants
 
-const CONSTANTS = {};
+const CONSTANTS = {
+  DEBUG: false,
+};
 
 
 /* ------------------------------------ Layer setups ------------------------------------

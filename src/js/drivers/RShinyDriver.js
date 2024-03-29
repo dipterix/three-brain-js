@@ -371,6 +371,15 @@ class RShinyDriver {
     this.canvas.setSliceCrosshair({ x : x , y : y , z : z, centerCrosshair : centerCrosshair });
   }
   driveSetVoxelRenderDistance({ distance }) {
+    if( typeof distance === "number" ) {
+      distance = { near: distance, far : distance };
+    } else if (Array.isArray( distance )) {
+      const near = distance[0],
+            far = distance[1];
+      distance = { near: near, far : far };
+    } else if ( distance && typeof distance === "object" ) {
+      distance = { near: distance.near, far : distance.far };
+    }
     this.canvas.setVoxelRenderDistance({ distance : distance });
   }
   driveChooseElectrode({ subjectCode, electrodeNumber } = {}) {

@@ -396,6 +396,14 @@ class ElasticGeometry extends BufferGeometry {
 
 	}
 
+
+	dispose () {
+	  super.dispose();
+	  if( this.dataTexture ) {
+	    this.dataTexture.dispose();
+	  }
+	}
+
 }
 
 function getThreeBrainInstance( object ) {

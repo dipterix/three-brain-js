@@ -169,6 +169,7 @@ class MGHImage {
       0, 0, 1, (this.shape.z) / 2 - 0.5,
       0, 0, 0, 1
     );
+    this.model2vox = shift;
 
     this.ijkIndexOrder = new Vector3().copy( crsOrder );
 
@@ -221,16 +222,18 @@ class MGHImage {
   }
 
   dispose() {
-    this._MGHHeader = NaN;
-    this.header = NaN;
-    this.ijk2tkrRAS = NaN;
-    this.affine = NaN;
-    this.image = NaN;
+    this.isInvalid = false;
+    this._MGHHeader = undefined;
+    this.header = undefined;
+    this.ijk2tkrRAS = undefined;
+    this.affine = undefined;
+    this.image = undefined;
 
-    this.shape = NaN;
-    this.ijkIndexOrder = NaN;
-    this.model2RAS = NaN;
-    this.model2tkrRAS = NaN;
+    this.shape = undefined;
+    this.ijkIndexOrder = undefined;
+    this.model2RAS = undefined;
+    this.model2tkrRAS = undefined;
+    this.model2vox = undefined;
   }
 
   copy( el ) {
@@ -245,6 +248,7 @@ class MGHImage {
     this.ijkIndexOrder = new Vector3().copy( el.ijkIndexOrder );
     this.model2RAS = new Matrix4().copy( el.model2RAS );
     this.model2tkrRAS = new Matrix4().copy( el.model2tkrRAS );
+    this.model2vox = new Matrix4().copy( el.model2vox );
 
     this.image = el.image;
     this.imageDataType = el.imageDataType;

@@ -106,6 +106,7 @@ class NiftiImage {
       0, 0, 1, (this.shape.z - 1) / 2,
       0, 0, 0, 1
     );
+    this.model2vox = shift;
 
     this.ijkIndexOrder = new Vector3().copy( crsOrder );
 
@@ -132,16 +133,20 @@ class NiftiImage {
     if( this.dataIsInt8 || this.dataIsUInt8 ) { return; }
 
     // inplace since no enough memory
-    let maxV = -Infinity, minV = Infinity, tmpV = 0;
-    for( let ii = 0; ii < this.image.length; ii++ ) {
-      tmpV = this.image[ ii ];
-      if( tmpV > maxV ) {
-        maxV = tmpV;
-      }
-      if( tmpV < minV ) {
-        minV = tmpV;
-      }
+    let maxV = 1, minV = 0;
+    if( this.image.length > 0 ) {
+      maxV = this.image[0];
+      minV = this.image[0];
+
+      this.image.forEach( ( v ) => {
+        if( v > maxV ) {
+          maxV = v;
+        } else if ( v < minV ) {
+          minV = v;
+        }
+      });
     }
+
     let intercept = 0, slope = 1;
     if( maxV < 0 || minV >= 1 ) {
       intercept = -minV;
@@ -151,28 +156,25 @@ class NiftiImage {
       slope = 1.0 / maxV;
     }
 
-    if( intercept != 0 || slope != 1 ) {
-      const newImage = new Float32Array( this.image.length );
+    const newImage = Float32Array.from( this.image, (x) => {
+      return slope * (x + intercept);
+    });
 
-      for( let ii = 0; ii < this.image.length; ii++ ) {
-        newImage[ ii ] = ( this.image[ ii ] + intercept ) * slope;
-      }
-
-      this.image = newImage;
-      this.imageDataType = FloatType;
-      this.dataIsFloat32 = true;
-    }
+    this.image = newImage;
+    this.imageDataType = FloatType;
+    this.dataIsFloat32 = true;
 
     this.normalized = true;
   }
 
   dispose () {
-    this.header = NaN;
-    this.image = NaN;
-    this.affine = NaN;
-    this.shape = NaN
-    this.ijkIndexOrder = NaN;
-    this.model2RAS = NaN
+    this.header = undefined;
+    this.image = undefined;
+    this.affine = undefined;
+    this.shape = undefined;
+    this.ijkIndexOrder = undefined;
+    this.model2RAS = undefined;
+    this.model2vox = undefined;
   }
 
   copy( el ) {
@@ -210,6 +212,8 @@ class NiftiImage {
     this.model2RAS = new Matrix4().copy( el.model2RAS );
 
     this.model2tkrRAS = new Matrix4().copy( el.model2tkrRAS );
+
+    this.model2vox = new Matrix4().copy( el.model2vox );
 
     return this;
   }

@@ -16,6 +16,12 @@ const SliceShader = {
     // values below this threshold should be discarded
     threshold : { value : 0.0 },
 
+    // overlay
+    overlayMap : { value : null },
+    overlayShape : { value : new Vector3().set( 256, 256, 256 ) },
+    overlay2IJK: { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
+    overlayAlpha: { value : 0.5 },
+
     // gamma correction
     gamma : { value : 1.0 },
 
@@ -42,6 +48,16 @@ uniform float gamma;
 uniform sampler3D map;
 uniform vec3 mapShape;
 uniform mat4 world2IJK;
+
+#if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
+
+  uniform sampler3D overlayMap;
+  uniform vec3 overlayShape;
+  uniform mat4 overlay2IJK;
+  uniform float overlayAlpha;
+
+#endif
+
 out vec4 color;
 void main() {
 // calculate IJK, then sampler position
@@ -66,6 +82,23 @@ void main() {
       } else {
         color.rgb =  color.rrr;
       }
+
+      #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
+
+        vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
+        vec4 overlayColor = texture(overlayMap, overlaySampPos).rgba;
+
+        if( overlayColor.a > 0.0 ) {
+          if( any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
+            if( overlayAlpha < 0.0 ) {
+              color.rgb = overlayColor.rgb;
+            } else {
+              color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+            }
+          }
+        }
+
+      #endif
 
     }
   }

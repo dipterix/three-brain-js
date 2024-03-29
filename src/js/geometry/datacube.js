@@ -1,4 +1,4 @@
-import { AbstractThreeBrainObject } from './abstract.js';
+import { AbstractThreeBrainObject, getThreeBrainInstance } from './abstract.js';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, get_or_default } from '../utils.js';
 import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
@@ -28,60 +28,6 @@ const tmpMat4 = new Matrix4();
 const tmpQuaternion = new Quaternion();
 
 class DataCube extends AbstractThreeBrainObject {
-
-  replaceSliceData( niftiData ) {
-    let dataTextureType = UnsignedByteType;
-
-    if( niftiData.imageDataType === undefined ) {
-      // float64 array, not supported
-      let imageMin = Infinity, imageMax = -Infinity;
-      niftiData.image.forEach(( v ) => {
-        if( imageMin > v ){ imageMin = v; }
-        if( imageMax < v ){ imageMax = v; }
-      })
-      this.cubeData = new Uint8Array( niftiData.image.length );
-      const slope = 255 / (imageMax - imageMin),
-            intercept = 255 - imageMax * slope,
-            threshold = g.threshold || 0;
-      niftiData.image.forEach(( v, ii ) => {
-        const d = v * slope + intercept;
-        if( d > threshold ) {
-          this.cubeData[ ii ] = d;
-        } else {
-          this.cubeData[ ii ] = 0;
-        }
-      })
-    } else {
-      niftiData.normalize();
-      this.cubeData = niftiData.image;
-      dataTextureType = niftiData.imageDataType;
-    }
-
-    this.cubeShape.copy( niftiData.shape );
-    const affine = niftiData.affine.clone();
-
-    const subjectData = this._canvas.shared_data.get( this.subject_code );
-    if( subjectData && typeof subjectData === "object" && subjectData.matrices ) {
-      affine.copy( subjectData.matrices.Torig )
-        .multiply( subjectData.matrices.Norig.clone().invert() )
-        .multiply( niftiData.affine );
-    }
-    this._uniforms.world2IJK.value.copy( affine ).invert();
-
-    this.dataTexture = new Data3DTexture(
-      this.cubeData, this.cubeShape.x, this.cubeShape.y, this.cubeShape.z
-    );
-    this.dataTexture.minFilter = NearestFilter;
-    this.dataTexture.magFilter = NearestFilter;
-    this.dataTexture.format = RedFormat;
-    this.dataTexture.type = dataTextureType;
-    this.dataTexture.unpackAlignment = 1;
-    this.dataTexture.needsUpdate = true;
-
-    // Generate shader
-    this._uniforms.map.value = this.dataTexture;
-    this._uniforms.mapShape.value.copy( this.cubeShape );
-  }
 
   constructor(g, canvas){
     super(g, canvas);
@@ -234,6 +180,43 @@ class DataCube extends AbstractThreeBrainObject {
 
   }
 
+  setOverlay( x ) {
+    if( !x ) {
+      this._uniforms.overlayMap.value = null;
+      delete this.sliceMaterial.defines.HAS_OVERLAY;
+      this.sliceMaterial.needsUpdate = true;
+      return;
+    }
+    const inst = getThreeBrainInstance( x );
+    if( !inst || !( inst.isDataCube2 || inst.isDataCube ) ) {
+      delete this.sliceMaterial.defines.HAS_OVERLAY;
+      this.sliceMaterial.needsUpdate = true;
+      return;
+    }
+
+    if( typeof this.sliceMaterial.defines.HAS_OVERLAY !== "string" ) {
+      this.sliceMaterial.defines.HAS_OVERLAY = "";
+      this.sliceMaterial.needsUpdate = true;
+    }
+
+
+    if( inst.isDataCube2 ) {
+      this._uniforms.overlayMap.value = inst.colorTexture;
+      this._uniforms.overlayShape.value.copy( inst.modelShape );
+
+      // inst._transform is model to world
+      this._uniforms.overlay2IJK.value.copy( inst._transform ).invert()
+        .premultiply( inst.model2vox );
+      return;
+    }
+
+    if( inst.isDataCube ) {
+      this._uniforms.overlayMap.value = inst._uniforms.map.value;
+      this._uniforms.overlayShape.value.copy( inst._uniforms.mapShape );
+      this._uniforms.overlay2IJK.value.copy( inst._uniforms.world2IJK.value );
+      return;
+    }
+  }
 
   dispose(){
     this.sliceMaterial.dispose();
@@ -259,14 +242,40 @@ class DataCube extends AbstractThreeBrainObject {
       }
     }
 
+    const displayOverlay = this._canvas.get_state("voxelDisplay", "hidden");
+    let useOverlay = false;
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
       this._uniforms.threshold.value = 0.0;
+      this.sliceMaterial.depthWrite = true;
+      useOverlay =
+            displayOverlay === "normal" ||
+            displayOverlay === "main camera" ||
+            displayOverlay === "anat. slices";
     } else {
       this._uniforms.threshold.value = -1.0;
+      this.sliceMaterial.depthWrite = false;
+      useOverlay = displayOverlay === "normal" ||
+            displayOverlay === "side camera" ||
+            displayOverlay === "anat. slices";
+    }
+
+    if( useOverlay ) {
+      if( typeof this.sliceMaterial.defines.USE_OVERLAY !== "string" ) {
+        this.sliceMaterial.defines.USE_OVERLAY = "";
+        this.sliceMaterial.needsUpdate = true;
+      }
+    } else {
+      if( typeof this.sliceMaterial.defines.USE_OVERLAY === "string" ) {
+        delete this.sliceMaterial.defines.USE_OVERLAY;
+        this.sliceMaterial.needsUpdate = true;
+      }
     }
 
     const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
     this._uniforms.gamma.value = bias;
+
+    const overlayAlpha = this._canvas.get_state("overlayAlpha", 0.0);
+    this._uniforms.overlayAlpha.value = overlayAlpha;
 
   }
 

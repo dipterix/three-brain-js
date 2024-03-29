@@ -307,13 +307,14 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   _onSetVoxelRenderDistance = (event) => {
     let dist = 1000.0;
-    if( typeof event.detail.distance === "number" ) {
-      dist = event.detail.distance;
+    if( typeof event.detail.distance === "object" ) {
+      dist = event.detail.distance.near;
       if( dist < 0 ) {
         dist = -dist;
       }
     }
-    this.object.material.uniforms.maxRenderDistance.value = dist;
+    // FIXME
+    // this.object.material.uniforms.maxRenderDistance.value = dist;
   }
 
   updatePalette( selectedDataValues, timeSlice ){
@@ -389,6 +390,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.voxelData = niftiData.image;
       // width, height, depth of the model (not in world)
       this.modelShape = new Vector3().copy( niftiData.shape );
+      this.model2vox = niftiData.model2vox;
 
       // Make sure to register the initial transform matrix (from IJK to RAS)
       // original g.trans_mat is nifti RAS to tkrRAS
@@ -410,7 +412,6 @@ class DataCube2 extends AbstractThreeBrainObject {
       } else {
         // transformSpaceFrom is scannerRAS
         this._transform.multiply( niftiData.model2RAS );
-
       }
       this._originalData = niftiData;
     } else {
@@ -420,6 +421,11 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.modelShape = new Vector3().fromArray(
         this._canvas.get_data('datacube_dim_'+g.name, g.name, g.group.group_name)
       );
+      this.model2vox = new Matrix4().setPosition(
+        ( this.modelShape.x - 1.0 ) / 2.0,
+        ( this.modelShape.y - 1.0 ) / 2.0,
+        ( this.modelShape.z - 1.0 ) / 2.0
+      )
     }
     this.nVoxels = this.modelShape.x * this.modelShape.y * this.modelShape.z;
     // The color map might be specified separately
@@ -597,6 +603,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
         break;
       case 'side camera':
+      case 'anat. slices':
         this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
         this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
         break;
@@ -618,9 +625,11 @@ class DataCube2 extends AbstractThreeBrainObject {
       // sliceInstance.sliceMaterial.depthWrite = false;
       // if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
       this.object.material.depthWrite = false;
+      this.object.material.depthTest = false;
       this.object.material.uniforms.dithering.value = 0.0;
     } else {
       this.object.material.depthWrite = true;
+      this.object.material.depthTest = true;
       this.object.material.uniforms.dithering.value = this._dithering ?? 1.0;
     }
   }
