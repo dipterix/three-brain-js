@@ -258,7 +258,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         Main camera is initialized at 500,0,0. The distance is stayed at 500 away from
         origin (stay at right &look at left)
         The view range is set from -150 to 150 (left - right) respect container ratio
-        render distance is from 1 to 10000, sufficient for brain object.
+        render Frustum plane is from 1 to 10000, sufficient for brain object.
         Parameters:
           position: 500,0,0
           left: -150, right: 150, near 1, far: 10000
@@ -994,18 +994,15 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
-    if( typeof distance === "number" ) {
-      this.set_state( "voxel_render_distance", distance );
-    } else {
-      distance = this.get_state( "voxel_render_distance" , 0.1 );
+    if( distance && typeof distance === "object" ) {
+      this.dispatch({
+        type : "viewerApp.canvas.setVoxelRenderDistance",
+        data : {
+          distance: distance
+        },
+        immediate : immediate
+      });
     }
-    this.dispatch({
-      type : "viewerApp.canvas.setVoxelRenderDistance",
-      data : {
-        distance: distance
-      },
-      immediate : immediate
-    });
   }
 
   // callbacks

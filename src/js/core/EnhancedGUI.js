@@ -358,7 +358,7 @@ class EnhancedGUI extends GUI {
       "Show Panels", "Slice Brightness", "Slice Mode",
       "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
-      "Render Distance",
+      "Frustum Near", "Frustum Far",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
       "Voxel Min", "Voxel Max",
 

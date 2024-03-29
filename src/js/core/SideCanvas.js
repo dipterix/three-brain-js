@@ -38,15 +38,19 @@ class SideCanvas {
   }
 
   _updateRenderThreshold( distance, save = true ) {
-    if( typeof distance !== "number" ) {
-      distance = this._renderThreshold;
-    } else {
-      if( distance < 0 ) { distance = -distance; }
-      if ( save ) {
-        this._renderThreshold = distance;
+    if( distance && typeof distance === "object" ) {
+      if( save ) {
+        if( typeof distance.near === "number" ) {
+          this._renderThreshold.near = Math.abs( distance.near );
+        }
+        if( typeof distance.far === "number" ) {
+          this._renderThreshold.far = Math.abs( distance.far );
+        }
       }
     }
-    this.camera.near = 500 - distance;
+    distance = this._renderThreshold;
+    this.camera.near = 500 - distance.near;
+    this.camera.far = 500 + distance.far;
     this.camera.updateProjectionMatrix();
     this.mainCanvas.needsUpdate = true;
   }
@@ -409,7 +413,7 @@ class SideCanvas {
     this.mainCanvas = mainCanvas;
     this.zoomLevel = 1;
     this.pixelRatio = this.mainCanvas.pixel_ratio[1];
-    this._renderThreshold = 2.0;
+    this._renderThreshold = { near: 2.0, far: 2.0 };
 
     this._enabled = true;
     this._lookAt = new Vector3( 0, 0, 0 );
@@ -679,7 +683,7 @@ class SideCanvas {
   }
 
   _onSetVoxelRenderDistance = ( event ) => {
-    if( typeof event.detail.distance === "number" ) {
+    if( event.detail.distance && typeof event.detail.distance === "object" ) {
       this._updateRenderThreshold( event.detail.distance );
     }
   }

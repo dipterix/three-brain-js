@@ -161,7 +161,7 @@ class ViewerWrapper {
       $wrapper : this.$viewerWrapper,
       width : this.width, height : this.height,
       cache : this.cache,
-      debug : this.debug
+      debug : this.debug || CONSTANTS.DEBUG
     });
 
     this.cacheViewer();
