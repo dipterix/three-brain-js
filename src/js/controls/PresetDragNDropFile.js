@@ -188,6 +188,7 @@ function postProcessSurface( data, fileName, gui, folderName, canvas ) {
   data.fileName = fileName;
   const inst = gen_free( data, canvas );
   inst.forceVisible = true;
+  inst.object.layers.enable( CONSTANTS.LAYER_USER_ALL_SIDE_CAMERAS_4 );
   const parentFolder = `${folderName} > Additional Surfaces`;
   const innerFolderName = `${folderName} > Additional Surfaces > ${ fileName }`;
 
