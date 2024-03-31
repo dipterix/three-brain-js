@@ -365,7 +365,15 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.__initialized = true;
   }
 
+  disposeGPU() {
+    super.disposeGPU();
+    try {
+      this._volume_texture.dispose();
+    } catch (e) {}
+  }
+
   dispose(){
+    super.dispose();
     try {
       this.object.removeFromParent();
     } catch (e) {}

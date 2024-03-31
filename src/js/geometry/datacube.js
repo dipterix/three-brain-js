@@ -218,7 +218,14 @@ class DataCube extends AbstractThreeBrainObject {
     }
   }
 
+  disposeGPU() {
+    super.disposeGPU();
+    this.sliceMaterial.dispose();
+    this.dataTexture.dispose();
+  }
+
   dispose(){
+    super.dispose();
     this.sliceMaterial.dispose();
     this.sliceGeometryXY.dispose();
     this.sliceGeometryXZ.dispose();

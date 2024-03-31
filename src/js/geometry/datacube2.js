@@ -536,7 +536,17 @@ class DataCube2 extends AbstractThreeBrainObject {
       this._onSetVoxelRenderDistance );
   }
 
+  disposeGPU () {
+    super.disposeGPU();
+    if( this.colorTexture ) {
+      try {
+        this.colorTexture.dispose();
+      } catch ( e ) {}
+    }
+  }
+
   dispose(){
+    super.dispose();
     try {
       this.object.removeFromParent();
     } catch (e) {}
