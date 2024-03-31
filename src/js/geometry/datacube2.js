@@ -666,7 +666,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         if( this.lut.mapDataType === "discrete" ) {
           const cinfo = this.lut.map[ voxelValue ];
           if( typeof cinfo === "object" ) {
-            crosshairText = cinfo.Label;
+            crosshairText = `[${voxelValue}] ${cinfo.Label}`;
           } else {
             crosshairText = "";
           }
