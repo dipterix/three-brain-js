@@ -83,9 +83,9 @@ class AbstractThreeBrainObject {
     return( this.world_position );
   }
 
-  dispose(){
-    this.warn('method dispose() not implemented...');
-  }
+  disposeGPU() {}
+
+  dispose() {}
 
   get_track_data( track_name, reset_material ){
     this.warn('method get_track_data(track_name, reset_material) not implemented...');
@@ -209,7 +209,7 @@ function createBuiltinGeometry (type, {
 	  radius = 1, fix_outline = true,
 	  contact_center = null, channel_numbers = null, contact_sizes = null,
 	  model_control_points = null, world_control_points = null,
-	  model_direction = null
+	  model_direction = null, model_up = null
 	} = {} ) {
 
   let geom, useTexture = true;
@@ -221,6 +221,7 @@ function createBuiltinGeometry (type, {
   };
   const contactCenter = [new Vector3()];
   const modelDirection = new Vector3();
+  const modelUp = new Vector3();
 
   switch (type) {
     case 'CustomGeometry':
@@ -291,10 +292,17 @@ function createBuiltinGeometry (type, {
       }
 
       const md = model_direction;
-      if( Array.isArray(cc) && md.length === 3 ) {
+      if( Array.isArray(md) && md.length === 3 ) {
         modelDirection.fromArray(md).normalize();
         if( isNaN( modelDirection.lengthSq() ) ) {
           modelDirection.set(0, 0, 0);
+        }
+      }
+      const mu = model_up;
+      if( Array.isArray(mu) && mu.length === 3 ) {
+        modelUp.fromArray(mu).normalize();
+        if( isNaN( modelUp.lengthSq() ) ) {
+          modelUp.set(0, 0, 0);
         }
       }
 
@@ -304,6 +312,10 @@ function createBuiltinGeometry (type, {
       type = "SphereGeometry";
       geom = new SphereGeometry( radius, 10, 6 );
       geom.parameters.size = geom.parameters.radius;
+      // remove UV
+      if( geom.hasAttribute( "uv" ) ) {
+        geom.deleteAttribute( "uv" );
+      }
     }
   }
 
@@ -335,6 +347,7 @@ function createBuiltinGeometry (type, {
   geom.parameters.controlPoints = controlPoints;
   geom.parameters.contactCenter = contactCenter;
   geom.parameters.modelDirection = modelDirection;
+  geom.parameters.modelUp = modelUp;
 
 
   return {
@@ -394,6 +407,12 @@ class ElasticGeometry extends BufferGeometry {
 
 		return this;
 
+	}
+
+	disposeGPU() {
+	  if( this.dataTexture ) {
+	    this.dataTexture.dispose();
+	  }
 	}
 
 

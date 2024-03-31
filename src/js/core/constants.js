@@ -95,6 +95,7 @@ CONSTANTS.KEY_TOGGLE_ANIMATION        = "KeyS";         // `s` - play/pause time
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_R = "Digit1";     // `1/⇧1` - adjust electrode locations along Right/Left axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_A = "Digit2";     // `2/⇧2` - adjust electrode locations along Anterior/Posterior axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_S = "Digit3";     // `3/⇧3` - adjust electrode locations along Superior/Inferior axis
+CONSTANTS.KEY_ADJUST_ELECTRODE_QUATERNION = "Digit4";     // `4/⇧4` - rotate electrode shaft
 CONSTANTS.KEY_CYCLE_ELEC_EDITOR       = "Backquote";    // `` ` `` - cycle through electrodes (localization, experimental)
 CONSTANTS.KEY_CYCLE_SURFTYPE_EDITOR   = "Digit4";       // `4` - toggle electrode type (surface ot iEEG, experimental)
 CONSTANTS.KEY_NEW_ELECTRODE_EDITOR    = "Digit1";       // `1` - new electrode (experimental)
@@ -139,6 +140,7 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "l";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_R = "1/⇧1";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_A = "2/⇧2";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_S = "3/⇧3";
+CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_QUATERNION = "4/⇧4";
 
 // Regular expressions
 CONSTANTS.REGEXP_SURFACE_GROUP    = /^Surface - (.+) \((.+)\)$/;  // Surface - pial (YAB)

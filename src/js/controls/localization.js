@@ -1,4 +1,4 @@
-import { Vector3, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper, Group } from 'three';
+import { Vector3, Quaternion, SpriteMaterial, DoubleSide, Raycaster, ArrowHelper, Group } from 'three';
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { getDataCube2 } from '../utility/getDataCube2.js';
 import { CONSTANTS } from '../core/constants.js';
@@ -1141,13 +1141,18 @@ function register_controls_localization( ViewerControlCenter ){
         inst.dispose();
       }
     }
-    const electrodes = this.__localize_electrode_list;
+    const electrodes = this.localizationData.electrodes;
     const collection = this.canvas.electrodes.get(scode) || {};
     electrodes.forEach((el) => {
       el.dispose();
     });
     electrodes.length = 0;
     this.canvas.switch_subject();
+
+    const electrodePrototype = this.localizationData.electrodePrototype;
+    if( electrodePrototype && electrodePrototype.isThreeBrainObject ) {
+      electrodePrototype.dispose();
+    }
 
     if( fireEvents ) {
       this.broadcast({
@@ -1193,13 +1198,14 @@ function register_controls_localization( ViewerControlCenter ){
 
     const inst = this.canvas.add_object( params );
     inst.defaultColor.set(COL_PROTOTYPE);
+    this.localizationData.electrodePrototype = inst;
   }
 
   ViewerControlCenter.prototype.localizeAddElectrode = function({
     Coord_x, Coord_y, Coord_z, Hemisphere = "auto",
     mode, fireEvents = true, ...moreArgs
   } = {}){
-    const electrodes = this.__localize_electrode_list;
+    const electrodes = this.localizationData.electrodes;
     const scode = this.canvas.get_state("target_subject");
     let edit_mode = mode;
     if(!edit_mode){
@@ -1232,7 +1238,7 @@ function register_controls_localization( ViewerControlCenter ){
   ViewerControlCenter.prototype.localizeSetElectrode = function(
     which, params, fireEvents = true
   ){
-    const electrodes = this.__localize_electrode_list;
+    const electrodes = this.localizationData.electrodes;
     const scode = this.canvas.get_state("target_subject");
 
     electrodes.forEach((el) => {
@@ -1279,7 +1285,7 @@ function register_controls_localization( ViewerControlCenter ){
 
     if( dryRun ) { return; }
 
-    const electrodes = this.__localize_electrode_list;
+    const electrodes = this.localizationData.electrodes;
     // reuse static (not really) variable
     shiftDirectionSum.set( 0, 0, 0 );
 
@@ -1302,7 +1308,7 @@ function register_controls_localization( ViewerControlCenter ){
 
   ViewerControlCenter.prototype.addPreset_localization = function(){
 
-    const electrodes = this.__localize_electrode_list;
+    const electrodes = this.localizationData.electrodes;
     let refine_electrode;
 
     const edit_mode = this.gui
@@ -1823,7 +1829,25 @@ function register_controls_localization( ViewerControlCenter ){
       });
 
       this.canvas.needsUpdate = true;
-    }
+    };
+
+    const rotateElectrodePrototype = ({ degree = 0 }) => {
+      const electrodePrototype = this.localizationData.electrodePrototype;
+      if( !electrodePrototype || !electrodePrototype.isElectrodePrototype ) { return; }
+      if( electrodePrototype.up.lengthSq() < 0.5 ) { return; }
+      if( electrodePrototype.direction.lengthSq() < 0.5 ) { return; }
+
+      const rad = degree * Math.PI / 180;
+
+      this.broadcast({
+        data : { "localization_addQuaternion" : {
+          direction: electrodePrototype.direction.toArray(),
+          degreeRad: rad,
+        }},
+        priority: 'event',
+      });
+
+    };
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_R,
@@ -1866,6 +1890,21 @@ function register_controls_localization( ViewerControlCenter ){
           adjust_electrode_position({ axis : 'z' , step : -0.1 });
         } else {
           adjust_electrode_position({ axis : 'z' , step : 0.1 });
+        }
+      }
+    });
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_ADJUST_ELECTRODE_QUATERNION,
+      // shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      callback  : ( event ) => {
+        if( event.shiftKey ) {
+          rotateElectrodePrototype({ degree : -1 });
+        } else {
+          rotateElectrodePrototype({ degree : 1 });
         }
       }
     });

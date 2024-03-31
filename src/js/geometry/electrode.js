@@ -1,9 +1,9 @@
 import { AbstractThreeBrainObject, ElasticGeometry } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
-  Mesh, Vector2, Vector3, Matrix4, Color,
+  Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
-  SphereGeometry, InstancedMesh, DoubleSide
+  SphereGeometry, InstancedMesh, DoubleSide, AlwaysDepth
 } from 'three';
 import { addColorCoat } from '../shaders/addColorCoat.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
@@ -293,6 +293,7 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   dispose(){
+    super.dispose();
     try {
       this.object.removeFromParent();
 
@@ -329,6 +330,9 @@ class Electrode extends AbstractThreeBrainObject {
 
     if( this.instancedObjects ) {
       this.instancedObjects.dispose();
+    }
+    if( this._upArrow ) {
+      this._upArrow.dispose()
     }
   }
 
@@ -429,6 +433,7 @@ class Electrode extends AbstractThreeBrainObject {
     };
 
     this.direction = new Vector3().set(0, 0, 1);
+    this.up = new Vector3().set(0, 0, 0);  // example, DBS front face
     this.transforms = {
       model2tkr       : null,  // will set soon
       spherePosition  : new Vector3(),
@@ -452,6 +457,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     // default color when not values set
     this.defaultColor = new Color().set(1, 1, 1);
+    this.defaultInstanceColor = new Color().set(0x323232);
     this._tmpColor = new Color().set(1, 1, 1);
     this._tmpVec3 = new Vector3();
     this._tmpMat4 = new Matrix4();
@@ -587,10 +593,18 @@ class Electrode extends AbstractThreeBrainObject {
           .makeScale(contactRadius, contactRadius, contactRadius)
           .setPosition( el );
         instancedObjects.setMatrixAt( ii, contactMatrix );
-        instancedObjects.setColorAt( ii, this.defaultColor );
+        instancedObjects.setColorAt( ii, this.defaultInstanceColor );
       });
       this.instancedObjects.instanceMatrix.needsUpdate = true;
       this.object.add( instancedObjects );
+    }
+
+    const modelUp = this._geometry.parameters.modelUp;
+    if( modelUp.lengthSq() > 0.5 ) {
+      this._upArrow = new ArrowHelper(modelUp, new Vector3( 0, 0, 0 ), 5, 0x00ffff, 2 );
+      this._upArrow.children[0].material.depthFunc = AlwaysDepth;
+      this._upArrow.children[1].material.depthFunc = AlwaysDepth;
+      this.object.add( this._upArrow );
     }
 
     this.object.userData.dispose = () => { this.dispose(); };
@@ -717,7 +731,9 @@ class Electrode extends AbstractThreeBrainObject {
 
   updateElectrodeDirection() {
     if(!this.isElectrodePrototype) {
-      return this.direction.set(0, 0, 1);
+      this.up.set( 0, 0, 0 );
+      this.direction.set(0, 0, 1);
+      return;
     }
     this.object.updateMatrixWorld();
     const matrixWorld = this.object.matrixWorld;
@@ -731,7 +747,9 @@ class Electrode extends AbstractThreeBrainObject {
     this.direction.applyMatrix4( matrixWorld )
       .sub( this._tmpVec3.setFromMatrixPosition( matrixWorld ) )
       .normalize();
-    return this.direction;
+
+    this.up.copy( this._geometry.parameters.modelUp ).sub( this._tmpVec3 ).normalize();
+    return;
   }
 
   // After everything else is set (including controllers)
@@ -1133,23 +1151,39 @@ class Electrode extends AbstractThreeBrainObject {
           switch (repr) {
             case 'prototype':
               this.object.layers.enableAll();
+              if( this._upArrow ) {
+                this._upArrow.children[0].layers.enableAll();
+                this._upArrow.children[1].layers.enableAll();
+              }
               this.instancedObjects.visible = false;
               break;
 
             case 'contact-only':
               this.object.layers.disableAll();
               this.instancedObjects.visible = true;
+              if( this._upArrow ) {
+                this._upArrow.children[0].layers.disableAll();
+                this._upArrow.children[1].layers.disableAll();
+              }
               break;
 
             default:
               this.object.layers.enableAll();
               this.instancedObjects.visible = true;
+              if( this._upArrow ) {
+                this._upArrow.children[0].layers.enableAll();
+                this._upArrow.children[1].layers.enableAll();
+              }
           }
         }
       } else {
         this.object.visible = false;
         if( this.hasInstancedMesh ) {
           this.instancedObjects.visible = false;
+        }
+        if( this._upArrow ) {
+          this._upArrow.children[0].layers.disableAll();
+          this._upArrow.children[1].layers.disableAll();
         }
       }
     };
@@ -1205,11 +1239,13 @@ class Electrode extends AbstractThreeBrainObject {
 
     // check if fixed color
     if( (this.state.fixColor[0] && this.fixedColor) || !(thresholdPassed && this.state.displayActive) ) {
-      let fixedColor;
+      let fixedColor, fixedInstanceColor;
       if( this.state.fixColor[0] && this.fixedColor ) {
         fixedColor = this.fixedColor.color;
+        fixedInstanceColor = this.fixedColor.color;
       } else {
         fixedColor = this.defaultColor;
+        fixedInstanceColor = this.defaultInstanceColor;
       }
 
       if( this.colorNeedsUpdate ) {
@@ -1269,9 +1305,9 @@ class Electrode extends AbstractThreeBrainObject {
         if( instancedObjectVisible ) {
           const count = this.instancedObjects.count;
           for(let i = 0; i < count; i++ ) {
-            instanceColorArray[ i * 3 ] = fixedColor.r;
-            instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
-            instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
+            instanceColorArray[ i * 3 ] = fixedInstanceColor.r;
+            instanceColorArray[ i * 3 + 1 ] = fixedInstanceColor.g;
+            instanceColorArray[ i * 3 + 2 ] = fixedInstanceColor.b;
           }
           this.instancedObjects.instanceColor.needsUpdate = true;
         }
@@ -1507,6 +1543,11 @@ class Electrode extends AbstractThreeBrainObject {
         this.state.contactPositions.tkrRAS.copy( cpos ).applyMatrix4( this.transforms.model2tkr );
         this.state.contactPositions.scanner.copy( cpos ).applyMatrix4( this.transforms.model2scan );
         this.state.contactPositions.mni305.copy( cpos ).applyMatrix4( this.transforms.model2mni305 );
+
+        if( this._upArrow ) {
+          this._upArrow.position.copy( cpos );
+        }
+
         contactIsSet = true;
       }
     }
@@ -1516,6 +1557,10 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.contactPositions.tkrRAS.setFromMatrixPosition( this.transforms.model2tkr );
       this.state.contactPositions.scanner.setFromMatrixPosition( this.transforms.model2scan );
       this.state.contactPositions.mni305.setFromMatrixPosition( this.transforms.model2mni305 );
+
+      if( this._upArrow ) {
+        this._upArrow.position.set(0, 0, 0)
+      }
     }
 
     // update MNI152

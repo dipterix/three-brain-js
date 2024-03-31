@@ -85,7 +85,10 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.cache = {};
 
-    this.__localize_electrode_list = [];
+    this.localizationData = {
+      electrodes : [],
+      electrodePrototype : null
+    };
 
     this.animParameters = this.canvas.animParameters;
 

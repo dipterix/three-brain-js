@@ -107,6 +107,14 @@ class HauntedArcballControls extends EventDispatcher {
   	this.dynamicDampingFactor=0.5;
 
     // finalize
+    /**
+     * Chrome will complain that these are not passive, ignore that, I have
+     * tried twice because of their warning, each time ended up with the
+     * same conclusion: ignore that warning.
+     *
+     * We want the blobking effect: (do not show context menu, do not scroll
+     * page when users want to zoom in)
+    */
     this.domElement.addEventListener( 'contextmenu', this.onContextmenu, false );
   	this.domElement.addEventListener( 'mousedown', this.onMousedown, false );
   	this.domElement.addEventListener( 'wheel', this.onMousewheel, false );
