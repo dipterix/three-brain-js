@@ -26,7 +26,7 @@ import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
-import { Compass } from '../geometry/compass.js';
+import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
 
@@ -205,6 +205,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Add crosshair for side-canvas
     // generate crosshair
   	this.crosshairGroup = new Object3D();
+    this.crosshairCompass = new BasicCompass ({
+      arrowLength : 2,
+      textDistance : 6,
+      textSize: 4,
+      layer : CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13
+    });
   	const crosshairGeometryLR = new BufferGeometry()
   	  .setFromPoints([
   	    new Vector3( -256, 0, 0 ), new Vector3( - CONSTANTS.GEOMETRY["crosshair-gap-half"], 0, 0 ),
@@ -252,6 +258,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // Add crosshair text
     this.scene.add( this.crosshairGroup );
+    this.scene.add( this.crosshairCompass.container );
     this._crosshairPosition = new Vector3();
 
     /* Main camera
@@ -968,6 +975,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this._crosshairPosition.z = z;
     }
     this.crosshairGroup.position.copy( this._crosshairPosition );
+    this.crosshairCompass.position.copy( this._crosshairPosition );
 
     // Calculate datacube2 crosshair label/values
     // get active datacube2
@@ -1518,6 +1526,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.compass.update();
 
+    const slicerState = this.get_state("sideCameraTrackMainCamera", "canonical");
+    this.crosshairCompass.visible = slicerState !== "canonical";
+    this.crosshairCompass.update();
+
     // check if time has timeChanged
     this.threebrain_instances.forEach((inst) => {
       inst.update();
@@ -1634,6 +1646,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     }
     this.crosshairGroup.position.copy( this._crosshairPosition );
+    this.crosshairCompass.position.copy( this._crosshairPosition );
 
     // set electrode outline clearcoat value
     const renderOutlines = this.get_state( "outline_state", "auto" );
@@ -2427,6 +2440,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( oldDataCube2 !== newDataCube2 ) {
       this.debugVerbose(`Setting volume data cube: ${atlas_type} (${target_subject})`);
       this.set_state( "activeDataCube2Instance", newDataCube2 );
+      // Free GPU resource
+      if( oldDataCube2 && oldDataCube2.isThreeBrainObject ) {
+        oldDataCube2.disposeGPU();
+      }
     }
   }
 

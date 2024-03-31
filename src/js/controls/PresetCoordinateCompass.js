@@ -9,9 +9,16 @@ function registerPresetCoordinateCompass( ViewerControlCenter ){
     this.gui.addController('Display Coordinates', true, { folderName : folderName })
       .onChange((v) => {
 
-        if( this.canvas.compass ) {
-          this.canvas.compass.set_visibility( v );
+        if( v ) {
+          this.canvas.compass.visible = true;
+          this.canvas.compass.forceVisible = undefined;
+          this.canvas.crosshairCompass.forceVisible = undefined;
+        } else {
+          this.canvas.compass.forceVisible = false;
+          this.canvas.crosshairCompass.forceVisible = false;
         }
+
+
         this.canvas.needsUpdate = true;
         this.broadcast();
       });
