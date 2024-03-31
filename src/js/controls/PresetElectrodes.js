@@ -132,7 +132,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
-    const elecShapeOptions = ['prototype+sphere', 'contact-only', 'prototype'];
+    const elecShapeOptions = ['prototype+sphere', 'prototype', 'contact-only'];
     const elecShapeCtrl =  this.gui
       .addController( 'Electrode Shape', initialSelection,
                       { args : elecShapeOptions, folderName : folderName } )
@@ -141,7 +141,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 'prototype+sphere' );
+      .setValue( 'prototype' );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_ELEC_SHAPE,
       shiftKey  : true,
@@ -197,12 +197,14 @@ function registerPresetElectrodes( ViewerControlCenter ){
       .min( 1 ).max( 6 ).decimals( 1 )
       .onChange((v) => {
         this.updateElectrodeText({ scale : v });
+        this.broadcast();
       });
 
     const controllerElectrodeTextVisible = this.gui
       .addController('Text Visibility', false, { folderName : folderName })
       .onChange((v) => {
         this.updateElectrodeText({ visible : v });
+        this.broadcast();
       });
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY,

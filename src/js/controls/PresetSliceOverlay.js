@@ -112,6 +112,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       'Coronal (P - A)', 0, { folderName : folderName }
     ).min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
       this.canvas.setSliceCrosshair({ y : v , centerCrosshair : true });
+      this.broadcast();
     });
 
     const controllerAxial = this.gui
@@ -119,6 +120,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       .min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
         // this.setSlice({ z : v });
         this.canvas.setSliceCrosshair({ z : v , centerCrosshair : true });
+        this.broadcast();
       });
 
     const controllerSagittal = this.gui
@@ -126,6 +128,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       .min(-128).max(128).step(0.1).decimals( 1 ).onChange((v) => {
         // this.setSlice({ x : v });
         this.canvas.setSliceCrosshair({ x : v , centerCrosshair : true });
+        this.broadcast();
       });
 
     const controllerCrosshair = this.gui
@@ -136,18 +139,21 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       .addController('Overlay Coronal', false, { folderName : folderName })
       .onChange((v) => {
         this.showSlices( 'coronal', v );
+        this.broadcast();
       });
 
     const controllerOverlayAxial = this.gui
       .addController('Overlay Axial', false, { folderName : folderName })
       .onChange((v) => {
         this.showSlices( 'axial', v );
+        this.broadcast();
       });
 
     const controllerOverlaySagittal = this.gui
       .addController('Overlay Sagittal', false, { folderName : folderName })
       .onChange((v) => {
         this.showSlices( 'sagittal', v );
+        this.broadcast();
       });
 
     // register keyboard shortcuts
@@ -272,12 +278,12 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'side-electrode-dist' ];
 
     const renderDistances = {
-      near: 0.5,
-      far: 0.5
+      near: 10,
+      far: 10
     };
 
     // show electrodes trimmed
-    this.gui.addController('Frustum Near', 0.5, { folderName : folderName })
+    this.gui.addController('Frustum Near', 10, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
         renderDistances.near = v;
@@ -292,7 +298,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
 
-    this.gui.addController('Frustum Far', 0.5, { folderName : folderName })
+    this.gui.addController('Frustum Far', 10, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
         renderDistances.far = v;
@@ -306,7 +312,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 0.5 );
+      .setValue( 10 );
   }
 
   return( ViewerControlCenter );

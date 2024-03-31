@@ -362,14 +362,15 @@ class EnhancedGUI extends GUI {
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
       "Voxel Min", "Voxel Max",
 
-      "Surface Type", "Clipping Plane", "Surface Material",
-      "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
-      "Left Hemisphere", "Right Hemisphere", "Left Opacity", "Right Opacity",
-      "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
+      "Surface Material", "Surface Type", "Clipping Plane",
+      "Left Hemisphere", "Right Hemisphere",
+      "Left Opacity", "Right Opacity",
       "Left Mesh Clipping", "Right Mesh Clipping",
+      "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
+      "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
 
       "Map Electrodes", "Surface Mapping", "Volume Mapping",
-      "Visibility", "Electrode Shape", "Outlines",
+      "Visibility", "Electrode Shape", "Outlines", "Text Scale","Text Visibility",
 
       "Display Data", "Display Range", "Threshold Data", "Threshold Range",
       "Threshold Method", "Additional Data",
@@ -377,7 +378,7 @@ class EnhancedGUI extends GUI {
       "Show Legend", "Show Time", "Highlight Box", "Info Text",
       "Time",
 
-      "Edit Mode", "Auto Refine", "Text Scale", "Text Visibility", "Brain Shift", "Max Shift"
+      "Edit Mode", "Auto Refine", "Brain Shift", "Max Shift"
     ];
     const data = to_dict( args );
     keys.forEach((k) => {
