@@ -230,7 +230,7 @@ class ViewerWrapper {
       bootstrapData : data,
       reset : reset
     };
-    this.debug = data.settings.debug || false;
+    this.debug = data.settings.debug || CONSTANTS.DEBUG;
 
     if( !this.initalized ) {
       if( data.force_render ) {
