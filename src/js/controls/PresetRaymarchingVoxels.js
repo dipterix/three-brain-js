@@ -74,7 +74,9 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       }
 
       const dataSliceInstance = this.getActiveSlice();
-      dataSliceInstance.setOverlay( dataCubeInstance );
+      if( dataSliceInstance ) {
+        dataSliceInstance.setOverlay( dataCubeInstance );
+      }
 
       // this.fire_change({ 'atlas_type' : v });
       this.broadcast();
@@ -182,14 +184,14 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     const ctrlContinuousThresholdLB = this.gui
       .addController('Voxel Min', -100000, { folderName : folderName })
       .min(-100000).max(100000).step( 0.1 )
-      .onChange(( v ) => {
+      .onChange( async ( v ) => {
         voxelLB = v;
         applyContinuousSelection();
       });
     const ctrlContinuousThresholdUB = this.gui
       .addController('Voxel Max', 100000, { folderName : folderName })
       .min(-100000).max(100000).step( 0.1 )
-      .onChange(( v ) => {
+      .onChange( async ( v ) => {
         voxelUB = v;
         applyContinuousSelection();
       });
@@ -198,7 +200,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
 
     const ctrlDiscreteSelector = this.gui
       .addController('Voxel Label', "", { folderName : folderName })
-      .onChange((v) => {
+      .onChange( async (v) => {
         if(typeof(v) !== "string"){ return; }
 
         selectedLabels.length = 0;
