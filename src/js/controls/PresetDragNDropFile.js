@@ -161,7 +161,8 @@ function postProcessVolume( data, fileName, gui, folderName, canvas ) {
   data.fileName = fileName;
   const inst = gen_datacube2( data, canvas );
   inst.forceVisible = true;
-  const innerFolderName = `${folderName} > Additional Volumes > ${ fileName }`;
+  const parentFolder = `${folderName} > Configure ROI Volumes`;
+  const innerFolderName = `${folderName} > Configure ROI Volumes > ${ fileName }`;
 
   // Add visibility controler
   addVisibilityController({
@@ -169,7 +170,7 @@ function postProcessVolume( data, fileName, gui, folderName, canvas ) {
     canvas            : canvas,
     gui               : gui,
     fileName          : fileName,
-    innerFolderName   : innerFolderName
+    parentFolder: parentFolder
   });
 
   // transparency
@@ -189,8 +190,8 @@ function postProcessSurface( data, fileName, gui, folderName, canvas ) {
   const inst = gen_free( data, canvas );
   inst.forceVisible = true;
   inst.object.layers.enable( CONSTANTS.LAYER_USER_ALL_SIDE_CAMERAS_4 );
-  const parentFolder = `${folderName} > Additional Surfaces`;
-  const innerFolderName = `${folderName} > Additional Surfaces > ${ fileName }`;
+  const parentFolder = `${folderName} > Configure ROI Surfaces`;
+  const innerFolderName = `${folderName} > Configure ROI Surfaces > ${ fileName }`;
 
   // Add visibility controler
   addVisibilityController({
@@ -354,7 +355,7 @@ function registerDragNDropFile( ViewerControlCenter ){
 
     dndctrl.domElement.replaceChildren($dragdropWrapper);
 
-    const surfaceFolderName = `${folderName} > Additional Surfaces`;
+    const surfaceFolderName = `${folderName} > Configure ROI Surfaces`;
     this.gui
       .addController(
         "Visibility (all surfaces)",
