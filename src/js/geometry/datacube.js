@@ -241,9 +241,9 @@ class DataCube extends AbstractThreeBrainObject {
 
     if( inst.isDataCube2 ) {
 
-      const nColors = inst.object.material.defines.N_SINGLE_CHANNEL_COLORS;
-      if ( typeof nColors === "number" ) {
+      if ( inst.isDataContinuous ) {
 
+        const nColors = inst.object.material.defines.N_SINGLE_CHANNEL_COLORS;
         const thatUniforms = inst.object.material.uniforms;
 
         const thisColors = this._uniforms.overlayColorsWhenSingleChannel.value;
