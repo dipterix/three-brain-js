@@ -502,7 +502,6 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.colorTexture = new Data3DTexture(
       this.voxelColor, this.modelShape.x, this.modelShape.y, this.modelShape.z
     );
-
     this.colorTexture.minFilter = NearestFilter;
     this.colorTexture.magFilter = NearestFilter;
     this.colorTexture.format = this.colorFormat;

@@ -141,7 +141,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 'prototype' );
+      .setValue( 'prototype+sphere' );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_ELEC_SHAPE,
       shiftKey  : true,
