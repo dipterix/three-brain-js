@@ -10,14 +10,7 @@ import { ColorMapKeywords, addToColorMapKeywords } from '../jsm/math/Lut2.js';
 // 14. electrode mapping
 // 16. Highlight selected electrodes and info
 
-const colorMap = {
-  "_default" : {
-    // when displaying single value
-    single: "#700707",
-    discrete: "default",
-    continuous: "grayscale",
-  },
-};
+const colorMap = {};
 
 function randomColor() {
   let color = Math.floor(Math.random()*16777215).toString(16);
@@ -68,8 +61,8 @@ function ensureColorMap( filename ) {
   if( !colorMap[ filename ] ) {
     colorMap[ filename ] = {
       single: getColorFromFilename( filename ),
-      discrete: "freesurfer",
-      continuous: "grayscale",
+      discrete: "default",
+      continuous: "turbo",
     }
   }
   return colorMap[ filename ];
@@ -191,30 +184,25 @@ function addOpacityController({ inst, canvas, gui, fileName, parentFolder }) {
 function addColorController({ inst, canvas, gui, fileName, parentFolder, controlCenter }) {
   const innerFolderName = `${parentFolder} > ${fileName}`;
 
-  /**
-   *
-   * const continuousLookUpTables = {};
-    const discreteLookUpTables = {};
-   *
-   * single: getColorFromFilename( fileName ),
-   * discrete: "freesurfer",
-   * continuous: "grayscale",
-   *
-   *
-   */
   const colorSettings = ensureColorMap( fileName );
 
-  let currentColorMode = "single color";
-  const colorModes = ["single color", "continuous", "discrete"];
+  let currentColorMode;
+  let colorModes;
+
+  if( inst.isDataCube2 ) {
+    colorModes = ["continuous", "discrete"];
+    currentColorMode = inst.isDataContinuous ? "continuous" : "discrete";
+  } else {
+    colorModes = ["single color"];
+    currentColorMode = "single color";
+  }
 
   const colorModeCtrl = getOrCreateController(
-    gui, `Color Type - ${ fileName }`, "single color",
+    gui, `Color Mode - ${ fileName }`, currentColorMode,
     {
       args: colorModes,
       folderName : innerFolderName
-    });
-
-  currentColorMode = colorModeCtrl.getValue();
+    }, true);
 
   // Single color (fileName already normalized)
   const singleColorCtrl = getOrCreateController(
@@ -315,55 +303,6 @@ function addColorController({ inst, canvas, gui, fileName, parentFolder, control
 
 }
 
-// For multiple values (volumes)
-function addColorMapColorController({ inst, canvas, gui, fileName, parentFolder }) {
-  const innerFolderName = `${parentFolder} > ${fileName}`
-  const colorName = `Color Map - ${ fileName }`;
-
-  let ctrl = gui.getController( colorName, innerFolderName, true );
-  let defaultColor = colorMap[ fileName ];
-
-  if( ctrl.isfake ) {
-    if( fileName.length > 7 && fileName[fileName.length - 7] === "." ) {
-      let tmp = "";
-      for(let j = fileName.length - 6; j < fileName.length; j++ ) {
-        const c = fileName[ j ].toLowerCase();
-        if( "0123456789abcdef".includes(c) ) {
-          tmp += c;
-        } else {
-          break;
-        }
-      }
-      if(tmp.length === 6) {
-        defaultColor = `#${tmp}`;
-      }
-    }
-    ctrl = gui.addController(
-      colorName, "#FFFFFF",
-      {
-        isColor: true,
-        folderName : innerFolderName
-      }
-    );
-  } else {
-    defaultColor = ctrl.getValue();
-  }
-
-  if( typeof defaultColor !== "string" || defaultColor.length !== 7 ) {
-    defaultColor = Math.floor(Math.random()*16777215).toString(16);
-    defaultColor = `#${ "0".repeat( 6 - defaultColor.length ) }${ defaultColor }`;
-  }
-  ctrl.onChange((v) => {
-    if(!v) { return; }
-    if( inst.isFreeMesh ) {
-      inst._materialColor.set( v );
-      inst.object.material.vertexColors = false;
-    }
-    canvas.needsUpdate = true;
-  })
-  .setValue( defaultColor );
-
-}
 
 function addValueClippingController({ inst, canvas, gui, fileName, parentFolder }) {
 
@@ -685,13 +624,14 @@ function registerDragNDropFile( ViewerControlCenter ){
         "Opacity (all volumes)",
         1, { folderName : volumeFolderName } )
       .min(0).max(1)
-      .onChange(v => {
+      .onChange( async (v) => {
         if( !v ) { v = 0; }
+        this.gui.getController("Voxel Opacity").setValue( v );
         fileNames.forEach( (_, fname) => {
           const ctrler = this.gui.getController( `Opacity - ${ fname }`, volumeFolderName, true );
           ctrler.setValue( v );
         });
-      }).setValue(0.5);
+      });
 
   };
 
