@@ -87,6 +87,9 @@ class MGHImage {
     this.header.vox_offset = 284;
     this.header.sform_code = 1;
 
+    this.slope = this.header.scl_slope = 1;
+    this.intercept = this.header.scl_inter = 0;
+
     // Get Torig: IJK to tkrRAS: this Torig only contains rotation part. need to calculate translation
     const Torig = new Matrix4().set(
       xr * spacingX, yr * spacingY, zr * spacingZ, 0,
@@ -154,6 +157,22 @@ class MGHImage {
       this.dataIsUInt8 = true;
     }
 
+    let maxV = 1, minV = 0;
+    if( this.image.length > 0 ) {
+      maxV = this.image[0];
+      minV = this.image[0];
+      this.image.forEach( ( v ) => {
+        if( v > maxV ) {
+          maxV = v;
+        } else if ( v < minV ) {
+          minV = v;
+        }
+      });
+    }
+    this.calMin = this.header.cal_min = minV * this.slope + this.intercept;
+    this.calMax = this.header.cal_max = maxV * this.slope + this.intercept;
+
+
     this.shape = new Vector3(
       this.header.dims[1],
       this.header.dims[2],
@@ -182,43 +201,22 @@ class MGHImage {
 
   }
 
-  normalize () {
-    if( this.normalized ) { return; }
-    if( this.dataIsInt8 || this.dataIsUInt8 ) { return; }
+  getNormalizedImage () {
 
-    // inplace since no enough memory
-    let maxV = -Infinity, minV = Infinity, tmpV = 0;
-    for( let ii = 0; ii < this.image.length; ii++ ) {
-      tmpV = this.image[ ii ];
-      if( tmpV > maxV ) {
-        maxV = tmpV;
-      }
-      if( tmpV < minV ) {
-        minV = tmpV;
-      }
-    }
-    let intercept = 0, slope = 1;
-    if( maxV < 0 || minV >= 1 ) {
-      intercept = -minV;
-      slope = 1.0 / (maxV - minV);
-    } else if ( maxV > 1 ) {
-      // only positive part
-      slope = 1.0 / maxV;
-    }
+    const slope = this.slope || 1;
+    const intercept = this.intercept;
+    const calMin = this.calMin;
+    const calMax = this.calMax;
+    const calSpread = calMax == calMin ? 1 : (calMax - calMin);
+    const calInterc = ( intercept - calMin ) / calSpread;
+    const calSlope = slope / calSpread;
 
-    if( intercept != 0 || slope != 1 ) {
-      const newImage = new Float32Array( this.image.length );
+    const newImage = Float32Array.from( this.image, (x) => {
+      // return ( slope * x + intercept - calMin ) / calSpread;
+      return calSlope * x + calInterc;
+    });
 
-      for( let ii = 0; ii < this.image.length; ii++ ) {
-        newImage[ ii ] = ( this.image[ ii ] + intercept ) * slope;
-      }
-
-      this.image = newImage;
-      this.imageDataType = FloatType;
-      this.dataIsFloat32 = true;
-    }
-
-    this.normalized = true;
+    return newImage;
   }
 
   dispose() {
@@ -242,6 +240,11 @@ class MGHImage {
     if(this.isInvalid) { return this; }
     this._MGHHeader = el._MGHHeader;
     this.header = el.header;
+    this.slope = el.slope || 1;
+    this.intercept = el.intercept;
+    this.calMin = el.calMin;
+    this.calMax = el.calMax;
+
     this.ijk2tkrRAS = new Matrix4().copy( el.ijk2tkrRAS );
     this.affine = new Matrix4().copy( el.affine );
     this.shape = new Vector3().copy( el.shape );

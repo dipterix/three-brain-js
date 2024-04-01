@@ -14,6 +14,12 @@ class NiftiImage {
     }
 
     this.header = nifti.readHeader(data);
+
+    this.slope = this.header.scl_slope || 1;
+    this.intercept = this.header.scl_inter || 0;
+    this.calMin = this.header.cal_min || 0;
+    this.calMax = this.header.cal_max || 0;
+
     const niftiImage = nifti.readImage(this.header, data);
     if (this.header.datatypeCode === nifti.NIFTI1.TYPE_INT8) {
       this.image = new Int8Array(niftiImage);
@@ -49,6 +55,24 @@ class NiftiImage {
       this.dataIsUInt32 = true;
     } else {
       console.warn("NiftiImage: Cannot load NIFTI image data: the data type code is unsupported.")
+    }
+
+    if( this.calMax === 0 ) {
+      let maxV = 1, minV = 0;
+      if( this.image.length > 0 ) {
+        maxV = this.image[0];
+        minV = this.image[0];
+
+        this.image.forEach( ( v ) => {
+          if( v > maxV ) {
+            maxV = v;
+          } else if ( v < minV ) {
+            minV = v;
+          }
+        });
+      }
+      this.calMin = minV * this.slope + this.intercept;
+      this.calMax = maxV * this.slope + this.intercept;
     }
 
     this.isNiftiImage = true;
@@ -128,43 +152,22 @@ class NiftiImage {
 
   }
 
-  normalize () {
-    if( this.normalized ) { return; }
-    if( this.dataIsInt8 || this.dataIsUInt8 ) { return; }
+  getNormalizedImage () {
 
-    // inplace since no enough memory
-    let maxV = 1, minV = 0;
-    if( this.image.length > 0 ) {
-      maxV = this.image[0];
-      minV = this.image[0];
-
-      this.image.forEach( ( v ) => {
-        if( v > maxV ) {
-          maxV = v;
-        } else if ( v < minV ) {
-          minV = v;
-        }
-      });
-    }
-
-    let intercept = 0, slope = 1;
-    if( maxV < 0 || minV >= 1 ) {
-      intercept = -minV;
-      slope = 1.0 / (maxV - minV);
-    } else if ( maxV > 1 ) {
-      // only positive part
-      slope = 1.0 / maxV;
-    }
+    const slope = this.slope || 1;
+    const intercept = this.intercept;
+    const calMin = this.calMin;
+    const calMax = this.calMax;
+    const calSpread = calMax == calMin ? 1 : (calMax - calMin);
+    const calInterc = ( intercept - calMin ) / calSpread;
+    const calSlope = slope / calSpread;
 
     const newImage = Float32Array.from( this.image, (x) => {
-      return slope * (x + intercept);
+      // return ( slope * x + intercept - calMin ) / calSpread;
+      return calSlope * x + calInterc;
     });
 
-    this.image = newImage;
-    this.imageDataType = FloatType;
-    this.dataIsFloat32 = true;
-
-    this.normalized = true;
+    return newImage;
   }
 
   dispose () {
@@ -202,6 +205,11 @@ class NiftiImage {
     } else if( el.dataIsUInt32 ) {
       this.dataIsUInt32 = true;
     }
+
+    this.slope = el.slope || 1;
+    this.intercept = el.intercept;
+    this.calMin = el.calMin;
+    this.calMax = el.calMax;
 
     this.isNiftiImage = true;
 

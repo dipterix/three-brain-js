@@ -67,9 +67,8 @@ class DataCube extends AbstractThreeBrainObject {
           }
         })
       } else {
-        niftiData.normalize();
-        this.cubeData = niftiData.image;
-        dataTextureType = niftiData.imageDataType;
+        this.cubeData = niftiData.getNormalizedImage();
+        dataTextureType = FloatType;
       }
       this.cubeShape = new Vector3().copy( niftiData.shape );
       const affine = niftiData.affine.clone();
