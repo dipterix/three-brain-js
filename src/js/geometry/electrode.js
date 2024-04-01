@@ -330,6 +330,7 @@ class Electrode extends AbstractThreeBrainObject {
 
     if( this.instancedObjects ) {
       this.instancedObjects.dispose();
+      delete this.instancedObjects.userData.instance;
     }
     if( this._upArrow ) {
       this._upArrow.dispose()
@@ -584,6 +585,9 @@ class Electrode extends AbstractThreeBrainObject {
         this._instancedShaderUniforms
       );
       const instancedObjects = new InstancedMesh( instancedGeometry, instancedMaterial, nContacts );
+      instancedObjects.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
+      instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
+      instancedObjects.userData.instance = this;
       this.instancedObjects = instancedObjects;
 
       const contactMatrix = new Matrix4().identity();

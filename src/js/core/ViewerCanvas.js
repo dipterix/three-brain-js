@@ -416,14 +416,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   */
   _onMouseDown = ( event ) => {
     // async, but raycaster is always up to date
-    const promise = this.raycastClickables();
-    if( !promise ) { return; }
-    promise
+    this.raycastClickables()
       .then(( item ) => {
-        if(
-          !item || !item.object || !item.object.isMesh ||
-          !item.object.userData.construct_params
-        ) { return; }
+        if( !item || !item.object || !item.object.isMesh ) { return; }
 
         // normal left-click
         const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
@@ -446,17 +441,26 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // where clickable objects stay
     raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
 
-    const _this = this;
-
     return new Promise((resolve) => {
+
+      if( !raycaster ) {
+        resolve();
+        return;
+      }
+
+      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
 
       // Only raycast with visible
       const items = raycaster.intersectObjects(
         // asArray( this.clickable )
-        _this.clickable_array.filter((e) => { return( e.visible ) })
+        this.clickable_array.filter((e) => { return( e.visible ) })
       );
 
-      if( !items || items.length === 0 ) { resolve(); }
+      if( !items || items.length === 0 ) {
+        resolve();
+        return;
+      }
+
       resolve( items[0] );
 
     });
@@ -1273,7 +1277,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.object_chosen = m;
       this._last_object_chosen = m;
 
-      const inst = m.userData.instance;
+      const inst = getThreeBrainInstance( m );
       if( inst && inst.isElectrode ) {
         // let electrode know where clicked so it can update the contact list
         inst.focusContactFromWorld( intersectPoint );
