@@ -98,37 +98,39 @@ void main() {
       #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
         vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
-        vec4 overlayColor = texture(overlayMap, overlaySampPos).rgba;
 
-        #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
+        // Clamp to border not edge
+        if( all( greaterThan( overlaySampPos, vec3(-0.00001) ) ) && all( lessThan( overlaySampPos, vec3(1.00001) ) ) ) {
 
-          // using red channel as the color intensity
-          if( overlayColor.r > 0.0 ) {
+          vec4 overlayColor = texture(overlayMap, overlaySampPos).rgba;
 
-            float nColorMinusOne = float( OVERLAY_N_SINGLE_CHANNEL_COLORS ) - 1.0;
-            float intensity = (overlayColor.r - overlayValueLB) / (overlayValueUB - overlayValueLB);
-            intensity = clamp( intensity , 0.0 , 1.0 ) * nColorMinusOne;
+          #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
 
-            float colorIndex = floor( intensity );
-            int colorIndex_d = int( colorIndex );
+            // using red channel as the color intensity
+            if( overlayColor.r > 0.0 ) {
 
-            if( colorIndex >= nColorMinusOne ) {
+              float nColorMinusOne = float( OVERLAY_N_SINGLE_CHANNEL_COLORS ) - 1.0;
+              float intensity = (overlayColor.r - overlayValueLB) / (overlayValueUB - overlayValueLB);
+              intensity = clamp( intensity , 0.0 , 1.0 ) * nColorMinusOne;
 
-              overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ];
+              float colorIndex = floor( intensity );
+              int colorIndex_d = int( colorIndex );
 
-            } else {
+              if( colorIndex >= nColorMinusOne ) {
 
-              intensity -= colorIndex;
+                overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ];
 
-              overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ] * (1.0 - intensity) + overlayColorsWhenSingleChannel[ colorIndex_d + 1 ] * intensity;
+              } else {
+
+                intensity -= colorIndex;
+
+                overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ] * (1.0 - intensity) + overlayColorsWhenSingleChannel[ colorIndex_d + 1 ] * intensity;
+
+              }
 
             }
 
-            color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
-
-          }
-
-        #else
+          #endif
 
           if( overlayColor.a > 0.0 ) {
             if( any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
@@ -140,7 +142,9 @@ void main() {
             }
           }
 
-        #endif
+        }
+
+
 
       #endif
 
