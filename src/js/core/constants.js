@@ -240,4 +240,10 @@ CONSTANTS.CANVAS_RENDER_STATE = {
 
 
 
+// ------- EVENTS -------------------------------------
+
+CONSTANTS.EVENTS = {};
+CONSTANTS.EVENTS.onDataCube2ColorUpdated = "datacube2.useColorLookupTable";
+
+
 export { CONSTANTS };

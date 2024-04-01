@@ -6,13 +6,16 @@ import {
   Vector3, Matrix4, BufferGeometry, DataTexture, RGBAFormat, UVMapping,
   UnsignedByteType, ClampToEdgeWrapping, NearestFilter,
   BufferAttribute, Float32BufferAttribute,
-  PlaneGeometry, SphereGeometry, BoxGeometry
+  PlaneGeometry, SphereGeometry, BoxGeometry, EventDispatcher
 } from 'three';
 
 const tmpVec3 = new Vector3();
 
-class AbstractThreeBrainObject {
+class AbstractThreeBrainObject extends EventDispatcher {
   constructor(g, canvas){
+
+    super();
+
     this._params = g;
     this._canvas = canvas;
     this._display_mode = "normal";
