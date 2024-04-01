@@ -331,10 +331,10 @@ void main(){
                 float lightNormDot = dot(normal2, lightDirection);
 
                 // ///////////////////////////
-                // Blinn Phong lighting calculation
+                // Simplified Blinn Phong lighting calculation
                 // ///////////////////////////
-                vec3 ReflectedRay = reflect(-lightDirection, normal2);
-                vec3 eyeDirection = normalize(-rayDir);
+                // vec3 ReflectedRay = reflect(-lightDirection, normal2);
+                // vec3 eyeDirection = normalize(-rayDir);
                 float diffuse = clamp(lightNormDot, 0.0, 1.0);
 
                 //Light attenuation
@@ -412,9 +412,10 @@ void main(){
 
     const pal = this.uniforms.colorsWhenSingleChannel.value;
 
-    pal.forEach( (c, ii) => {
-      c.copy( lut.getColor( ii ) );
-    });
+    for( let i = 0; i < nColors; i++ ) {
+      pal[ i ] = lut.getColor( i );
+    }
+
     this.uniformsNeedUpdate = true;
   }
 

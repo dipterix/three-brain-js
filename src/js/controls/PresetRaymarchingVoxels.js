@@ -45,7 +45,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       this.canvas.needsUpdate = true;
     }
 
-    this._onDataCube2TypeChanged = (v) => {
+    this._onDataCube2TypeChanged = async (v) => {
       this.canvas.switch_subject( '/', {
         'atlas_type': v
       });
@@ -100,8 +100,14 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       },
       callback  : ( event ) => {
         const currentValue = voxTypeCtrl.getValue();
-        const cube2Types = this.canvas.get_atlas_types();
-        cube2Types.push("none");
+
+        let cube2Types = voxTypeCtrl._allChoices;
+        if( !Array.isArray(cube2Types) ) {
+          cube2Types = this.canvas.get_atlas_types();
+          cube2Types.push("none");
+          voxTypeCtrl._allChoices = cube2Types;
+        }
+
         let selectedIndex = ( cube2Types.indexOf( currentValue ) + 1 );
         if( selectedIndex >= cube2Types.length ) {
           selectedIndex = 0;

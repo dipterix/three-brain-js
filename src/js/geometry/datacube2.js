@@ -5,13 +5,14 @@ import { Vector3, Matrix4, Data3DTexture, NearestFilter, FloatType,
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
+import { Lut } from '../jsm/math/Lut2.js'
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
 
 class DataCube2 extends AbstractThreeBrainObject {
 
-  async _filterDataContinuous( dataLB, dataUB, timeSlice ) {
+  _filterDataContinuous( dataLB, dataUB, timeSlice ) {
     if( dataLB < this.__dataLB ) {
       dataLB = this.__dataLB;
     }
@@ -25,10 +26,10 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // calculate voxelData -> colorKey transform
     let data2ColorKeySlope = 1, data2ColorKeyIntercept = 0;
-    if( this.lutAutoRescale ) {
-      data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - this.__dataLB);
-      data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (this.__dataLB + this.__dataUB)) / 2.0;
-    }
+    // if( this.lutAutoRescale ) {
+    data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - this.__dataLB);
+    data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (this.__dataLB + this.__dataUB)) / 2.0;
+    // }
 
     if( typeof(timeSlice) === "number" ){
       this._timeSlice = Math.floor( timeSlice );
@@ -161,7 +162,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.colorTexture.needsUpdate = true;
   }
-  async _filterDataDiscrete( selectedDataValues, timeSlice ) {
+  _filterDataDiscrete( selectedDataValues, timeSlice ) {
 
     if( Array.isArray( selectedDataValues ) ){
 
@@ -317,7 +318,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     // this.object.material.uniforms.maxRenderDistance.value = dist;
   }
 
-  updatePalette( selectedDataValues, timeSlice ){
+  async updatePalette( selectedDataValues, timeSlice ){
     if( !this._canvas.has_webgl2 ){ return; }
 
     if( this.isDataContinuous ) {
@@ -414,6 +415,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this._transform.multiply( niftiData.model2RAS );
       }
       this._originalData = niftiData;
+
     } else {
       // g.trans_mat is from model to tkrRAS
       this.voxelData = this._canvas.get_data('datacube_value_'+g.name, g.name, g.group.group_name);
@@ -426,10 +428,34 @@ class DataCube2 extends AbstractThreeBrainObject {
         ( this.modelShape.y - 1.0 ) / 2.0,
         ( this.modelShape.z - 1.0 ) / 2.0
       )
+
+      let minV = maxV = this.voxelData[0];
+      this.voxelData.forEach((vd) => {
+        if( minV > vd ) {
+          minV = vd;
+        } else if ( maxV < vd ){
+          maxV = vd;
+        }
+      });
+
+      this._originalData = {
+        slope : 1,
+        intercept : 0,
+        calMin : minV,
+        calMax : maxV,
+      };
     }
     this.nVoxels = this.modelShape.x * this.modelShape.y * this.modelShape.z;
     // The color map might be specified separately
-    this.lut = g.color_map || canvas.global_data('__global_data__.VolumeColorLUT');
+    if( g.color_map ) {
+      this.lut = g.color_map;
+    } else {
+      if( g.color_format === "RedFormat" ) {
+        this.lut = canvas.global_data('__global_data__.SurfaceColorLUT');
+      } else {
+        this.lut = canvas.global_data('__global_data__.VolumeColorLUT');
+      }
+    }
     this.lutMap = this.lut.map;
     this.lutMaxColorID = this.lut.mapMaxColorID;
     this.lutMinColorID = this.lut.mapMinColorID;
@@ -442,7 +468,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     if( g.color_format === "RedFormat" ) {
       this.colorFormat = RedFormat;
       this.nColorChannels = 1;
-      this.voxelColor = new Uint8Array( this.nVoxels );
+      this.voxelColor = new Uint8Array( this.nVoxels * 4 );
     } else {
       this.colorFormat = RGBAFormat;
       this.nColorChannels = 4;
@@ -451,24 +477,15 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // Change voxelData so all elements are integers (non-negative)
     if( this.isDataContinuous ) {
-      if( this.lutAutoRescale ) {
+      // grayscale = ( slope x data + intercept - calMin ) / (calMax - calMin) * 255; also
+      // grayscale = ( data - this.__dataLB ) / ( this.__dataUB - this.__dataLB ) * 255
 
-        this.__dataLB = Infinity;
-        this.__dataUB = -Infinity;
-        this.voxelData.forEach((vd) => {
-          if( this.__dataLB > vd ) { this.__dataLB = vd; }
-          if( this.__dataUB < vd ) { this.__dataUB = vd; }
-        })
+      this.__dataLB = ( this._originalData.calMin - this._originalData.intercept ) / this._originalData.slope;
+      this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope + 1;
 
-        if( this.__dataLB === Infinity ) {
-          this.__dataLB = this.lutMinColorID;
-        }
-        if( this.__dataUB === -Infinity ) {
-          this.__dataUB = this.lutMaxColorID;
-        }
-
-      }
-
+      this._selectedDataValues.length = 2;
+      this._selectedDataValues[ 0 ] = this.__dataLB;
+      this._selectedDataValues[ 1 ] = this.__dataUB;
     } else {
 
       this.voxelData.forEach((vd, ii) => {
@@ -680,9 +697,75 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   }
 
+  useColorLookupTable( lut, paletteName = "viridis" ) {
+
+    // Make sure the colormap is compatible
+    const wasContinuous = this.isDataContinuous;
+    const uniforms = this.object.material.uniforms;
+
+    if(
+      lut && this.lut !== lut && lut.map && lut.mapDataType &&
+      lut.mapMaxColorID !== undefined && lut.mapMinColorID !== undefined
+    ) {
+      const isDataContinuous = lut.mapDataType === "continuous";
+      const nColors = isDataContinuous ? 128 : 1;
+      this.lut = lut;
+      this.lutMap = this.lut.map;
+      this.lutMaxColorID = this.lut.mapMaxColorID;
+      this.lutMinColorID = this.lut.mapMinColorID;
+      this.lutAutoRescale = this.lut.colorIDAutoRescale === true;
+      // this.__dataLB = this.lutMinColorID;
+      // this.__dataUB = this.lutMaxColorID;
+      this.isDataContinuous = this.lut.mapDataType === "continuous";
+
+      if(wasContinuous === undefined || wasContinuous ^ this.isDataContinuous) {
+        if( this.isDataContinuous ) {
+          this.colorFormat = RedFormat;
+          this.nColorChannels = 1;
+
+          this.object.material.useSingleChannel = true;
+
+        } else {
+          this.colorFormat = RGBAFormat;
+          this.nColorChannels = 4;
+
+          this.object.material.useSingleChannel = false;
+        }
+
+        this.colorTexture.minFilter = NearestFilter;
+        this.colorTexture.magFilter = NearestFilter;
+        this.colorTexture.format = this.colorFormat;
+        this.colorTexture.type = UnsignedByteType;
+        this.colorTexture.unpackAlignment = 1;
+        this.colorTexture.needsUpdate = true;
+
+        uniforms.cmap.value = this.colorTexture;
+        uniforms.colorChannels.value = this.nColorChannels;
+
+        this.object.material.defines.N_SINGLE_CHANNEL_COLORS = nColors;
+      }
+
+      if( this.isDataContinuous ) {
+        this.__dataLB = ( this._originalData.calMin - this._originalData.intercept ) / this._originalData.slope;
+        this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope + 1;
+
+        this._selectedDataValues.length = 2;
+        this._selectedDataValues[ 0 ] = this.__dataLB;
+        this._selectedDataValues[ 1 ] = this.__dataUB;
+      } else {
+        this._selectedDataValues.length = 0;
+      }
+
+      this.updatePalette();
+    }
+
+    this.object.material.changePalette( paletteName );
+    this.object.material.uniformsNeedUpdate = true;
+
+    this._canvas.needsUpdate = true;
+  }
 
 }
-
 
 function gen_datacube2(g, canvas){
   if( g && (g.isNiftiImage || g.isMGHImage) ) {
@@ -691,9 +774,36 @@ function gen_datacube2(g, canvas){
     const fileName = g.fileName ?? "Custom";
     const name = `Atlas - ${ fileName } (${subjectCode})`;
 
+    let colorFormat = g.colorFormat;
+    if( !colorFormat ) {
+      /**
+       * determine the color format from fileName
+       * If the file name contains:
+       *   dseg, mask (BIDS)
+       *   aparc, aseg (FreeSurfer)
+       *   discrete (others)
+       */
+      if( fileName.match(/(dseg|mask|aseg|aparc|discrete|atlas|parcel)/gi) ) {
+        colorFormat = "RGBAFormat";
+      } else {
+        colorFormat = "RedFormat";
+      }
+    }
+
+    let colorMap = g.color_map;
+    if( !colorMap ) {
+      if( colorFormat === "RedFormat" ) {
+        // Make sure the color rescales
+        colorMap = {...canvas.global_data('__global_data__.SurfaceColorLUT')};
+        colorMap.colorIDAutoRescale = true;
+      } else {
+        colorMap = canvas.global_data('__global_data__.VolumeColorLUT');
+      }
+    }
+
     g = {
       clickable: false,
-      color_format: "RGBAFormat",
+      color_format: colorFormat,
       custom_info: "",
       disable_trans_mat: false,
       group: { group_name: `Atlas - Custom (${subjectCode})`, group_layer: 0, group_position: [0, 0, 0] },
@@ -712,7 +822,8 @@ function gen_datacube2(g, canvas){
       type: "datacube2",
       use_cache: false,
       value: null,
-      imageObject: g
+      color_map: colorMap,
+      imageObject: g,
     }
 
     const inst = new DataCube2(g, canvas);
