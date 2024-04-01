@@ -64,6 +64,9 @@ const animationFrameUpdateEvent = { type : "viewerApp.animationFrame.update" };
 
 const tmpVec3 = new Vector3();
 
+const continuousLookUpTables = {};
+const discreteLookUpTables = {};
+
 class ViewerControlCenter extends EventDispatcher {
 
   /**
@@ -85,6 +88,14 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.cache = {};
 
+    // colormap for surfaces and volumes
+    continuousLookUpTables.default = {...this.canvas.global_data('__global_data__.SurfaceColorLUT')};
+    continuousLookUpTables.default.colorIDAutoRescale = true;
+    discreteLookUpTables.default = {...this.canvas.global_data('__global_data__.VolumeColorLUT')};
+    discreteLookUpTables.freesurfer = this.canvas.global_data('__global_data__.FSColorLUT');
+    this.continuousLookUpTables = continuousLookUpTables;
+    this.discreteLookUpTables = discreteLookUpTables;
+
     this.localizationData = {
       electrodes : [],
       electrodePrototype : null
@@ -98,7 +109,7 @@ class ViewerControlCenter extends EventDispatcher {
         this.ctrlAnimTime.updateDisplay();
       }
     };
-    this.animParameters._eventDispatcher.addEventListener( "animation.time.onChange", this._animOnTimeChange )
+    this.animParameters._eventDispatcher.addEventListener( "animation.time.onChange", this._animOnTimeChange );
 
     // keyboard event dispatcher
     this.canvas.$el.addEventListener( "viewerApp.keyboad.keydown" , this._onKeyDown );
@@ -473,6 +484,8 @@ class ViewerControlCenter extends EventDispatcher {
 
     let currentValue = ctrlDC2Type.getValue();
     if( !cube2Types.includes( currentValue ) ) { currentValue = 'none'; }
+
+    ctrlDC2Type._allChoices = cube2Types;
 
     if(
       cube2Types.length === ctrlDC2Type._values.length &&

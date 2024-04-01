@@ -159,6 +159,10 @@
   max-width: 75%;
 }
 
+.threejs-control .lil-gui .lil-gui-ensure-width .controller > .name {
+  max-width: calc(100% - 120px);
+}
+
 
 .threejs-control .lil-gui.root > .children > .lil-gui > .children {
   border: none;
