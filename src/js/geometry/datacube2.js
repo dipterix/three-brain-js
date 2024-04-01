@@ -10,6 +10,7 @@ import { Lut } from '../jsm/math/Lut2.js'
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
 
+
 class DataCube2 extends AbstractThreeBrainObject {
 
   _filterDataContinuous( dataLB, dataUB, timeSlice ) {
@@ -762,10 +763,16 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.object.material.changePalette( paletteName );
     this.object.material.uniformsNeedUpdate = true;
 
+    this.dispatchEvent( {
+      type: CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+      instanceName: this.name
+    } );
+
     this._canvas.needsUpdate = true;
   }
 
 }
+
 
 function gen_datacube2(g, canvas){
   if( g && (g.isNiftiImage || g.isMGHImage) ) {

@@ -22,6 +22,10 @@ const SliceShader = {
     overlay2IJK: { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
     overlayAlpha: { value : 0.5 },
 
+    overlayColorsWhenSingleChannel: { value : [] },
+    overlayValueLB: { value : 0.0 },
+    overlayValueUB: { value : 1.0 },
+
     // gamma correction
     gamma : { value : 1.0 },
 
@@ -58,6 +62,14 @@ uniform mat4 world2IJK;
 
 #endif
 
+#if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
+
+  uniform vec3 overlayColorsWhenSingleChannel[ OVERLAY_N_SINGLE_CHANNEL_COLORS ];
+  uniform float overlayValueLB;
+  uniform float overlayValueUB;
+
+#endif
+
 out vec4 color;
 void main() {
 // calculate IJK, then sampler position
@@ -88,15 +100,47 @@ void main() {
         vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
         vec4 overlayColor = texture(overlayMap, overlaySampPos).rgba;
 
-        if( overlayColor.a > 0.0 ) {
-          if( any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
-            if( overlayAlpha < 0.0 ) {
-              color.rgb = overlayColor.rgb;
+        #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
+
+          // using red channel as the color intensity
+          if( overlayColor.r > 0.0 ) {
+
+            float nColorMinusOne = float( OVERLAY_N_SINGLE_CHANNEL_COLORS ) - 1.0;
+            float intensity = (overlayColor.r - overlayValueLB) / (overlayValueUB - overlayValueLB);
+            intensity = clamp( intensity , 0.0 , 1.0 ) * nColorMinusOne;
+
+            float colorIndex = floor( intensity );
+            int colorIndex_d = int( colorIndex );
+
+            if( colorIndex >= nColorMinusOne ) {
+
+              overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ];
+
             } else {
-              color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+
+              intensity -= colorIndex;
+
+              overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ] * (1.0 - intensity) + overlayColorsWhenSingleChannel[ colorIndex_d + 1 ] * intensity;
+
+            }
+
+            color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+
+          }
+
+        #else
+
+          if( overlayColor.a > 0.0 ) {
+            if( any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
+              if( overlayAlpha < 0.0 ) {
+                color.rgb = overlayColor.rgb;
+              } else {
+                color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+              }
             }
           }
-        }
+
+        #endif
 
       #endif
 

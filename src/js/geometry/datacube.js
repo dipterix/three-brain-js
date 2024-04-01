@@ -4,7 +4,7 @@ import { to_array, get_or_default } from '../utils.js';
 import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedFormat,
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
-         PlaneGeometry, Mesh, LineSegments, FloatType } from 'three';
+         PlaneGeometry, Mesh, LineSegments, FloatType, Color } from 'three';
 import { SliceShader } from '../shaders/SliceShader.js';
 
 
@@ -179,41 +179,132 @@ class DataCube extends AbstractThreeBrainObject {
 
   }
 
-  setOverlay( x ) {
-    if( !x ) {
-      this._uniforms.overlayMap.value = null;
-      delete this.sliceMaterial.defines.HAS_OVERLAY;
-      this.sliceMaterial.needsUpdate = true;
-      return;
+  _setOverlayColorChangeHandler = ( event ) => {
+    console.log(  event);
+    if( !this._overlay ) { return; }
+    if( this._overlay.name !== event.instanceName ) { return; }
+    this.setOverlay( this._overlay );
+  };
+
+  removeOverlay() {
+    let needsUpdate = false;
+    const thisMaterialDefines = this.sliceMaterial.defines;
+    this._uniforms.overlayMap.value = null;
+
+    if( thisMaterialDefines.HAS_OVERLAY !== undefined ) {
+      delete thisMaterialDefines.HAS_OVERLAY;
+      needsUpdate = true;
     }
+    if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+      delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+      needsUpdate = true;
+    }
+
+    if( this._overlay ) {
+      try {
+        this._overlay.removeEventListener(
+          CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+          this._setOverlayColorChangeHandler
+        );
+      } catch (e) {
+        console.warn(e);
+      }
+      needsUpdate = true;
+    }
+    if( needsUpdate ) {
+      this.sliceMaterial.needsUpdate = true;
+    }
+  }
+
+  setOverlay( x ) {
+
     const inst = getThreeBrainInstance( x );
     if( !inst || !( inst.isDataCube2 || inst.isDataCube ) ) {
-      delete this.sliceMaterial.defines.HAS_OVERLAY;
-      this.sliceMaterial.needsUpdate = true;
+      this.removeOverlay();
       return;
     }
 
-    if( typeof this.sliceMaterial.defines.HAS_OVERLAY !== "string" ) {
-      this.sliceMaterial.defines.HAS_OVERLAY = "";
-      this.sliceMaterial.needsUpdate = true;
+    if( this._overlay !== inst ) {
+      this.removeOverlay();
+      this._overlay = inst;
+    }
+
+    const thisMaterialDefines = this.sliceMaterial.defines;
+
+    let materialNeedsUpdate = false;
+
+    if( typeof thisMaterialDefines.HAS_OVERLAY !== "string" ) {
+      thisMaterialDefines.HAS_OVERLAY = "";
+      materialNeedsUpdate = true;
     }
 
 
     if( inst.isDataCube2 ) {
+
+      const nColors = inst.object.material.defines.N_SINGLE_CHANNEL_COLORS;
+      if ( typeof nColors === "number" ) {
+
+        const thatUniforms = inst.object.material.uniforms;
+
+        const thisColors = this._uniforms.overlayColorsWhenSingleChannel.value;
+        const thatColors = thatUniforms.colorsWhenSingleChannel.value;
+        for( let i = 0; i < nColors; i++ ) {
+          if( !thisColors[ i ] ) {
+            thisColors[ i ] = new Color();
+          }
+          const thatC = thatColors[ i ];
+          if( thatC ) {
+            thisColors[ i ].copy( thatC );
+          }
+        }
+
+        this._uniforms.overlayValueLB.value = thatUniforms.singleChannelColorRangeLB.value;
+        this._uniforms.overlayValueUB.value = thatUniforms.singleChannelColorRangeUB.value;
+
+        if( nColors !== thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS ) {
+          thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS = nColors;
+          materialNeedsUpdate = true;
+        }
+
+      } else if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+        delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+        materialNeedsUpdate = true;
+      }
+
       this._uniforms.overlayMap.value = inst.colorTexture;
       this._uniforms.overlayShape.value.copy( inst.modelShape );
 
       // inst._transform is model to world
       this._uniforms.overlay2IJK.value.copy( inst._transform ).invert()
         .premultiply( inst.model2vox );
-      return;
-    }
 
-    if( inst.isDataCube ) {
+    } else if( inst.isDataCube ) {
+
+      if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+        delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+        materialNeedsUpdate = true;
+      }
+
       this._uniforms.overlayMap.value = inst._uniforms.map.value;
       this._uniforms.overlayShape.value.copy( inst._uniforms.mapShape );
       this._uniforms.overlay2IJK.value.copy( inst._uniforms.world2IJK.value );
-      return;
+
+    }
+
+    if( materialNeedsUpdate ) {
+      this.sliceMaterial.needsUpdate = true;
+    }
+
+    if(
+      !inst.hasEventListener(
+        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+        this._setOverlayColorChangeHandler
+      )
+    ) {
+      inst.addEventListener(
+        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+        this._setOverlayColorChangeHandler
+      );
     }
   }
 
