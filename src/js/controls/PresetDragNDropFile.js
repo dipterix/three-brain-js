@@ -41,7 +41,10 @@ function testColorString( s, randIfFail = false ) {
 }
 
 function normalizeImageName( fileName ) {
-  return fileName.toLowerCase().replaceAll(/\.(nii|nii\.gz|mgz|mgh)$/g, "");
+  return fileName.toLowerCase()
+    .replaceAll(/\.(nii|nii\.gz|mgz|mgh)$/g, "")
+    .replaceAll(/[ \(\)+\-\:]+/g, "_")
+    .replaceAll(/[_]+$/g, "");
 }
 
 function getColorFromFilename( filename ) {
@@ -391,6 +394,8 @@ function postProcessVolume({ data, fileName, gui, folderName, canvas, controlCen
   });
 
   canvas.needsUpdate = true;
+
+  return inst;
 }
 
 function postProcessSurface({ data, fileName, gui, folderName, canvas, controlCenter }) {
@@ -430,6 +435,8 @@ function postProcessSurface({ data, fileName, gui, folderName, canvas, controlCe
   });
 
   canvas.needsUpdate = true;
+
+  return inst;
 }
 
 function postProcessText({ data, fileName, gui, folderName, canvas }) {
@@ -460,6 +467,7 @@ function registerDragNDropFile( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_dragdrop = function(){
     const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
     const fileNames = new Map();
+    this.upLoadedFiles = fileNames;
 
     const dndctrl = this.gui.addController( "Dragdrop Uploader", () => {}, { folderName : folderName } );
 
@@ -531,8 +539,13 @@ function registerDragNDropFile( ViewerControlCenter ){
 
       const data = await this.canvas.fileLoader.loadFromResponse ( file );
       const normalizedFilename = normalizeImageName( fileName );
-      fileNames.set( normalizedFilename , 1 );
-      return postProcess({
+
+      if( !fileNames.has( normalizedFilename ) ) {
+        fileNames.set( normalizedFilename , {} );
+      }
+
+
+      const inst = postProcess({
         data: data,
         fileName: normalizedFilename,
         gui: gui,
@@ -540,25 +553,46 @@ function registerDragNDropFile( ViewerControlCenter ){
         canvas: canvas,
         controlCenter: this
       });
+
+      if( inst && inst.isThreeBrainObject ) {
+        const item = fileNames.get( normalizedFilename );
+        item[ inst.type ] = inst;
+      }
+      return inst;
     };
 
-    $dragdropWrapper.ondrop = (ev) => {
+    $dragdropWrapper.ondrop = async (ev) => {
       ev.preventDefault();
       resetStyle();
+
+      const files = [];
+
+      const queueFile = ( file ) => {
+        if( file.name.match(/(json|csv|tsv|txt)$/gi) ) {
+          files.push( file );
+        } else {
+          files.unshift( file );
+        }
+      };
+
       if (ev.dataTransfer.items) {
         // Use DataTransferItemList interface to access the file(s)
         [...ev.dataTransfer.items].forEach((item, i) => {
           // If dropped items aren't files, reject them
           if (item.kind === "file") {
-            const file = item.getAsFile();
-            processFile( file );
+            queueFile( item.getAsFile() );
           }
         });
       } else {
         // Use DataTransfer interface to access the file(s)
         [...ev.dataTransfer.files].forEach((file, i) => {
-          processFile( file );
+          queueFile( file );
         });
+      }
+
+
+      while( files.length > 0 ) {
+        await processFile( files.pop() );
       }
 
     };
@@ -579,6 +613,37 @@ function registerDragNDropFile( ViewerControlCenter ){
     dndctrl.domElement.replaceChildren($dragdropWrapper);
 
     const surfaceFolderName = `${folderName} > Configure ROI Surfaces`;
+
+    this.gui.addController(
+      "Clear Uploaded Surfaces",
+      () => {
+        fileNames.forEach( (item, fname) => {
+
+          try {
+            if( item.FreeMesh ) {
+              item.FreeMesh.dispose();
+              delete item.FreeMesh;
+            }
+          } catch (e) {
+            console.warn(e);
+          }
+
+          try {
+            const folder = this.gui.getFolder( `${surfaceFolderName} > ${fname}` );
+            if( folder ) {
+              folder.destroy();
+            }
+          } catch (e) {
+            console.warn(e);
+          }
+
+        });
+
+        this.canvas.needsUpdate = true;
+      },
+      { folderName : surfaceFolderName }
+    );
+
     this.gui
       .addController(
         "Visibility (all surfaces)",
@@ -607,6 +672,39 @@ function registerDragNDropFile( ViewerControlCenter ){
 
 
     const volumeFolderName = `${folderName} > Configure ROI Volumes`;
+
+    this.gui.addController(
+      "Clear Uploaded Volumes",
+      () => {
+        fileNames.forEach( (item, fname) => {
+
+          try {
+            if( item.DataCube2 ) {
+              item.DataCube2.dispose();
+              delete item.DataCube2;
+            }
+          } catch (e) {
+            console.warn(e);
+          }
+
+          try {
+            const folder = this.gui.getFolder( `${volumeFolderName} > ${fname}` );
+            if( folder ) {
+              folder.destroy();
+            }
+          } catch (e) {
+            console.warn(e);
+          }
+
+        });
+
+        this.updateDataCube2Types();
+
+        this.canvas.needsUpdate = true;
+      },
+      { folderName : volumeFolderName }
+    );
+
     this.gui
       .addController(
         "Visibility (all volumes)",
