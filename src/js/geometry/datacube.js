@@ -186,7 +186,7 @@ class DataCube extends AbstractThreeBrainObject {
     this.setOverlay( this._overlay );
   };
 
-  removeOverlay() {
+  removeOverlay = () => {
     let needsUpdate = false;
     const thisMaterialDefines = this.sliceMaterial.defines;
     this._uniforms.overlayMap.value = null;
@@ -205,6 +205,10 @@ class DataCube extends AbstractThreeBrainObject {
         this._overlay.removeEventListener(
           CONSTANTS.EVENTS.onDataCube2ColorUpdated,
           this._setOverlayColorChangeHandler
+        );
+        this._overlay.removeEventListener(
+          CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+          this.removeOverlay
         );
       } catch (e) {
         console.warn(e);
@@ -306,6 +310,19 @@ class DataCube extends AbstractThreeBrainObject {
         this._setOverlayColorChangeHandler
       );
     }
+
+    if(
+      !inst.hasEventListener(
+        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+        this.removeOverlay
+      )
+    ) {
+      inst.addEventListener(
+        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+        this.removeOverlay
+      );
+    }
+
   }
 
   disposeGPU() {
@@ -321,6 +338,10 @@ class DataCube extends AbstractThreeBrainObject {
     this.sliceGeometryXZ.dispose();
   	this.sliceGeometryYZ.dispose();
     this.dataTexture.dispose();
+
+    this._canvas.removeClickable( '_coronal_' + this.name );
+    this._canvas.removeClickable( '_axial_' + this.name );
+    this._canvas.removeClickable( '_sagittal_' + this.name );
   }
 
   get_track_data( track_name, reset_material ){}
@@ -427,9 +448,9 @@ class DataCube extends AbstractThreeBrainObject {
     this._canvas.mesh.set( '_sagittal_' + this.name, this.sliceYZ );
 
     if( this.clickable ){
-      this._canvas.add_clickable( '_coronal_' + this.name, this.sliceXZ );
-      this._canvas.add_clickable( '_axial_' + this.name, this.sliceXY );
-      this._canvas.add_clickable( '_sagittal_' + this.name, this.sliceYZ );
+      this._canvas.makeClickable( '_coronal_' + this.name, this.sliceXZ );
+      this._canvas.makeClickable( '_axial_' + this.name, this.sliceXY );
+      this._canvas.makeClickable( '_sagittal_' + this.name, this.sliceYZ );
     }
     this.sliceXY.layers.set( CONSTANTS.LAYER_SYS_AXIAL_10 );
     this.sliceXZ.layers.set( CONSTANTS.LAYER_SYS_CORONAL_9 );
@@ -455,7 +476,7 @@ class DataCube extends AbstractThreeBrainObject {
       plane.updateMatrixWorld();
     });
 
-    this.register_object( ['slices'] );
+    this.registerToMap( ['slices'] );
 
   }
 
