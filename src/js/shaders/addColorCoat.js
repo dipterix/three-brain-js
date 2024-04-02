@@ -61,7 +61,7 @@ if( useDataTexture ) {
 }
 
 gl_FragDepth = gl_FragCoord.z;
-if( any( greaterThan( vUv , vec2(1.0) ) ) || any( lessThan( vUv , vec2(0.0) ) ) ) {
+if( any( greaterThan( vUv , vec2(1.0001) ) ) || any( lessThan( vUv , vec2(-0.0001) ) ) ) {
   diffuseColor.rgb = vec3( 0.0 );
   diffuseColor.a = 0.15;
 }
