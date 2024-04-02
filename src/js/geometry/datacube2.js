@@ -574,6 +574,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.object.geometry.dispose();
         // this._data_texture.dispose();
         this.colorTexture.dispose();
+        this.colorTexture.image = null
 
         // this._map_data = undefined;
         // this.voxelData = undefined;
@@ -616,7 +617,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     // this._canvas.origin.remove( gp );
     // this._canvas.scene.add( gp );
 
-    this.register_object( ['atlases'] );
+    this.registerToMap( ['atlases'] );
 
   }
 

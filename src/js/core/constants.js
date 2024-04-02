@@ -243,6 +243,8 @@ CONSTANTS.CANVAS_RENDER_STATE = {
 // ------- EVENTS -------------------------------------
 
 CONSTANTS.EVENTS = {};
+CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart = "threeBrainObject.disposeStart";
+CONSTANTS.EVENTS.onThreeBrainObjectDisposeGPUStart = "threeBrainObject.disposeGPUStart";
 CONSTANTS.EVENTS.onDataCube2ColorUpdated = "datacube2.useColorLookupTable";
 
 

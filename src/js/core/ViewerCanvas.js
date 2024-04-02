@@ -503,7 +503,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   // Make object clickable (mainly electrodes)
-  add_clickable( name, obj ){
+  makeClickable( name, obj ){
     if( this.clickable.has( name ) ){
       // remove from this.clickable_array
       const sub = this.clickable.get( name ),
@@ -514,6 +514,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     this.clickable.set( name, obj );
     this.clickable_array.push( obj );
+  }
+
+  removeClickable( name ) {
+    if( this.clickable.has( name ) ){
+      // remove from this.clickable_array
+      const sub = this.clickable.get( name ),
+            idx = this.clickable_array.indexOf( sub );
+      if( idx > -1 ){
+        this.clickable_array.splice(idx, 1);
+      }
+    }
   }
 
   // Add geom groups. This function can be async if the group contains

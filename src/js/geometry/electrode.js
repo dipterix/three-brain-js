@@ -295,6 +295,8 @@ class Electrode extends AbstractThreeBrainObject {
   dispose(){
     super.dispose();
     try {
+      this._canvas.removeClickable( this.name );
+      this._canvas.removeClickable( this.name+"__instanced" );
       this.object.removeFromParent();
 
       if( typeof this.protoName === "string" ) {
@@ -762,7 +764,7 @@ class Electrode extends AbstractThreeBrainObject {
     super.finish_init();
 
     // add to canvas electrode list
-    this.register_object( ['electrodes'] );
+    this.registerToMap( ['electrodes'] );
     if( this.isElectrodePrototype ) {
       // get_or_default( this._canvas[ nm ], this.subject_code, {} )[ this.name ] = this.object;
       if( !this._canvas.electrodePrototypes.has(this.subject_code) ) {
@@ -773,8 +775,8 @@ class Electrode extends AbstractThreeBrainObject {
     }
 
     // electrodes must be clickable, ignore the default settings
-    this._canvas.add_clickable( this.name, this.object );
-    this._canvas.add_clickable( this.name+"__instanced", this.instancedObjects );
+    this._canvas.makeClickable( this.name, this.object );
+    this._canvas.makeClickable( this.name+"__instanced", this.instancedObjects );
 
     // set label size
     const electrodeLabelState = this._canvas.state_data.get("electrode_label");

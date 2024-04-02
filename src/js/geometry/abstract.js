@@ -86,9 +86,21 @@ class AbstractThreeBrainObject extends EventDispatcher {
     return( this.world_position );
   }
 
-  disposeGPU() {}
+  disposeGPU() {
+    this.dispatchEvent({
+      type: CONSTANTS.EVENTS.onThreeBrainObjectDisposeGPUStart,
+      instanceName: this.name
+    });
+  }
 
-  dispose() {}
+  dispose() {
+    this.dispatchEvent({
+      type: CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+      instanceName: this.name
+    });
+    this._canvas.removeClickable( this.name );
+    this._canvas.threebrain_instances.delete( this.name );
+  }
 
   get_track_data( track_name, reset_material ){
     this.warn('method get_track_data(track_name, reset_material) not implemented...');
@@ -119,10 +131,31 @@ class AbstractThreeBrainObject extends EventDispatcher {
     return(this._canvas.group.get( this.group_name ));
   }
 
-  register_object( names ){
-    asArray(names).forEach((nm) => {
-      get_or_default( this._canvas[ nm ], this.subject_code, {} )[ this.name ] = this.object;
+  registerToMap( names ){
+    const mapNames = asArray(names);
+    const subjectCode = this.subject_code;
+    const registeredAsName = this.name;
+    mapNames.forEach((nm) => {
+      get_or_default( this._canvas[ nm ], subjectCode, {} )[ registeredAsName ] = this.object;
     });
+    this.addEventListener(
+      CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+      () => {
+        mapNames.forEach((nm) => {
+          try {
+            const map = this._canvas[ nm ];
+            if( map && map.has( subjectCode ) ) {
+              const subjectMap = map.get( subjectCode );
+              if( subjectMap && typeof subjectMap === "object" && subjectMap[ registeredAsName ] ) {
+                delete subjectMap[ registeredAsName ];
+              }
+            }
+          } catch (e) {
+            console.warn(e);
+          }
+        });
+      }
+    );
   }
 
   debugVerbose = ( message ) => {
@@ -139,7 +172,7 @@ class AbstractThreeBrainObject extends EventDispatcher {
 
       this._canvas.mesh.set( this.name, this.object );
       if( this.clickable ){
-        this._canvas.add_clickable( this.name, this.object );
+        this._canvas.makeClickable( this.name, this.object );
       }
 
       if( this.group_name ){

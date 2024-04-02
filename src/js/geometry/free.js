@@ -344,7 +344,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     // Need to registr surface
     // instead of using surface name, use
-    this.register_object( ['surfaces'] );
+    this.registerToMap( ['surfaces'] );
 
     this._material_options.shift.value.copy( this._mesh.parent.position );
 

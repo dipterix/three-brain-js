@@ -438,10 +438,10 @@ class Electrode extends AbstractThreeBrainObject {
     super.finish_init();
 
     // add to canvas electrode list
-    this.register_object( ['electrodes'] );
+    this.registerToMap( ['electrodes'] );
 
     // electrodes must be clickable, ignore the default settings
-    this._canvas.add_clickable( this.name, this.object );
+    this._canvas.makeClickable( this.name, this.object );
 
     // set label size
     const electrodeLabelState = this._canvas.state_data.get("electrode_label");
@@ -1775,9 +1775,9 @@ class Sphere extends AbstractThreeBrainObject {
       const g = this._params,
             subject_code = this.subject_code;
 
-      this.register_object( ['electrodes'] );
+      this.registerToMap( ['electrodes'] );
       // electrodes must be clickable, ignore the default settings
-      this._canvas.add_clickable( this.name, this.object );
+      this._canvas.makeClickable( this.name, this.object );
 
       // this._text_sprite.visible = true;
       const electrode_label = this._canvas.state_data.get("electrode_label");

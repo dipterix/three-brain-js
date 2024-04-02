@@ -246,6 +246,9 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.$el.removeEventListener( "viewerApp.mouse.click" , this._onClicked );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setValue" , this._onDriveController );
     this.canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
+    if( this.upLoadedFiles ) {
+      this.upLoadedFiles.clear();
+    }
     // this.canvas.$el.removeEventListener( "viewerApp.subject.changed", this.updateSelectorOptions );
   }
 
