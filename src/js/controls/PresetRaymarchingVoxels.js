@@ -117,7 +117,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     });
 
     // Controls how the datacube should be displayed
-    const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'anat. slices', 'main camera'];
+    const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'main camera', 'anat. slices'];
     const ctrlDC2Display = this.gui
       .addController(
         'Voxel Display', 'side camera',

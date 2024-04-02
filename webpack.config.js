@@ -11,6 +11,7 @@ module.exports = {
     worker  : path.resolve(__dirname, 'src/js/worker.js'),
   },
   devtool: 'hidden-source-map',
+  // devtool: 'source-map',
   module: {
     rules: [
       {
