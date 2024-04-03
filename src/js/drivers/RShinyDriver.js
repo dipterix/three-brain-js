@@ -1,6 +1,7 @@
 import { Vector3, Matrix4, Color } from 'three';
 import { asArray } from '../utility/asArray.js';
 import { asColor } from '../utility/color.js';
+import { getThreeBrainInstance } from '../geometry/abstract.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { CONSTANTS } from '../core/constants.js';
 
@@ -148,8 +149,12 @@ class RShinyDriver {
     // World position in tkr-RAS
     const position = objectChosen.getWorldPosition( new Vector3() );
 
-    const g = objectChosen.userData.construct_params;
-    const groupName = g.group ? g.group.group_name : null;
+    const instance = getThreeBrainInstance( objectChosen );
+
+    if(!instance) { return; }
+
+    const g = instance._params;
+    const groupName = instance.group_name || null;
 
     const data = {
       object        : g,
