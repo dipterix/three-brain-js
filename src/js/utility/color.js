@@ -64,4 +64,33 @@ function colorLuma ( c ) {
   return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 }
 
-export { asColor , invertColor, colorLuma };
+
+function randomColor() {
+  let color = Math.floor(Math.random()*16777215).toString(16);
+  color = `#${ "0".repeat( 6 - color.length ) }${ color }`;
+  return color;
+}
+
+function testColorString( s, randIfFail = false ) {
+  let test = true;
+  if( typeof s === "string" && s.length == 7 ) {
+    for( let j = 1; j < 7; j++ ) {
+      const c = s[ j ].toLowerCase();
+      if( !"0123456789abcdef".includes(c) ) {
+        test = false;
+        break;
+      }
+    }
+  } else {
+    test = false;
+  }
+
+  if( test ) { return s; }
+
+  if( randIfFail ) {
+    return randomColor();
+  }
+  return;
+}
+
+export { asColor , invertColor, colorLuma, randomColor, testColorString };
