@@ -10,8 +10,8 @@ module.exports = {
     main    : path.resolve(__dirname, 'src/js/index.js'),
     worker  : path.resolve(__dirname, 'src/js/worker.js'),
   },
-  devtool: 'hidden-source-map',
-  // devtool: 'source-map',
+  // devtool: 'hidden-source-map',
+  devtool: 'source-map',
   module: {
     rules: [
       {
