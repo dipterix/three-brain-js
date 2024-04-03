@@ -50,27 +50,58 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         'atlas_type': v
       });
       const dataCubeInstance = this.getActiveDataCube2();
-      if( !dataCubeInstance ) {
+      if( !dataCubeInstance || !dataCubeInstance.isDataCube2 ) {
         // hide selection controllers
         this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max'], folderName);
-      } else if( dataCubeInstance.isDataContinuous ) {
-        this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max'], folderName);
-        this.gui.hideControllers(['Voxel Label'], folderName);
-        // update controllers' min, max, steps
-        const nColorKeys = Object.keys(dataCubeInstance.lut.map).length;
-        const lb = Math.floor( dataCubeInstance.__dataLB ),
-              ub = Math.ceil( dataCubeInstance.__dataUB );
-        ctrlContinuousThresholdLB.min( lb ).max( ub )
-          .step( (ub - lb) / ( nColorKeys - 1 ) )
-          .setValue( Math.max( voxelLB , lb ) ).updateDisplay();
-        ctrlContinuousThresholdUB.min( lb ).max( ub )
-          .step( (ub - lb) / ( nColorKeys - 1 ) )
-          .setValue( Math.min( voxelUB, ub ) ).updateDisplay();
-        // applyContinuousSelection();
       } else {
-        this.gui.showControllers(['Voxel Display', 'Voxel Label'], folderName);
-        this.gui.hideControllers(['Voxel Min', 'Voxel Max'], folderName);
-        applyDiscreteSelection();
+
+        // Hold palette so it does not update
+        dataCubeInstance._holdePalette = true;
+        const selectedDataValues = dataCubeInstance._selectedDataValues;
+        const opacity = dataCubeInstance.object.material.uniforms.alpha.value || 0;
+
+        this.gui.getController('Voxel Opacity').setValue( opacity );
+
+        if( dataCubeInstance.isDataContinuous ) {
+
+          const nColorKeys = Object.keys(dataCubeInstance.lut.map).length;
+          const lb = Math.floor( dataCubeInstance.__dataLB ),
+                ub = Math.ceil( dataCubeInstance.__dataUB );
+          voxelLB = Math.max( voxelLB, lb );
+          voxelUB = Math.min( voxelUB, ub );
+
+          if( Array.isArray( selectedDataValues ) && selectedDataValues.length >= 2 ) {
+            if( typeof selectedDataValues[0] === "number" ) {
+              voxelLB = selectedDataValues[0];
+            }
+            if( typeof selectedDataValues[1] === "number" ) {
+              voxelUB = selectedDataValues[1];
+            }
+          }
+
+          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max'], folderName);
+          this.gui.hideControllers(['Voxel Label'], folderName);
+          // update controllers' min, max, steps
+          ctrlContinuousThresholdLB.min( lb ).max( ub )
+            .step( (ub - lb) / ( nColorKeys - 1 ) )
+            .setValue( voxelLB ).updateDisplay();
+          ctrlContinuousThresholdUB.min( lb ).max( ub )
+            .step( (ub - lb) / ( nColorKeys - 1 ) )
+            .setValue( voxelUB ).updateDisplay();
+
+          delete dataCubeInstance._holdePalette;
+          applyContinuousSelection();
+        } else {
+          this.gui.showControllers(['Voxel Display', 'Voxel Label'], folderName);
+          this.gui.hideControllers(['Voxel Min', 'Voxel Max'], folderName);
+          selectedLabels.length = 0;
+          selectedDataValues.forEach((selected, colorID) => {
+            selectedLabels.push( colorID );
+          })
+          delete dataCubeInstance._holdePalette;
+          applyDiscreteSelection();
+        }
+
       }
 
       const dataSliceInstance = this.getActiveSlice();
@@ -165,7 +196,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
 
     // Controls the opacity of the voxels
     this.canvas.set_state("overlayAlpha", -1);
-    this.gui
+    const ctrlVoxelOpacity = this.gui
       .addController('Voxel Opacity', 0.0, { folderName : folderName })
       .min(0).max(1).decimals(2)
       .onChange( async (v) => {

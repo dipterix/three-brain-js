@@ -321,6 +321,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   async updatePalette( selectedDataValues, timeSlice ){
     if( !this._canvas.has_webgl2 ){ return; }
+    if( this._holdePalette ) {
+      return;
+    }
 
     if( this.isDataContinuous ) {
 
