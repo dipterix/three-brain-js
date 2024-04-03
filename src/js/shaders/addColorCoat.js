@@ -75,4 +75,4 @@ if ( !fixedClearCoat && clearcoat2 > 0.0 && reflectProd < clearcoat2 ) {
   return material;
 }
 
-export { addColorCoat };
+// export { addColorCoat };

@@ -5,59 +5,14 @@ import { set_visibility } from '../utils.js';
 import { gen_datacube2 } from '../geometry/datacube2.js';
 import { gen_free } from '../geometry/free.js';
 import { ColorMapKeywords, addToColorMapKeywords } from '../jsm/math/Lut2.js';
+import { randomColor, testColorString } from '../utility/color.js';
+import { normalizeImageName, getColorFromFilename } from '../utility/normalizeImageName.js';
 
 // 13. electrode visibility, highlight, groups
 // 14. electrode mapping
 // 16. Highlight selected electrodes and info
 
 const colorMap = {};
-
-function randomColor() {
-  let color = Math.floor(Math.random()*16777215).toString(16);
-  color = `#${ "0".repeat( 6 - color.length ) }${ color }`;
-  return color;
-}
-
-function testColorString( s, randIfFail = false ) {
-  let test = true;
-  if( typeof s === "string" && s.length == 7 ) {
-    for( let j = 1; j < 7; j++ ) {
-      const c = s[ j ].toLowerCase();
-      if( !"0123456789abcdef".includes(c) ) {
-        test = false;
-        break;
-      }
-    }
-  } else {
-    test = false;
-  }
-
-  if( test ) { return s; }
-
-  if( randIfFail ) {
-    return randomColor();
-  }
-  return;
-}
-
-function normalizeImageName( fileName ) {
-  return fileName.toLowerCase()
-    .replaceAll(/\.(nii|nii\.gz|mgz|mgh)$/g, "")
-    .replaceAll(/[ \(\)+\-\:]+/g, "_")
-    .replaceAll(/[_]+$/g, "");
-}
-
-function getColorFromFilename( filename ) {
-
-  if( typeof filename === "string" ) {
-    filename = normalizeImageName( filename );
-    if( filename.length >= 6 ) {
-      const s = "#" + filename.substring(filename.length - 6);
-      return testColorString( s, true );
-    }
-  }
-  return randomColor();
-}
 
 function ensureColorMap( filename ) {
   // assuming filename has been normalized

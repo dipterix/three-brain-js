@@ -5,11 +5,14 @@ import {
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
   SphereGeometry, InstancedMesh, DoubleSide, AlwaysDepth
 } from 'three';
-import { addColorCoat } from '../shaders/addColorCoat.js';
+// import { addColorCoat } from '../shaders/addColorCoat.js';
+import { ElectrodeMaterial } from '../shaders/ElectrodeMaterial.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { asArray } from '../utility/asArray.js';
+import { testColorString } from '../utility/color.js';
 import { pointPositionByDistances, registerRigidPoints } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
+
 
 const MATERIAL_PARAMS_BASIC = {
   'transparent'   : true,
@@ -18,16 +21,6 @@ const MATERIAL_PARAMS_BASIC = {
   'vertexColors'  : false,
   'side'          : DoubleSide,
 };
-
-const MATERIAL_PARAMS_MORE = {
-  ...MATERIAL_PARAMS_BASIC,
-  'roughness'           : 1,
-  'metalness'           : 0,
-  'ior'                 : 0,
-  'clearcoat'           : 0.0,
-  'clearcoatRoughness'  : 1,
-  'flatShading'         : false,
-}
 
 function guessHemisphere(g) {
   // guess hemisphere from freesurfer label
@@ -372,10 +365,36 @@ class Electrode extends AbstractThreeBrainObject {
     this.mapToTemplateAffine({ subjectCode : subjectCode });
   }
 
+  /**
+   * @params chanNum channel number. For single contact, this is `this.numbers`;
+   * for multi-channel electrodes, this is the contact number
+   * @params kfName key-frame name, usually the current display variable name
+   */
+  getFixedColor ( chanNum, kfName ) {
+    if( !this._mapFixedColor ) { return; }
+    if( kfName === "[Subject]" ) { return; }
+    if( !chanNum ) { return; }
+    const colSettings = this._mapFixedColor[ chanNum.toString() ];
+    if( !colSettings ) { return; }
+    if( kfName === "[None]" ) { return colSettings.default; }
+
+    if( typeof kfName === "string" && colSettings.maps && colSettings.maps[ kfName ] ) {
+      return colSettings.maps[ kfName ];
+    }
+
+    if( colSettings.inclusive ) {
+      return colSettings.default;
+    }
+    return;
+  }
+
   constructor (g, canvas) {
     super( g, canvas );
     // correct hemisphere
     g.hemisphere = guessHemisphere( g );
+
+    const groupObject = this.getGroupObject3D();
+    const groupData = this.getGroupData();
 
     // member setups
     this.type = "Electrode";
@@ -425,8 +444,9 @@ class Electrode extends AbstractThreeBrainObject {
       thresholdTestArray: [],               // Used for multiple contacts; used when multiple values exist and `thresholdTest` is undefined
 
       colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
+      anyFixedColor     : false,
       fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
-      useBasicMaterial  : false,            // whether to use basic material? true when have data, false when fixed color or no data
+      fixedColor        : [new Color()],    // If `fixColor[i]`, then show `fixedColor[i]`
 
       templateMappingActive: false,         // whether the electrode is mapped to template
       templateSubject   : this.subject_code,
@@ -447,20 +467,13 @@ class Electrode extends AbstractThreeBrainObject {
 
 
     // When to fix the color
-    this.fixedColor = undefined;
-    if( g.fixed_color && typeof( g.fixed_color ) === "object" ) {
-      if( g.fixed_color.color ) {
-        this.fixedColor = {
-          'color' : new Color().set( g.fixed_color.color ),
-          'names' : asArray( g.fixed_color.names ),
-          'inclusive' : g.fixed_color.inclusive ? true: false
-        };
-      }
+    this._mapFixedColor = null;
+    if( groupData && groupData["fixed_colors"] ) {
+      this._mapFixedColor = groupData["fixed_colors"];
     }
 
     // default color when not values set
-    this.defaultColor = new Color().set(1, 1, 1);
-    this.defaultInstanceColor = new Color().set(0x323232);
+    this.defaultColor = new Color().set(0xc2c2c2);
     this._tmpColor = new Color().set(1, 1, 1);
     this._tmpVec3 = new Vector3();
     this._tmpMat4 = new Matrix4();
@@ -479,10 +492,9 @@ class Electrode extends AbstractThreeBrainObject {
     // geomParams can be in g.geomParams or in group_data
     this.protoName = undefined;
     if( typeof(protoName) === "string" ) {
-      const groupObject = this.getGroupObject3D();
-      if( groupObject && groupObject.userData.group_data ) {
+      if( groupData ) {
         if( !geomParams || typeof geomParams !== "object" ) {
-          geomParams = groupObject.userData.group_data[`prototype_${protoName}`];
+          geomParams = groupData[`prototype_${protoName}`];
         }
         this.protoName = protoName;
       }
@@ -512,21 +524,11 @@ class Electrode extends AbstractThreeBrainObject {
     const hasTransform = this._geometry.parameters.hasTransform;
     this.contactCenter = this._geometry.parameters.contactCenter;
 
-    this._shaderUniforms = {
-      fixedClearCoat : { value : fixedClearCoat ? true : false },
-      clearcoat      : { value : 0.0 },
-      useDataTexture : { value : 0 },
-      dataTexture    : { value : this._dataTexture },
-    };
-
     // materials
-    this._materials = {
-      'MeshBasicMaterial' : addColorCoat( new MeshBasicMaterial( MATERIAL_PARAMS_BASIC ), this._shaderUniforms ),
-      'MeshPhysicalMaterial': addColorCoat( new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ), this._shaderUniforms )
-    };
+    this._material = new ElectrodeMaterial( MATERIAL_PARAMS_BASIC );
 
     // mesh
-    this.object = new Mesh(this._geometry, this._materials.MeshPhysicalMaterial );
+    this.object = new Mesh( this._geometry, this._material );
     // make sure not hidden by other objects;
     this.object.name = 'mesh_electrode_' + g.name;
     if( hasTransform ) {
@@ -566,27 +568,19 @@ class Electrode extends AbstractThreeBrainObject {
     this.object.add( this._textSprite );
 
     // Also add instancedMesh within the object
-    this._instancedShaderUniforms = {
-      fixedClearCoat : { value : false },
-      clearcoat      : { value : 0.0 },
-      useDataTexture : { value : 0 },
-      dataTexture    : { value : null },
-    };
     if( Array.isArray( this.contactCenter ) && this.contactCenter.length > 0 ) {
       this.hasInstancedMesh = true;
       const nContacts = this.contactCenter.length;
       const instancedGeometry = new SphereGeometry( 1 );
       // materials
-      const instancedMaterial = addColorCoat(
-        new MeshBasicMaterial({
-          'transparent'   : false,
-          'reflectivity'  : 0,
-          'color'         : 0xffffff,
-          'vertexColors'  : false,
-        }),
-        this._instancedShaderUniforms
-      );
+      const instancedMaterial = new ElectrodeMaterial({
+        'transparent'   : false,
+        'reflectivity'  : 0,
+        'color'         : 0xffffff,
+        'vertexColors'  : false,
+      });
       const instancedObjects = new InstancedMesh( instancedGeometry, instancedMaterial, nContacts );
+      instancedObjects.renderOrder = CONSTANTS.RENDER_ORDER.InstancedElectrode;
       instancedObjects.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
       instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
       instancedObjects.userData.instance = this;
@@ -599,7 +593,7 @@ class Electrode extends AbstractThreeBrainObject {
           .makeScale(contactRadius, contactRadius, contactRadius)
           .setPosition( el );
         instancedObjects.setMatrixAt( ii, contactMatrix );
-        instancedObjects.setColorAt( ii, this.defaultInstanceColor );
+        instancedObjects.setColorAt( ii, this.defaultColor );
       });
       this.instancedObjects.instanceMatrix.needsUpdate = true;
       this.object.add( instancedObjects );
@@ -842,8 +836,9 @@ class Electrode extends AbstractThreeBrainObject {
 
     // test the threshold ranges agaist electrode value(s)
     this._thresholdRanges = this._canvas.get_state('threshold_values');
+    this._thresholdOperator = this._canvas.get_state('threshold_method');
     const thresholdRanges = asArray( this._thresholdRanges );
-    const operators = this._canvas.get_state('threshold_method');
+    const operators = this._thresholdOperator;
     const isContinuous = this._canvas.get_state('threshold_type') === "continuous";
 
     if( isContinuous ) {
@@ -946,22 +941,14 @@ class Electrode extends AbstractThreeBrainObject {
       }
     }
 
-    if( this.state.thresholdTest === false ) {
-      this.state.useBasicMaterial = false;
-    } else {
-      if(
-        currentVariableName !== this.state.thresholdVariable ||
-        currentThresholdTestArrays !== this.state.thresholdTestArray ||
-        currentThresholdValues !== this.state.thresholdValues ||
-        currentThresholdRanges !== this._thresholdRanges
-      ) {
-        this.colorNeedsUpdate = true;
-      }
-    }
   }
 
   getInfoText(type = "display") {
     let infoPrefix, varname, values;
+
+    const currentContactFocused = this.state.focusedContact;
+    let chanNum = this.contactCenter[ currentContactFocused ].chanNum;
+
     if( type === "display" ) {
       if( !this.state.displayActive ) { return; }
       infoPrefix = "Display:   ";
@@ -977,10 +964,16 @@ class Electrode extends AbstractThreeBrainObject {
       infoPrefix = "More:      ";
       varname = this.state.additionalDisplayVariable;
       values = this.state.additionalDisplayValues;
+    } else {
+      // Default returns name
+      if( typeof chanNum === "number" || typeof chanNum === "string" ) {
+        chanNum = ` [ch=${chanNum}] `;
+      } else {
+        chanNum = "";
+      }
+      return `${this.name}${ chanNum }`;
     }
 
-    const currentContactFocused = this.state.focusedContact;
-    let chanNum = this.contactCenter[ currentContactFocused ].chanNum;
     const valueSize = Array.isArray( values ) ? values.length : 1;
 
     if( Array.isArray( values ) && valueSize === 1 ) {
@@ -1031,7 +1024,6 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.displayActive    = false;
       this.state.displayVariable  = "[None]";
       this.state.displayValues    = undefined;
-      this.state.useBasicMaterial = false;
       this.colorNeedsUpdate = true;
       return;
     }
@@ -1042,7 +1034,6 @@ class Electrode extends AbstractThreeBrainObject {
       // varname exists, but track not found or invalid
       this.state.displayActive = false;
       this.state.displayValues = undefined;
-      this.state.useBasicMaterial = false;
       this.colorNeedsUpdate = true;
       return;
     }
@@ -1052,10 +1043,6 @@ class Electrode extends AbstractThreeBrainObject {
 
     if( !currentDisplayActive || currentDisplayVariable !== displayVariableName || currentDisplayValues !== displayValues ) {
       this.colorNeedsUpdate = true;
-    }
-
-    if ( this.state.thresholdTest !== false ) {
-      this.state.useBasicMaterial = true;
     }
 
   }
@@ -1086,64 +1073,68 @@ class Electrode extends AbstractThreeBrainObject {
     this.state.additionalDisplayValues = values;
   }
 
+  updateDataRange() {
+    this.colorNeedsUpdate = true;
+  }
+
   updateFixedColor() {
 
     // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
     // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
-    // useBasicMaterial
 
     const colorSize = this.state.colorSize;
     const fixColor = this.state.fixColor;
+    const fixedColor = this.state.fixedColor;
 
+    /** TODO: remove this
     if( !this.fixedColor ) {
       for( let i = 0 ; i < colorSize; i++ ) {
         fixColor[ i ] = false;
       }
       return;
     }
+    */
     const displayVariableName = this.state.displayVariable;
 
-    // TODO: fix me when fixed color needs to be considered for each sub-element
-    let useFixedColor = false;
+    let anyFixedColor = false;
+    let colorNeedsUpdate = false;
 
-    switch ( displayVariableName ) {
-      case '[None]':
-        useFixedColor = true;
-        break;
+    if( this.isElectrodePrototype ) {
+      if( Array.isArray( this.contactCenter ) ) {
+        this.contactCenter.forEach( (center, ii) => {
 
-      case '[Subject]':
-        useFixedColor = false;
-        break;
+          if( !fixedColor[ ii ] ) {
+            fixedColor[ ii ] = new Color();
+          }
+          const colorHexStr = this.getFixedColor( center.chanNum, displayVariableName );
 
-      default: {
-        const cmap = this._canvas.currentColorMap();
-        if( this.fixedColor.inclusive ) {
-          useFixedColor = this.fixedColor.names.includes( cmap.name );
-        } else {
-          useFixedColor = ! this.fixedColor.names.includes( cmap.name );
-        }
+          if( !colorNeedsUpdate ) {
+            colorNeedsUpdate = fixColor[ ii ] ^ (colorHexStr !== undefined);
+          }
+
+          if( !colorHexStr ) {
+            fixColor[ ii ] = false;
+            return;
+          }
+          fixedColor[ ii ].set( colorHexStr );
+          fixColor[ ii ] = true;
+          anyFixedColor = true;
+        });
       }
-    };
-
-    if( useFixedColor && colorSize > 0 && !fixColor[ 0 ]) {
-      this.colorNeedsUpdate = true;
-    }
-
-    for( let i = 0 ; i < colorSize; i++ ) {
-      fixColor[ i ] = useFixedColor;
-    }
-
-    if( useFixedColor) {
-      this.state.useBasicMaterial = false;
-    }
-
-  }
-  updateMaterialType() {
-    if( this.state.useBasicMaterial ) {
-      this.object.material = this._materials.MeshBasicMaterial;
     } else {
-      this.object.material = this._materials.MeshPhysicalMaterial;
+      const colorHexStr = this.getFixedColor( this.numbers, displayVariableName );
+      colorNeedsUpdate = fixColor[ 0 ] ^ (colorHexStr !== undefined);
+      if( !colorHexStr ) {
+        fixColor[ 0 ] = false;
+      } else {
+        anyFixedColor = true;
+        fixColor[ 0 ] = true;
+        fixedColor[ 0 ].set( colorHexStr );
+      }
     }
+
+    this.state.anyFixedColor = anyFixedColor;
+
   }
 
   updateVisibility() {
@@ -1227,7 +1218,6 @@ class Electrode extends AbstractThreeBrainObject {
   updateColors() {
     // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
     // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
-    // useBasicMaterial  // whether basic material is used
 
     // no need to visualize
     const objectVisible = this.object.visible,
@@ -1244,35 +1234,87 @@ class Electrode extends AbstractThreeBrainObject {
     const instanceColorArray = instancedObjectVisible ? this.instancedObjects.instanceColor.array : undefined;
 
     // check if fixed color
-    if( (this.state.fixColor[0] && this.fixedColor) || !(thresholdPassed && this.state.displayActive) ) {
-      let fixedColor, fixedInstanceColor;
-      if( this.state.fixColor[0] && this.fixedColor ) {
-        fixedColor = this.fixedColor.color;
-        fixedInstanceColor = this.fixedColor.color;
-      } else {
-        fixedColor = this.defaultColor;
-        fixedInstanceColor = this.defaultInstanceColor;
-      }
+    if( this.colorNeedsUpdate ) {
+      this.colorNeedsUpdate = undefined;
 
-      if( this.colorNeedsUpdate ) {
-        this.colorNeedsUpdate = undefined;
+      const defaultColor = this.defaultColor;
+      const channelMap = this._geometry.getAttribute("channelMap");
+      const useFixedColor = this.state.fixColor;
+      const fixedColorArray = this.state.fixedColor;
 
-        if( params.useDataTexture && this._dataTexture ) {
-          const useChannelMap = params.useChannelMap;
-          const textureWidth = params.textureWidth;
-          const textureHeight = params.textureHeight;
-          const colorArray = this._dataTexture.image.data;
-          const channelMap = this._geometry.getAttribute("channelMap");
 
-          colorArray.fill(50);
+      const useDefaultColor = !(thresholdPassed && this.state.displayActive);
+      const anyFixedColor = this.state.anyFixedColor;
+      const useDataTexture = (
+        params.useDataTexture && this._dataTexture
+      ) ? true : false;
 
-          if( useChannelMap && channelMap ) {
-            const n = channelMap.count;
-            const channelMapArray = channelMap.array;
+      // Prototype has electrode mappings giving mapping locations on texture
+      // u, v, width, and height
+      const useChannelMap = (
+        useDataTexture && params.useChannelMap && channelMap
+      ) ? true : false;
+      /**
+       * The logic is:
+       * if fixColor[ ii ] === true, then use fixedColor[ ii ]
+       * else if useDefaultColor, then use defaultColor
+       * else if useDataTexture, get from data texture
+       * else use this.state.displayValues or *[0]
+       */
 
-            let j, r, c, w, h, k, l;
-            for( let i = 0; i < n ; i++ ) {
-              // set RGB 0-255
+      // If using data texture, we need to step into each texture unit
+      // and set values to `this._dataTexture.image.data`
+      if( useDataTexture ) {
+        const textureWidth = params.textureWidth;
+        const textureHeight = params.textureHeight;
+        const colorArray = this._dataTexture.image.data;
+        colorArray.fill(50);
+
+        const values = this.state.displayValues;
+        const valueIsArray = Array.isArray( values );
+
+        // get number of channels to fill
+        const nChannels = useChannelMap ? channelMap.count : colorArray.length / 4;
+
+        // channel mapping (x, y, width, height)
+        const channelMapArray = useChannelMap ? channelMap.array : [];
+
+        let color; // Reused color object, used to calculate & assign color
+
+        // For each contact
+        for( let i = 0 ; i < nChannels ; i++ ) {
+
+          if( useFixedColor[ i ] ) {
+            // The color should be fixed
+            color = fixedColorArray[ i ];
+          } else if ( useDefaultColor ) {
+            // Using default color
+            color = this.defaultColor;
+          } else {
+            if( useThresholdArray && !thresholdTestArray[ i ] ) {
+              // fail the threshold, hence using default colors
+              color = this.defaultColor;
+            } else {
+              const v = valueIsArray ? values[ i ] : values;
+              if( v === null || v === undefined ) {
+                // No value, using default color
+                color = this.defaultColor;
+              } else {
+                // Query the color map
+                color = cmap.getColor( v , this._tmpColor );
+              }
+            }
+          }
+
+          if( instancedObjectVisible ) {
+            // Do not render color on prototype, using instancedMesh anyway
+            this.instancedObjects.setColorAt( i, color );
+          } else {
+            // temporary variables
+            let j,              // Contact location in colorArray
+                r, c, w, h,     // row-column-width-height in texture if `useChannelMap`
+                k, l;           // iterator
+            if( useChannelMap ) {
               r = channelMapArray[ i * 4 ] - 1;
               c = channelMapArray[ i * 4 + 1 ] - 1;
               w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - r);
@@ -1282,173 +1324,57 @@ class Electrode extends AbstractThreeBrainObject {
                 for( l = 0; l < h; l++ ) {
                   for( k = 0; k < w; k++ ) {
                     j = r + k + ( c + l ) * textureWidth;
-                    colorArray[ j * 4 ] = fixedColor.r * 255;
-                    colorArray[ j * 4 + 1 ] = fixedColor.g * 255;
-                    colorArray[ j * 4 + 2 ] = fixedColor.b * 255;
+                    colorArray[ j * 4 ] = color.r * 255;
+                    colorArray[ j * 4 + 1 ] = color.g * 255;
+                    colorArray[ j * 4 + 2 ] = color.b * 255;
                     colorArray[ j * 4 + 3 ] = 255;
                   }
                 }
               }
-            }
-
-          } else {
-            const count = colorArray.length / 4;
-            for(let i = 0; i < count; i++ ) {
-              colorArray[ i * 4 ] = fixedColor.r * 255;
-              colorArray[ i * 4 + 1 ] = fixedColor.g * 255;
-              colorArray[ i * 4 + 2 ] = fixedColor.b * 255;
-              colorArray[ i * 4 + 3 ] = 255;
-            }
-          }
-
-          currentMaterial.color.set(1, 1, 1);
-          this._dataTexture.needsUpdate = true;
-          this._shaderUniforms.useDataTexture.value = 1;
-        } else {
-          currentMaterial.color.copy( fixedColor );
-          this._shaderUniforms.useDataTexture.value = 0;
-        }
-        if( instancedObjectVisible ) {
-          const count = this.instancedObjects.count;
-          for(let i = 0; i < count; i++ ) {
-            instanceColorArray[ i * 3 ] = fixedInstanceColor.r;
-            instanceColorArray[ i * 3 + 1 ] = fixedInstanceColor.g;
-            instanceColorArray[ i * 3 + 2 ] = fixedInstanceColor.b;
-          }
-          this.instancedObjects.instanceColor.needsUpdate = true;
-        }
-      }
-    } else if( this.colorNeedsUpdate ) {
-      this.colorNeedsUpdate = undefined;
-
-      if(
-        this.state.useBasicMaterial && params.useDataTexture &&
-        this._dataTexture // && Array.isArray( this.state.displayValues )
-      ) {
-
-        const useChannelMap = params.useChannelMap;
-        const textureWidth = params.textureWidth;
-        const textureHeight = params.textureHeight;
-        const colorArray = this._dataTexture.image.data;
-        const channelMap = this._geometry.getAttribute("channelMap");
-        const fixedColor = this.defaultColor;
-
-        const values = this.state.displayValues;
-        const tmpColor = this._tmpColor;
-
-        const valueIsArray = Array.isArray( values );
-        let v;
-
-        // transparent by default;
-        colorArray.fill(50);
-
-        if( useChannelMap && channelMap ) {
-          const colorCount = channelMap.count;
-          const channelMapArray = channelMap.array;
-          const n = Array.isArray( values ) ? Math.min( colorCount, values.length ) : colorCount;
-
-
-          let j, r, c, w, h, k, l;
-          for( let i = 0; i < n ; i++ ) {
-            if( useThresholdArray && !thresholdTestArray[ i ]) {
-              if( instancedObjectVisible ) {
-                instanceColorArray[ i * 3 ] = fixedColor.r;
-                instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
-                instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
-              }
-              continue;
-            }
-
-            // set RGB 0-255
-            r = channelMapArray[ i * 4 ] - 1;
-            c = channelMapArray[ i * 4 + 1 ] - 1;
-            w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - r);
-            h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - c);
-            if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
-              v = valueIsArray ? values[i] : values;
-              if( v === null ) {
-                tmpColor.setHex( 0xc2c2c2 );
-              } else {
-                cmap.getColor( v , tmpColor );// .convertLinearToSRGB();
-              }
-
-              if( instancedObjectVisible ) {
-                // tmpColor.convertLinearToSRGB();
-                this.instancedObjects.setColorAt( i, tmpColor );
-              } else {
-                for( l = 0; l < h; l++ ) {
-                  for( k = 0; k < w; k++ ) {
-                    j = r + k + ( c + l ) * textureWidth;
-                    colorArray[ j * 4 ] = tmpColor.r * 255;
-                    colorArray[ j * 4 + 1 ] = tmpColor.g * 255;
-                    colorArray[ j * 4 + 2 ] = tmpColor.b * 255;
-                    colorArray[ j * 4 + 3 ] = 255;
-                  }
-                }
-              }
-
-            }
-          }
-
-        } else {
-          const colorCount = textureWidth * textureHeight;
-          const n = Array.isArray( values ) ? Math.min( colorCount, values.length ) : colorCount;
-
-          for( let i = 0; i < n ; i++ ) {
-
-            if( useThresholdArray && !thresholdTestArray[ i ]) {
-              if( instancedObjectVisible ) {
-                instanceColorArray[ i * 3 ] = fixedColor.r;
-                instanceColorArray[ i * 3 + 1 ] = fixedColor.g;
-                instanceColorArray[ i * 3 + 2 ] = fixedColor.b;
-              }
-              continue;
-            }
-
-            v = valueIsArray ? values[i] : values;
-            if( v === null ) {
-              tmpColor.setHex( 0xc2c2c2 );
             } else {
-              cmap.getColor( v , tmpColor );//.convertLinearToSRGB();
-            }
-
-            if( instancedObjectVisible ) {
-              // tmpColor.convertLinearToSRGB();
-              this.instancedObjects.setColorAt( i, tmpColor );
-            } else {
-              // set RGB 0-255
-              colorArray[ i * 4 ] = tmpColor.r * 255;
-              colorArray[ i * 4 + 1 ] = tmpColor.g * 255;
-              colorArray[ i * 4 + 2 ] = tmpColor.b * 255;
+              colorArray[ i * 4 ] = color.r * 255;
+              colorArray[ i * 4 + 1 ] = color.g * 255;
+              colorArray[ i * 4 + 2 ] = color.b * 255;
               colorArray[ i * 4 + 3 ] = 255;
             }
           }
 
         }
 
-
-
+        // material color needs to be set, also notify GPU to update textures
+        currentMaterial.color.set(1, 1, 1);
         this._dataTexture.needsUpdate = true;
-        this._shaderUniforms.useDataTexture.value = 1;
+        this._material.useDataTexture( this._dataTexture, true );
+
         if( instancedObjectVisible ) {
           this.instancedObjects.instanceColor.needsUpdate = true;
         }
 
       } else {
-        this._shaderUniforms.useDataTexture.value = 0;
-        if( Array.isArray( this.state.displayValues ) ) {
-          cmap.getColor( this.state.displayValues[0] , currentMaterial.color );
+
+        this._material.useDataTexture( this._dataTexture, false );
+
+        if( useDefaultColor ) {
+          currentMaterial.color.copy( this.defaultColor );
         } else {
-          cmap.getColor( this.state.displayValues, currentMaterial.color );
+          if( Array.isArray( this.state.displayValues ) ) {
+            cmap.getColor( this.state.displayValues[0] , currentMaterial.color );
+          } else {
+            cmap.getColor( this.state.displayValues, currentMaterial.color );
+          }
         }
       }
+
     }
 
     // also set clearcoat
-    const clearCoatValue = this._canvas.get_state( "electrode_clearcoat", 0.0 );
-    if( typeof clearCoatValue === "number" ) {
-      this._shaderUniforms.clearcoat.value = clearCoatValue;
-      this._instancedShaderUniforms.clearcoat.value = clearCoatValue;
+    const outlineThreshold = this._canvas.get_state( "electrode_clearcoat", 0.0 );
+    if( typeof outlineThreshold === "number" ) {
+      if( this.isElectrodePrototype ) {
+        this.instancedObjects.material.useOutline( outlineThreshold );
+      } else {
+        this._material.useOutline( outlineThreshold );
+      }
     }
   }
 
@@ -1513,27 +1439,54 @@ class Electrode extends AbstractThreeBrainObject {
     // this.state.thresholdVariable   "name"
     // this.state.thresholdValues     [] or number
     // this.state.thresholdTest       true/false
+    const previousThresholdVariable = this.state.thresholdVariable;
+    const previousThresholdActive = this.state.thresholdActive;
+    const previousThresholdTest = this.state.thresholdTest;
+    const previousThresholdTestArray = this.state.thresholdTestArray;
+    const previousThresholdRanges = this._thresholdRanges;
+    const previousThresholdOperator = this._thresholdOperator;
     this.updateThresholdTest(time);
+    if(
+      ( previousThresholdActive !== this.state.thresholdActive ) ||
+      ( previousThresholdVariable !== this.state.thresholdVariable ) ||
+      ( previousThresholdTest !== this.state.thresholdTest ) ||
+      ( previousThresholdTestArray !== this.state.thresholdTestArray ) ||
+      ( previousThresholdRanges !== this._thresholdRanges ) ||
+      ( previousThresholdOperator !== this._thresholdOperator )
+    ) {
+      this.colorNeedsUpdate = true;
+    }
+
+
     this.updateAdditionalDisplayValue(time);
 
     //  displayActive     : false,            // whether active keyframe is found for animation
     //  displayVariable   : "[None]",         // variable name used for displaying
     //  displayValues     : undefined,        // Array or number, electrode value(s) for displaying
+    const previousDisplayVariable = this.state.displayVariable;
     this.updateDisplayValue(time);
 
     // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
     // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
-    // useBasicMaterial  // whether basic material is used
-    this.updateFixedColor();
-
-
-    // Determine the material
-    this.updateMaterialType();
+    if( previousDisplayVariable !== this.state.displayVariable ) {
+      // displayVariable has changed, check fixed colors
+      this.updateFixedColor();
+      this.colorNeedsUpdate = true;
+    }
 
     // visible?
     this.updateVisibility();
 
     // update color
+
+    const defaultColorHex = testColorString( this._canvas.get_state( 'inactiveElectrodeColor' ) );
+    if( defaultColorHex ) {
+      const previousDefaultColor = this.defaultColor.getHex();
+      this.defaultColor.set( defaultColorHex );
+      if( this.defaultColor.getHex() !== defaultColorHex ) {
+        this.colorNeedsUpdate = true;
+      }
+    }
     this.updateColors();
 
   }

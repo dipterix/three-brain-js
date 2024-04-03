@@ -130,6 +130,13 @@ class AbstractThreeBrainObject extends EventDispatcher {
   getGroupObject3D(){
     return(this._canvas.group.get( this.group_name ));
   }
+  getGroupData() {
+    const groupObject = this.getGroupObject3D();
+    if( !groupObject || !groupObject.isObject3D ) { return; }
+    const groupData = groupObject.userData.group_data;
+    if( !groupData || typeof groupData !== "object" ) { return; }
+    return groupData;
+  }
 
   registerToMap( names ){
     const mapNames = asArray(names);

@@ -17,32 +17,6 @@ function registerPresetElectrodes( ViewerControlCenter ){
     }
 
     this.enablePlayback( false );
-
-    // render electrode colors by subjects
-    this.canvas.subject_codes.forEach((subject_code, ii) => {
-      to_array( this.canvas.electrodes.get( subject_code ) ).forEach((el) => {
-        if( !is_electrode( el ) ){ return; }
-        switch ( visibleString ) {
-          case 'hidden':
-            // el is invisible
-            // el.visible = false;
-            set_visibility( el, false );
-            break;
-          case 'hide inactives':
-            if( el.material.isMeshPhysicalMaterial ){
-              // el.visible = false;
-              set_visibility( el, false );
-            }else{
-              // el.visible = true;
-              set_visibility( el, true );
-            }
-            break;
-          default:
-            // el.visible = true;
-            set_visibility( el, true );
-        }
-      });
-    });
     this.canvas.set_state('electrode_visibility', visibleString );
 
     // this.fire_change({ 'electrode_visibility' : visibleString });
