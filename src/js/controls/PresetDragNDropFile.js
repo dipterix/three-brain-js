@@ -148,7 +148,7 @@ function addColorController({ inst, canvas, gui, fileName, parentFolder, control
   let colorModes;
 
   if( inst.isDataCube2 ) {
-    colorModes = ["continuous", "discrete"];
+    colorModes = ["single color", "continuous", "discrete"];
     currentColorMode = inst.isDataContinuous ? "continuous" : "discrete";
   } else {
     colorModes = ["single color"];
@@ -177,8 +177,10 @@ function addColorController({ inst, canvas, gui, fileName, parentFolder, control
       if( inst.isFreeMesh ) {
         inst._materialColor.set( v );
         inst.object.material.vertexColors = false;
+      } else if( inst.isDataCube2 ) {
+        const lut = controlCenter.continuousLookUpTables.default;
+        inst.useColorLookupTable( lut, v );
       }
-      console.warn("Unable to set single color to datacube2");
 
       canvas.needsUpdate = true;
     })
