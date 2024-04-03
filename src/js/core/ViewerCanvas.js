@@ -1952,17 +1952,19 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this._lineHeight_normal + this._lineHeight_small + this.pixel_ratio[0] * 10
     );
 
-    // Line 1: object name
-    contextWrapper.fill_text( objectInfo.name, textPosition.x, textPosition.y );
-
-    // Smaller
-    contextWrapper.set_font( this._fontSize_small, this._fontType );
-
-    // Line 2: Global position
-
     let pos = objectInfo.position;
     const electrodeInstance = objectInfo.instance && objectInfo.instance.isElectrode ? objectInfo.instance : null;
+
     if( electrodeInstance ){
+
+      // Line 1: object name
+      const displayName = electrodeInstance.getInfoText("name");
+      contextWrapper.fill_text( displayName, textPosition.x, textPosition.y );
+
+      // Smaller
+      contextWrapper.set_font( this._fontSize_small, this._fontType );
+
+      // Line 2: Global position
 
       textPosition.y += this._lineHeight_small;
 
@@ -2010,6 +2012,15 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
       */
     } else {
+
+      // Line 1: object name
+      contextWrapper.fill_text( objectInfo.name, textPosition.x, textPosition.y );
+
+      // Smaller
+      contextWrapper.set_font( this._fontSize_small, this._fontType );
+
+      // Line 2: Global position
+
       textPosition.y += this._lineHeight_small;
       contextWrapper.fill_text(
         `tkrRAS:    (${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)})`,
