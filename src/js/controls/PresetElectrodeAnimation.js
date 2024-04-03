@@ -2,6 +2,7 @@ import { get_or_default } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
 import { CONSTANTS } from '../core/constants.js';
 import { set_visibility } from '../utils.js';
+import { testColorString } from '../utility/color.js';
 
 // 15. animation, play/pause, speed, clips...
 
@@ -170,8 +171,8 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
           cmap.resetMax();
         }
         this.canvas.threebrain_instances.forEach( (inst) => {
-          if( inst && typeof inst.switchTrack === "function" ) {
-            inst.switchTrack( dataName );
+          if( inst && typeof inst.updateDataRange === "function" ) {
+            inst.updateDataRange( dataName );
           }
         });
 
@@ -285,6 +286,22 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
       .onChange( (v) => {
         if( !names.includes(v) ) { return; }
         this.canvas.set_state('additional_display_variable', v);
+        // this.fire_change({ 'clip_name' : v, 'display_data' : v });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.gui
+      .addController(
+        'Inactive Color', '#c2c2c2',
+        {
+          isColor: true,
+          folderName : folderName
+        })
+      .onChange( (v) => {
+        v = testColorString(v);
+        if( !v ) { return; }
+        this.canvas.set_state( 'inactiveElectrodeColor', v );
         // this.fire_change({ 'clip_name' : v, 'display_data' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
