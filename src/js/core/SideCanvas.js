@@ -632,7 +632,7 @@ class SideCanvas {
     evt.preventDefault();
 
     if( !evt.deltaY ) { return; }
-    const delta = evt.deltaY * 0.005;
+    const delta = evt.deltaY * 0.03;
 
     tmpVec3.copy( this.mainCanvas._crosshairPosition )
       .applyQuaternion( tmpQuaternion.copy( this.mainCanvas.crosshairGroup.quaternion ).invert() );
@@ -656,6 +656,7 @@ class SideCanvas {
         // code
     }
     tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion );
+
     this.mainCanvas.setSliceCrosshair({
       x : tmpVec3.x,
       y : tmpVec3.y,
