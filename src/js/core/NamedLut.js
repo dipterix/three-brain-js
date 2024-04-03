@@ -234,9 +234,14 @@ class NamedLut {
         c.copy( this.lut[0] );
         return c;
       }
+      let idx;
+      if( this._softMaxV == this._softMinV ) {
+        idx = 0.5 * (this.lut.length - 1);
+      } else {
+        // color-index = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.n - 1)
+        idx = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.lut.length - 1);
+      }
 
-      // color-index = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.n - 1)
-      const idx = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.lut.length - 1);
       if( idx <= 0 ) {
         c.copy( this.lut[0] );
         return c;
