@@ -967,7 +967,12 @@ class Electrode extends AbstractThreeBrainObject {
     } else {
       // Default returns name
       if( typeof chanNum === "number" || typeof chanNum === "string" ) {
-        chanNum = ` [ch=${chanNum}] `;
+        const nContacts = this.contactCenter.length;
+        if(nContacts > 1) {
+          chanNum = ` [ch=${chanNum}, ord=${currentContactFocused + 1}] `;
+        } else {
+          chanNum = ` [ch=${chanNum}] `;
+        }
       } else {
         chanNum = "";
       }
@@ -1550,6 +1555,12 @@ class Electrode extends AbstractThreeBrainObject {
 
     this.state.focusedContact = cid;
     this.updateContactPosition();
+
+    // update pos to snaping to the electrode
+    if( cid >= 0 ) {
+      pos.copy( this.contactCenter[ cid ] );
+    }
+    this.object.localToWorld( pos );
     return;
   }
 

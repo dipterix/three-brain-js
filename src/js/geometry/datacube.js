@@ -180,7 +180,6 @@ class DataCube extends AbstractThreeBrainObject {
   }
 
   _setOverlayColorChangeHandler = ( event ) => {
-    console.log(  event);
     if( !this._overlay ) { return; }
     if( this._overlay.name !== event.instanceName ) { return; }
     this.setOverlay( this._overlay );
@@ -389,8 +388,11 @@ class DataCube extends AbstractThreeBrainObject {
       }
     }
 
-    const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
-    this._uniforms.gamma.value = bias;
+    const brightness = this._canvas.get_state("sliceBrightness", 0.0);
+    this._uniforms.brightness.value = brightness;
+
+    const contrast = this._canvas.get_state("sliceContrast", 0.0);
+    this._uniforms.contrast.value = contrast;
 
     const overlayAlpha = this._canvas.get_state("overlayAlpha", 0.0);
     this._uniforms.overlayAlpha.value = overlayAlpha;

@@ -632,6 +632,33 @@ class SideCanvas {
     evt.preventDefault();
 
     if( !evt.deltaY ) { return; }
+
+    // Adjust brightness
+    if( evt.shiftKey ) {
+      const brightness = this.mainCanvas.get_state("sliceBrightness", 0.0) + evt.deltaY * 0.01;
+      this.mainCanvas.setControllerValue ({
+        name: "Slice Brightness",
+        value: brightness,
+        immediate: false
+      });
+      this.mainCanvas.set_state("sliceBrightness", brightness);
+      this.mainCanvas.needsUpdate = true;
+      return;
+    }
+
+    // Adjust contrast
+    if( evt.ctrlKey || evt.altKey ) {
+      const contrast = this.mainCanvas.get_state("sliceContrast", 0.0) + evt.deltaY * 0.01;
+      this.mainCanvas.setControllerValue ({
+        name: "Slice Contrast",
+        value: contrast,
+        immediate: false
+      });
+      this.mainCanvas.set_state("sliceContrast", contrast);
+      this.mainCanvas.needsUpdate = true;
+      return;
+    }
+
     const delta = evt.deltaY * 0.03;
 
     tmpVec3.copy( this.mainCanvas._crosshairPosition )

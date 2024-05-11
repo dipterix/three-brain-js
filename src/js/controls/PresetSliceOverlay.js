@@ -30,7 +30,16 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       'Slice Brightness', 0.0, { folderName: folderName })
       .min(-1).max(1).step(0.01)
       .onChange((v) => {
-        this.canvas.set_state("sliceIntensityBias", v);
+        this.canvas.set_state("sliceBrightness", v);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+
+    this.gui.addController(
+      'Slice Contrast', 0.0, { folderName: folderName })
+      .min(-1).max(1).step(0.01)
+      .onChange((v) => {
+        this.canvas.set_state("sliceContrast", v);
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
@@ -77,6 +86,16 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         }
       }
     });
+
+
+    this.gui.addController( 'Crosshair Gap', 0.0, { folderName: folderName })
+      .min(0).max(15).step(1)
+      .onChange(v => {
+        if ( typeof v === "number" && v >= 0 && v < 100 ) {
+          this.canvas.setCrosshairGap( v );
+          this.broadcast();
+        }
+      });
   };
 
   ViewerControlCenter.prototype.addPreset_resetSidePanel = function(){

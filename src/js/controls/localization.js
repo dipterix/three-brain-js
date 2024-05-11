@@ -1164,6 +1164,16 @@ function register_controls_localization( ViewerControlCenter ){
   ViewerControlCenter.prototype.localizeAddPrototype = function(geomParams) {
     const scode = this.canvas.get_state("target_subject");
     const name = geomParams.name ?? "";
+
+    const contactSizes = geomParams.contact_sizes;
+    if( Array.isArray(contactSizes) ) {
+      for( let i = 0 ; i < contactSizes.length ; i++ ) {
+        if( contactSizes[i] > 0.5 ) {
+          contactSizes[i] = 0.5;
+        }
+      }
+    }
+
     const params = {
       "name": `${ scode }, Prototype - ${name}`,
       "type": "electrode",

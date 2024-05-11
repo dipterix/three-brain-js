@@ -12,18 +12,30 @@ import { normalizeImageName, getColorFromFilename } from '../utility/normalizeIm
 // 14. electrode mapping
 // 16. Highlight selected electrodes and info
 
-const colorMap = {};
+const colorMap = {
+  "lh.pial" : {
+    single : "#FFFFFF",
+    discrete: "default",
+    continuous: "BlueRed",
+  },
+  "rh.pial" : {
+    single : "#FFFFFF",
+    discrete: "default",
+    continuous: "BlueRed",
+  }
+};
 
 function ensureColorMap( filename ) {
   // assuming filename has been normalized
-  if( !colorMap[ filename ] ) {
-    colorMap[ filename ] = {
-      single: getColorFromFilename( filename ),
+  const prefix = filename.replaceAll(/\.(nii|nii\.gz|stl|gii|mgh|mgz)$/gi, "");
+  if( !colorMap[ prefix ] ) {
+    colorMap[ prefix ] = {
+      single: getColorFromFilename( prefix ),
       discrete: "default",
       continuous: "turbo",
     }
   }
-  return colorMap[ filename ];
+  return colorMap[ prefix ];
 }
 
 function getOrCreateController(gui, name, value, parameters, force = false) {
@@ -38,9 +50,15 @@ function getOrCreateController(gui, name, value, parameters, force = false) {
 }
 
 async function updateColorMap( gui ) {
-  return;
   for( let fname in colorMap ) {
-    const color = colorMap[ fname ];
+    const color = colorMap[ fname ].single;
+
+    gui.getController( `Color - ${ fname }.nii` ).setValue( color );
+    gui.getController( `Color - ${ fname }.nii.gz` ).setValue( color );
+    gui.getController( `Color - ${ fname }.mgz` ).setValue( color );
+
+    gui.getController( `Color - ${ fname }.gii` ).setValue( color );
+    gui.getController( `Color - ${ fname }.stl` ).setValue( color );
     gui.getController( `Color - ${ fname }` ).setValue( color );
   }
 }
@@ -139,20 +157,23 @@ function addOpacityController({ inst, canvas, gui, fileName, parentFolder }) {
 }
 
 // For single value (surface)
-function addColorController({ inst, canvas, gui, fileName, parentFolder, controlCenter }) {
+function addColorController({ inst, canvas, gui, fileName, parentFolder, controlCenter, currentColorMode }) {
   const innerFolderName = `${parentFolder} > ${fileName}`;
 
   const colorSettings = ensureColorMap( fileName );
 
-  let currentColorMode;
   let colorModes;
 
   if( inst.isDataCube2 ) {
     colorModes = ["single color", "continuous", "discrete"];
-    currentColorMode = inst.isDataContinuous ? "continuous" : "discrete";
+    if( typeof currentColorMode !== "string" ) {
+      currentColorMode = inst.isDataContinuous ? "continuous" : "discrete";
+    }
   } else {
-    colorModes = ["single color"];
-    currentColorMode = "single color";
+    colorModes = ["single color", "continuous"];
+    if( typeof currentColorMode !== "string" ) {
+      currentColorMode = "single color";
+    }
   }
 
   const colorModeCtrl = getOrCreateController(
@@ -201,6 +222,13 @@ function addColorController({ inst, canvas, gui, fileName, parentFolder, control
       if( inst.isDataCube2 ) {
         const lut = controlCenter.continuousLookUpTables.default;
         inst.useColorLookupTable( lut, v );
+        colorSettings.continuous = v;
+      } else if ( inst.isFreeMesh ) {
+        const trackInfo = inst.setTrackValues({ cmapName : v });
+        if( trackInfo ) {
+          inst._materialColor.set( "#FFFFFF" );
+          inst.object.material.vertexColors = true;
+        }
         colorSettings.continuous = v;
       }
 
@@ -396,8 +424,61 @@ function postProcessSurface({ data, fileName, gui, folderName, canvas, controlCe
   return inst;
 }
 
+function postProcessSurfaceColor({ data, fileName, gui, folderName, canvas, controlCenter }) {
+
+  data.fileName = fileName;
+  const parentFolder = `${folderName} > Configure ROI Surfaces`;
+
+  // get hemisphere and surface type (maybe)
+  let hemi = ["Left", "Right"];
+  if ( fileName.startsWith("lh") ) {
+    hemi = ["Left"];
+  } else if ( fileName.startsWith("rh") ) {
+    hemi = ["Right"];
+  }
+
+  // obtain the current subject
+  const subjectCode = canvas.get_state("target_subject");
+
+  // get the surface
+  const surfaceList = canvas.surfaces.get( subjectCode );
+  const lut = controlCenter.continuousLookUpTables.default;
+
+  let maxAbsVal = Math.max(data.max, -data.min);
+  if( maxAbsVal <= 0 ) { maxAbsVal = 1; }
+
+  for(let h = 0; h < hemi.length; h++) {
+    const surface = surfaceList[`FreeSurfer ${hemi[h]} Hemisphere - pial (${subjectCode})`];
+    if( surface ) {
+      const surfaceName = `${ hemi[h][0].toLowerCase() }h.pial`;
+      const inst = surface.userData.instance;
+      const innerFolderName = `${folderName} > Configure ROI Surfaces > ${surfaceName}`;
+      inst.setTrackValues({
+        values   : data.vertexData,
+        cmapName : "rainbow",
+        minValue : -maxAbsVal,
+        maxValue : maxAbsVal
+      });
+      addColorController({
+        inst        : inst,
+        canvas      : canvas,
+        gui         : gui,
+        fileName    : surfaceName,
+        parentFolder: parentFolder,
+        controlCenter : controlCenter,
+        currentColorMode: "continuous"
+      });
+    }
+  }
+  canvas.needsUpdate = true;
+  const sDispCtrl = gui.getController("Surface Color");
+  sDispCtrl.setValue("vertices");
+
+  // no object needs to be added to the canvas
+  return;
+}
+
 function postProcessText({ data, fileName, gui, folderName, canvas }) {
-  window.dnd = data;
   if( Array.isArray( data ) ) {
     // treated as csv/tsv table
     if( !data.length ) { return; }
@@ -408,10 +489,12 @@ function postProcessText({ data, fileName, gui, folderName, canvas }) {
     if( sample["Filename"] && sample["Color"] ) {
       // this is a colormap
       data.forEach(el => {
-        const fname = normalizeImageName( sample["Filename"] );
-        const color = sample["Color"];
+        if(!el) { return; }
+        const color = el["Color"];
         if ( typeof color === "string" && color.length === 7 ) {
-          colorMap[ fname ] = color;
+          const fname = normalizeImageName( el["Filename"] );
+          ensureColorMap( fname );
+          colorMap[ fname ].single = color;
         }
       });
       updateColorMap( gui );
@@ -430,6 +513,7 @@ function registerDragNDropFile( ViewerControlCenter ){
 
     const folder = this.gui.getFolder( folderName );
     folder.domElement.classList.add("lil-gui-ensure-width");
+    folder.open();
 
     const $dragdropWrapper = document.createElement("div");
     $dragdropWrapper.style.width = "100%";
@@ -442,7 +526,7 @@ function registerDragNDropFile( ViewerControlCenter ){
 
     const $dragdropText = document.createElement("span");
     $dragdropText.style.lineHeight = "var(--widget-height)";
-    $dragdropText.innerHTML = "Drag files here<br /><small>Volumes (nii[.gz], mgz), surfaces (fs, gii), colormaps (csv, tsv)</small>";
+    $dragdropText.innerHTML = "Drag files here<br /><small>Volumes (nii[.gz], mgz), surfaces (fs, gii, stl), colormaps (csv, tsv)</small>";
     $dragdropText.style.pointerEvents = "none";
     $dragdropWrapper.appendChild($dragdropText);
 
@@ -476,6 +560,16 @@ function registerDragNDropFile( ViewerControlCenter ){
         filenameLowerCase.endsWith("tsv")
       ) {
         dataType = "text";
+      } else if (
+        filenameLowerCase.endsWith("curv") ||
+        filenameLowerCase.endsWith("sulc")
+      ) {
+        dataType = "surfaceColor";
+      }
+      const normalizedFilename = normalizeImageName( fileName );
+
+      if( !fileNames.has( normalizedFilename ) ) {
+        fileNames.set( normalizedFilename , {} );
       }
 
       let postProcess;
@@ -483,24 +577,23 @@ function registerDragNDropFile( ViewerControlCenter ){
         case 'volume':
           postProcess = (p) => {
             const data = postProcessVolume(p);
-            this.updateDataCube2Types();
+            this.updateDataCube2Types( normalizedFilename );
+            const vDispCtrl = this.gui.getController("Voxel Display");
+            vDispCtrl.setValue("normal");
             return data;
           };
           break;
         case 'surface':
           postProcess = postProcessSurface;
           break;
+        case 'surfaceColor':
+          postProcess = postProcessSurfaceColor;
+          break;
         default:
           postProcess = postProcessText;
       }
 
-      const data = await this.canvas.fileLoader.loadFromResponse ( file );
-      const normalizedFilename = normalizeImageName( fileName );
-
-      if( !fileNames.has( normalizedFilename ) ) {
-        fileNames.set( normalizedFilename , {} );
-      }
-
+      const data = await this.canvas.fileLoader.loadFromResponse( file );
 
       const inst = postProcess({
         data: data,

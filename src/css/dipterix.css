@@ -251,6 +251,8 @@
   line-height: 25px;
   text-align: center;
   font-size: 16px;
+  -webkit-user-select: none; /* Safari */
+  user-select: none;
 }
 
 .THREEBRAIN-SIDE .zoom-tool.pan-active {

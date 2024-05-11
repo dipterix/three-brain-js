@@ -476,7 +476,7 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.needsUpdate = true;
   }
 
-  updateDataCube2Types(){
+  updateDataCube2Types( atlas ){
 
     let ctrlDC2Type = this.gui.getController( 'Voxel Type' );
     if( ctrlDC2Type.isfake ) { return; }
@@ -485,8 +485,13 @@ class ViewerControlCenter extends EventDispatcher {
     const cube2Types = this.canvas.get_atlas_types();
     cube2Types.push("none");
 
-    let currentValue = ctrlDC2Type.getValue();
-    if( !cube2Types.includes( currentValue ) ) { currentValue = 'none'; }
+    let currentValue;
+    if( typeof atlas === "string" && cube2Types.includes( atlas ) ) {
+      currentValue = atlas;
+    } else {
+      currentValue = ctrlDC2Type.getValue();
+      if( !cube2Types.includes( currentValue ) ) { currentValue = 'none'; }
+    }
 
     ctrlDC2Type._allChoices = cube2Types;
 

@@ -26,8 +26,9 @@ const SliceShader = {
     overlayValueLB: { value : 0.0 },
     overlayValueUB: { value : 1.0 },
 
-    // gamma correction
-    gamma : { value : 1.0 },
+    // correction
+    brightness : { value : 1.0 },
+    contrast : { value : 0.0 },
 
   },
 
@@ -48,7 +49,8 @@ void main() {
 precision mediump sampler3D;
 in vec4 worldPosition;
 uniform float threshold;
-uniform float gamma;
+uniform float brightness;
+uniform float contrast;
 uniform sampler3D map;
 uniform vec3 mapShape;
 uniform mat4 world2IJK;
@@ -87,13 +89,12 @@ void main() {
       gl_FragDepth = gl_FragCoord.z;
       color.a = 1.0;
 
-      // color.rgb = vec3( pow( color.r , 1.0 / gamma ) );
-      if( abs(gamma) > 0.03 ) {
-        color.r = exp( gamma * color.r * -10.0 );
-        color.rgb = vec3( ( color.r - 1.0 ) / ( exp( gamma * -10.0 ) - 1.0 ) );
-      } else {
-        color.rgb =  color.rrr;
+      if( abs( contrast ) > 0.03 ) {
+        color.r = ( exp( contrast * color.r * 10.0 ) - 1.0 ) / ( exp( contrast * 10.0 ) - 1.0 );
       }
+      color.r *= 1.15 / (1.15 - min( brightness , 1.0 ) );
+
+      color.rgb =  color.rrr;
 
       #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
@@ -107,10 +108,17 @@ void main() {
           #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
 
             // using red channel as the color intensity
-            if( overlayColor.r > 0.0 ) {
+            int nColors = int( OVERLAY_N_SINGLE_CHANNEL_COLORS );
+
+            if( overlayColor.r > 0.0 && nColors > 0 ) {
 
               float nColorMinusOne = float( OVERLAY_N_SINGLE_CHANNEL_COLORS ) - 1.0;
-              float intensity = (overlayColor.r - overlayValueLB) / (overlayValueUB - overlayValueLB);
+              float intensity = overlayColor.r - overlayValueLB;
+
+              if( overlayValueUB - overlayValueLB > 0.00001 ) {
+                intensity = intensity / (overlayValueUB - overlayValueLB);
+              }
+
               intensity = clamp( intensity , 0.0 , 1.0 ) * nColorMinusOne;
 
               float colorIndex = floor( intensity );
@@ -118,7 +126,11 @@ void main() {
 
               if( colorIndex >= nColorMinusOne ) {
 
-                overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ];
+                overlayColor.rgb = overlayColorsWhenSingleChannel[ nColors - 1 ];
+
+              } else if ( colorIndex < 0.0 ) {
+
+                overlayColor.rgb = overlayColorsWhenSingleChannel[ 0 ];
 
               } else {
 

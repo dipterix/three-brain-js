@@ -37,7 +37,6 @@ import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '..
 import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
-import { gen_sphere } from '../geometry/sphere.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { gen_datacube } from '../geometry/datacube.js';
 import { gen_datacube2 } from '../geometry/datacube2.js';
@@ -1015,6 +1014,29 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
     this.needsUpdate = true;
   }
+  setCrosshairGap(size = 0) {
+    const halfSize = size > 0 ? (size / 2.) : 0;
+
+    // -256, 0, 0, -halfSize, 0, 0, halfSize, 0, 0, 256, 0, 0
+    const chLRPosAttr = this.crosshairGroup.LR.geometry.getAttribute("position");
+    chLRPosAttr.array[ 3 ] = -halfSize;
+    chLRPosAttr.array[ 6 ] = halfSize;
+    chLRPosAttr.needsUpdate = true;
+
+    // 0, -256, 0, 0, -halfSize, 0, 0, halfSize, 0, 0, 256, 0
+    const chPAPosAttr = this.crosshairGroup.PA.geometry.getAttribute("position");
+    chPAPosAttr.array[ 4 ] = -halfSize;
+    chPAPosAttr.array[ 7 ] = halfSize;
+    chPAPosAttr.needsUpdate = true;
+
+    // 0, 0, -256, 0, 0, -halfSize, 0, 0, halfSize, 0, 0, 256
+    const chISPosAttr = this.crosshairGroup.IS.geometry.getAttribute("position");
+    chISPosAttr.array[ 5 ] = -halfSize;
+    chISPosAttr.array[ 8 ] = halfSize;
+    chISPosAttr.needsUpdate = true;
+
+    this.needsUpdate = true;
+  }
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
     if( distance && typeof distance === "object" ) {
@@ -1274,6 +1296,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
 	  this.needsUpdate = true;
 	}
+
   /*---- Choose & highlight objects -----------------------------------------*/
 
   focusObject( m = undefined, {
@@ -1293,12 +1316,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         // let electrode know where clicked so it can update the contact list
         inst.focusContactFromWorld( intersectPoint );
 
-        const instState = inst.state;
-
-        // instState.focusedContact will always >= 0
         if( intersectPoint ) {
-          intersectPoint.copy( instState.contactPositions.tkrRAS );
-
           if( this.get_state("sideCameraTrackMainCamera") === "snap-to-electrode" ) {
             intersectPoint.centerCrosshair = true;
           }

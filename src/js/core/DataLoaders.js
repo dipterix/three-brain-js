@@ -7,6 +7,7 @@ import { parse as csvParse } from 'papaparse';
 import { NiftiImage } from '../formats/NIfTIImage.js';
 import { MGHImage } from '../formats/MGHImage.js';
 import { GiftiMesh } from '../formats/GIfTIMesh.js';
+import { STLMesh } from '../formats/STLMesh.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
 
@@ -328,6 +329,15 @@ class NiftiLoader extends BasicLoader {
   }
 }
 
+class STLLoader2 extends BasicLoader {
+  responseType = "arraybuffer";
+  loaderName = "STLLoader2";
+
+  parse( buffer ) {
+    return new STLMesh( buffer );
+  }
+}
+
 class MGHLoader extends BasicLoader {
   responseType = "arraybuffer";
   loaderName = "MGHLoader";
@@ -369,6 +379,7 @@ const loaderClasses = {
   "JSONLoader"  : JSONLoader,
   "CSVLoader"   : CSVLoader,
   "NiftiLoader" : NiftiLoader,
+  "STLLoader2"  : STLLoader2,
   "MGHLoader"   : MGHLoader,
   "GiftiLoader" : GiftiLoader,
   "FreeSurferMeshLoader": FreeSurferMeshLoader,
@@ -403,6 +414,8 @@ function guessLoaderType( url ) {
     loaderType = "JSONLoader";
   } else if ( urlLowerCase.endsWith("csv") || urlLowerCase.endsWith("tsv") ) {
     loaderType = "CSVLoader";
+  } else if ( urlLowerCase.endsWith("stl") ) {
+    loaderType = "STLLoader2";
   } else {
     loaderType = "FreeSurferMeshLoader";
   }
@@ -578,6 +591,11 @@ class CanvasFileLoader2 extends Loader {
           case 'GiftiLoader':
             return {
               "_originalData_": new GiftiMesh().copy( data.data )
+            };
+            break;
+          case 'STLLoader2':
+            return {
+              "_originalData_": new STLMesh().copy( data.data )
             };
             break;
           case 'FreeSurferMeshLoader':

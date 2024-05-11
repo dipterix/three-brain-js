@@ -401,6 +401,7 @@ class EnhancedGUI extends GUI {
       try {
         const controller = this.getController( k, "", false );
         if( !controller.isfake ) {
+          const value = data[k];
           console.debug(`Initialize setting ${ k } -> ${ value }`);
           controller.setValue( value );
         }

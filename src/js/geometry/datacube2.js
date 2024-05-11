@@ -5,7 +5,6 @@ import { Vector3, Matrix4, Data3DTexture, NearestFilter, FloatType,
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
-import { Lut } from '../jsm/math/Lut2.js'
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();

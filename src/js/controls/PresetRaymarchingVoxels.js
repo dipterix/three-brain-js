@@ -45,6 +45,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       this.canvas.needsUpdate = true;
     }
 
+    this._voxelLabelCache = {};
+
     this._onDataCube2TypeChanged = async (v) => {
       this.canvas.switch_subject( '/', {
         'atlas_type': v
@@ -88,18 +90,22 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
           ctrlContinuousThresholdUB.min( lb ).max( ub )
             .step( (ub - lb) / ( nColorKeys - 1 ) )
             .setValue( voxelUB ).updateDisplay();
-
           delete dataCubeInstance._holdePalette;
           applyContinuousSelection();
         } else {
           this.gui.showControllers(['Voxel Display', 'Voxel Label'], folderName);
           this.gui.hideControllers(['Voxel Min', 'Voxel Max'], folderName);
-          selectedLabels.length = 0;
-          selectedDataValues.forEach((selected, colorID) => {
-            selectedLabels.push( colorID );
-          })
-          delete dataCubeInstance._holdePalette;
-          applyDiscreteSelection();
+          const previousLabel = this._voxelLabelCache[ v ];
+
+          if( typeof previousLabel === 'string' ) {
+            delete dataCubeInstance._holdePalette;
+            this.gui.getController('Voxel Label').setValue( previousLabel );
+          } else {
+            this.gui.getController('Voxel Label').setValue( "" );
+            selectedLabels.length = 0;
+            delete dataCubeInstance._holdePalette;
+            applyDiscreteSelection();
+          }
         }
 
       }
@@ -239,6 +245,10 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       .addController('Voxel Label', "", { folderName : folderName })
       .onChange( async (v) => {
         if(typeof(v) !== "string"){ return; }
+        const currentVoxelType = this.gui.getController('Voxel Type').getValue();
+        if( typeof currentVoxelType === 'string' ) {
+          this._voxelLabelCache[ currentVoxelType ] = v;
+        }
 
         selectedLabels.length = 0;
         const selected = v.split(",").forEach((v) => {

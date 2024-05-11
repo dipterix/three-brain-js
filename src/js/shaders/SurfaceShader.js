@@ -111,7 +111,8 @@ const compile_free_material = ( material, options ) => {
     shader.uniforms.clippingThrough = options.clippingThrough; // plane position
     shader.uniforms.clippingMap = options.clippingMap;  // texture
     shader.uniforms.clippingMapMatrixWorldInverse = options.clippingMapMatrixWorldInverse; // model (texture 0, 1) to world matrix
-    shader.uniforms.gamma = options.gamma;  // brightness correction
+    shader.uniforms.brightness = options.brightness;  // brightness correction
+    shader.uniforms.contrast = options.contrast;  // contrast correction
 
 
     material.userData.shader = shader;
@@ -122,7 +123,7 @@ const compile_free_material = ( material, options ) => {
 
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    attribute vec3 track_color;
+    attribute vec3 trackColor;
     varying vec3 vTrackColor;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
@@ -148,7 +149,11 @@ const compile_free_material = ( material, options ) => {
 
 #endif
 
-varying float reflectProd;
+#if defined( USE_CLIPPING_SLICE ) || defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+
+  varying float reflectProd;
+
+#endif
 `) + shader.vertexShader;
 
     shader.vertexShader = shader.vertexShader.replace(
@@ -158,13 +163,18 @@ varying float reflectProd;
 
 // uniform vec3 cameraPosition; - camera position in world space
 vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
-reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+
+#if defined( USE_CLIPPING_SLICE ) || defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+
+  reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+
+#endif
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    vTrackColor = track_color;
+    vTrackColor = trackColor;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
@@ -244,7 +254,8 @@ uniform float mask_threshold;
 
   uniform mat4 clippingMapMatrixWorldInverse;
   uniform sampler3D clippingMap;
-  uniform float gamma;
+  uniform float brightness;
+  uniform float contrast;
 
   varying float planeToCameraDistance;
   varying float vertToCameraProjDist;
@@ -252,7 +263,11 @@ uniform float mask_threshold;
 
 #endif
 
-varying float reflectProd;
+#if defined( USE_CLIPPING_SLICE ) || defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+
+  varying float reflectProd;
+
+#endif
 
 `) + shader.fragmentShader;
 
@@ -475,17 +490,13 @@ shader.fragmentShader = shader.fragmentShader.replace(
     } else {
       float intensity = texture(clippingMap, planePositionTexture).r;
 
-      if( abs(gamma) > 0.03 ) {
-        intensity = exp( gamma * intensity * -10.0 );
-        gl_FragColor.rgb = vec3( ( intensity - 1.0 ) / ( exp( gamma * -10.0 ) - 1.0 ) );
-      } else {
-        gl_FragColor.rgb =  vec3( intensity );
+      if( abs( contrast ) > 0.03 ) {
+        intensity = ( exp( contrast * intensity * 10.0 ) - 1.0 ) / ( exp( contrast * 10.0 ) - 1.0 );
       }
-      gl_FragColor.a = 1.0;
+      intensity *= 1.15 / (1.15 - min( brightness , 1.0 ) );
+      gl_FragColor.rgb = vec3( intensity );
 
-      if( gl_FragColor.r < 0.0078125 ) {
-        discard;
-      }
+      gl_FragColor.a = 1.0;
 
     }
 
@@ -507,12 +518,12 @@ shader.fragmentShader = shader.fragmentShader.replace(
 #elif defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
   gl_FragDepth = gl_FragCoord.z;
+  gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
 
   if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
     discard;
   }
 
-  gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
 
 #endif
 

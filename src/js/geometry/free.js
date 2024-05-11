@@ -6,6 +6,7 @@ import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
+import { Lut } from '../jsm/math/Lut2.js'
 
 const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
@@ -37,13 +38,48 @@ const PLANE_NORMAL_BASIS = {
 // CONSTANTS.VOXEL_COLOR = 2;
 // CONSTANTS.ELECTRODE_COLOR = 3;
 
+
+
+function calculateTrackColor(values, buffer, cmapName, {
+  minValue, maxValue, nSkipValues = 0
+} = {}) {
+
+  const nVals = values.length - nSkipValues;
+
+  // Color is always RGB, no alpha is used
+  const nBufs = buffer.length / 3;
+
+  const n = nVals > nBufs ? nBufs : nVals;
+
+  // No color to calculate
+  if( n <= 0 ) { return; }
+
+  if( minValue === undefined ) { minValue = -1; }
+  if( maxValue === undefined ) { maxValue = 1; }
+
+  const colorLut = new Lut( cmapName , 256 );
+  colorLut.minV = minValue;
+  colorLut.maxV = maxValue;
+
+  let vi = nSkipValues;
+  for(let i = 0; i < n; i++, vi++) {
+    const tmpColor = colorLut.getColor( values[ vi ] );
+    buffer[ i * 3 ] = tmpColor.r * 255;
+    buffer[ i * 3 + 1 ] = tmpColor.g * 255;
+    buffer[ i * 3 + 2 ] = tmpColor.b * 255;
+  }
+
+}
+
 class FreeMesh extends AbstractThreeBrainObject {
 
-  _ensure_track_color(){
-    if( !this._track_color ){
-      const track_color = new Uint8Array( this.__nvertices * 3 ).fill(255);
-      this._track_color = track_color;
-      this._geometry.setAttribute( 'track_color', new BufferAttribute( track_color, 3, true ) );
+  _ensureTrackColor(){
+    if( !this._trackInfo ){
+      const trackColor = new Uint8Array( this.__nvertices * 3 ).fill(255);
+      this._trackInfo = {
+        colorArray : trackColor,
+      };
+      this._geometry.setAttribute( 'trackColor', new BufferAttribute( trackColor, 3, true ) );
     }
   }
 
@@ -70,12 +106,12 @@ class FreeMesh extends AbstractThreeBrainObject {
         value[ ii ] = Math.floor( v );
       });
     }
-    this._ensure_track_color();
+    this._ensureTrackColor();
 
     // start settings track values
     const lut = this._canvas.global_data('__global_data__.SurfaceColorLUT'),
           lutMap = lut.map,
-          tcol = this._track_color;
+          tcol = this._trackInfo.colorArray;
 
     // only set RGB, ignore A
     let c, jj = skip_items;
@@ -101,8 +137,37 @@ class FreeMesh extends AbstractThreeBrainObject {
       }
     }
     // this._mesh.material.needsUpdate = true;
-    this._geometry.attributes.track_color.needsUpdate = true;
+    this._geometry.attributes.trackColor.needsUpdate = true;
 
+  }
+
+  setTrackValues({ values, minValue, maxValue, cmapName = "BlueRed" } = {}) {
+    this._ensureTrackColor();
+    if( values && values.length > 0 ) {
+      this._trackInfo.valueArray = values;
+      this._trackInfo.minValue = minValue;
+      this._trackInfo.maxValue = maxValue;
+    } else {
+      values = this._trackInfo.valueArray;
+      if( !values ) { return; }
+      if( minValue === undefined ) {
+        minValue = this._trackInfo.minValue;
+      } else {
+        this._trackInfo.minValue = minValue;
+      }
+      if( maxValue === undefined ) {
+        maxValue = this._trackInfo.maxValue;
+      } else {
+        this._trackInfo.maxValue = maxValue;
+      }
+    }
+
+    calculateTrackColor( values, this._trackInfo.colorArray, cmapName, {
+      minValue : minValue,
+      maxValue : maxValue
+    } );
+    this._geometry.attributes.trackColor.needsUpdate = true;
+    return this._trackInfo;
   }
 
   // Primary color (Curv, sulc...)
@@ -529,8 +594,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
 
     // set bias
-    const bias = this._canvas.get_state("sliceIntensityBias", 0.0);
-    this._material_options.gamma.value = bias;
+    const brightness = this._canvas.get_state("sliceBrightness", 0.0);
+    this._material_options.brightness.value = brightness;
+
+    const contrast = this._canvas.get_state("sliceContrast", 0.0);
+    this._material_options.contrast.value = contrast;
 
     const clippingPlaneName = this._canvas.get_state( "surfaceClippingPlane", "disabled" );
     if(
@@ -599,8 +667,13 @@ class FreeMesh extends AbstractThreeBrainObject {
     if( loaderData.isSurfaceMesh ) {
 
       this.__nvertices = loaderData.nVertices;
-      this._geometry.setIndex( new BufferAttribute(loaderData.index, 1, false) );
       this._geometry.setAttribute( 'position', new BufferAttribute(loaderData.position, 3) );
+      if( loaderData.index ) {
+        this._geometry.setIndex( new BufferAttribute(loaderData.index, 1, false) );
+      }
+      if( loaderData.normal ) {
+        this._geometry.setAttribute( 'normal', new BufferAttribute(loaderData.normal, 3) );
+      }
 
     } else {
       const vertices = loaderData;
@@ -728,7 +801,8 @@ class FreeMesh extends AbstractThreeBrainObject {
       'clippingThrough'   : { value : this._canvas.crosshairGroup.position },
       'clippingMap'       : { value : null },
       'clippingMapMatrixWorldInverse' : { value : new Matrix4() },
-      'gamma'             : { value : 0.0 },
+      'brightness'        : { value : 0.0 },
+      'contrast'          : { value : 0.0 },
 
     };
 
@@ -825,28 +899,41 @@ function gen_free(g, canvas){
     // get surface space
     // https://bids-specification.readthedocs.io/en/stable/appendices/coordinate-systems.html#image-based-coordinate-systems
     const transform = new Matrix4();
-    try {
-      let space = "";
-      const spaceParsed = surfaceType.toLocaleLowerCase().match(/[_]{0,1}space-([a-z0-9]+)([_\.]|$)/g);
-      if( Array.isArray( spaceParsed ) && spaceParsed.length > 0 ) {
-        space = spaceParsed[0].split("-")[1];
-      }
-      /*
-      // MNI305
-      fsaverage*, fsaverageSym*, MNI305
-      // MNI152
-      fsLR, MNI152*
-      // T1
-      scanner
 
-       canvas.getTransforms("mni152_b")
-          MNI305_tkrRAS: Object { elements: (16) […] }
-          Norig: Object { elements: (16) […] }
-          Torig: Object { elements: (16) […] }
-          tkrRAS_MNI305: Object { elements: (16) […] }
-          tkrRAS_Scanner: Object { elements: (16) […] }
-          xfm: Object { elements: (16) […] }
-      */
+    let space;
+
+    // Check whether the space information is embedded in the file name (BIDS format)
+    const spaceParsed = surfaceType.toLocaleLowerCase().match(/[_]{0,1}space[_\-]([a-z0-9]+)([_\.]|$)/g);
+    if( Array.isArray( spaceParsed ) && spaceParsed.length > 0 ) {
+      space = spaceParsed[0].replaceAll(/(^[_]{0,1}space[_\-]|_$)/gi, "")
+    } else if( g.isFreeSurferMesh ) {
+      // FreeSurfer may have a little dinglebell at the file end, that indicates the center ras
+      if( Array.isArray( g.tkrToScan ) && g.tkrToScan.length == 16 ) {
+        transform.fromArray( g.tkrToScan );
+        space = "scan";
+      }
+    } else if ( g.isGiftiMesh || g.isSTLMesh ) {
+      // Assume the transform is already done in GIfTI
+      space = "scan";
+    }
+
+    /*
+    // MNI305
+    fsaverage*, fsaverageSym*, MNI305
+    // MNI152
+    fsLR, MNI152*
+    // T1
+    scanner
+
+     canvas.getTransforms("mni152_b")
+        MNI305_tkrRAS: Object { elements: (16) […] }
+        Norig: Object { elements: (16) […] }
+        Torig: Object { elements: (16) […] }
+        tkrRAS_MNI305: Object { elements: (16) […] }
+        tkrRAS_Scanner: Object { elements: (16) […] }
+        xfm: Object { elements: (16) […] }
+    */
+    if( typeof space === "string" ) {
       const subjectMatrices = canvas.getTransforms( subjectCode );
       if( space.startsWith("scan") ) {
         // Surface is in ScannerRAS, needs to be in tkrRAS
@@ -859,8 +946,6 @@ function gen_free(g, canvas){
         transform.copy( CONSTANTS.MNI305_to_MNI152 ).invert()
           .premultiply( subjectMatrices.MNI305_tkrRAS );
       }
-    } catch (e) {
-      console.warn(e);
     }
 
 

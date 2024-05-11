@@ -44,6 +44,60 @@ class FreeSurferMesh {
     this.isSurfaceMesh = true;
     this.isInvalid = false;
 
+    this.tkrToScan = null;
+
+    // try to read footer information
+    try {
+
+
+      if( offset < reader.byteLength ) {
+        // The following 3 uint32 should be 2 0 20 or just 20
+        let fsig0 = reader.getUint32(offset, false),
+            fsig1 = 0, fsig2 = 2;
+        offset += 4;
+        if( fsig0 !== 20 ) {
+          fsig2 = fsig0;
+          fsig1 = reader.getUint32(offset, false);
+          fsig0 = reader.getUint32(offset + 4, false);
+          offset += 8;
+        }
+        if( fsig0 == 20 && fsig1 == 0 && fsig2 == 2 ) {
+          const footReader = new DataView( buf, offset );
+          const footer = new TextDecoder().decode(footReader).split("\n");
+          /** Example of the footer
+  valid = 1  # volume info valid
+  filename = ../mri/filled-pretess127.mgz
+  volume = 256 256 256
+  voxelsize = 1.000000000000000e+00 1.000000000000000e+00 1.000000000000000e+00
+  xras   = -1.000000000000000e+00 0.000000000000000e+00 0.000000000000000e+00
+  yras   = 0.000000000000000e+00 0.000000000000000e+00 -1.000000000000000e+00
+  zras   = 0.000000000000000e+00 1.000000000000000e+00 0.000000000000000e+00
+  cras   = -1.000000000000000e+00 -1.700000000000000e+01 1.900000000000000e+01
+  \u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0000\u0000\u0000\u0001ymris_re...
+           */
+           /*
+          const xras = (footer[4].match(/^[ ]{0,}xras[ ]{0,}=[ ]{0,}(.*)$/i))[1]
+            .split(/[ \t]+/i).map(parseFloat);
+          const yras = (footer[5].match(/^[ ]{0,}yras[ ]{0,}=[ ]{0,}(.*)$/i))[1]
+            .split(/[ \t]+/i).map(parseFloat);
+          const zras = (footer[6].match(/^[ ]{0,}zras[ ]{0,}=[ ]{0,}(.*)$/i))[1]
+            .split(/[ \t]+/i).map(parseFloat);
+            */
+          const cras = (footer[7].match(/^[ ]{0,}cras[ ]{0,}=[ ]{0,}(.*)$/i))[1]
+            .split(/[ \t]+/i).map(parseFloat);
+          // using threejs mat4 convention (column-major)
+          this.tkrToScan = [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            cras[0], cras[1], cras[2], 1
+          ];
+
+        }
+      }
+
+    } catch (e) {}
+
   }
 
   dispose() {
@@ -58,6 +112,7 @@ class FreeSurferMesh {
     this.nFaces = el.nFaces;
     this.position = el.position;
     this.index = el.index;
+    this.tkrToScan = el.tkrToScan;
     this.isSurfaceMesh = true;
     this.isFreeSurferMesh = true;
     return this;

@@ -17,6 +17,7 @@ function registerPresetSwitchSubject( ViewerControlCenter ){
         .onChange((v) => {
           if( !subjectIDs.includes(v) ) { return; }
           this.canvas.switch_subject( v );
+          this.updateDataCube2Types();
           this.broadcast();
           this.canvas.needsUpdate = true;
         })
