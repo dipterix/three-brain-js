@@ -1,10 +1,17 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { Vector3, Matrix4, Data3DTexture, NearestFilter, FloatType,
-         RGBAFormat, RedFormat, UnsignedByteType, LinearFilter, Mesh,
-         BoxGeometry } from 'three';
+import { Vector3, Matrix4, Color, Quaternion,
+         Data3DTexture, NearestFilter, FloatType,
+         RGBAFormat, RedFormat, UnsignedByteType, LinearFilter,
+         Mesh, InstancedMesh,
+         BoxGeometry, BufferGeometry, SphereGeometry,
+         BufferAttribute,
+         MeshPhysicalMaterial, MeshBasicMaterial,
+         DoubleSide, FrontSide } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
+import { isoSurfaceFromColors } from '../Math/isoSurface.js';
+import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
@@ -161,6 +168,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.object.material.uniformsNeedUpdate = true;
 
     this.colorTexture.needsUpdate = true;
+
   }
   _filterDataDiscrete( selectedDataValues, timeSlice ) {
 
@@ -305,6 +313,227 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.colorTexture.needsUpdate = true;
 
   }
+  /*
+  _computeISOSurfaceUnnormalized( lowerBound, upperBound ) {
+    // This function operates on the original data, not the normalized data
+
+    const voxelData = this.voxelData;
+    const modelShape = this.modelShape;
+
+    // Voxel IJK index to world coordinate
+    const vox2world = new Matrix4().copy( this.model2vox ).invert().premultiply( this._transform );
+
+    return isoSurface({
+      density     : voxelData,
+      shape       : modelShape,
+      lowerBound  : lowerBound,
+      upperBound  : upperBound,
+      vox2world   : vox2world
+    });
+  }
+  */
+
+  createISOSurface () {
+    // const surfaceParams = this._computeISOSurfaceUnnormalized( lowerBound, upperBound );
+    const singleChannel = this.colorFormat === RedFormat;
+    const voxelColor = this.voxelColor;
+    // Voxel IJK index to model coordinate (not world)
+    const vox2model = new Matrix4().copy( this.model2vox ).invert(); //.premultiply( this._transform );
+
+    const surfaceParams = isoSurfaceFromColors({
+      colorVolume : voxelColor,
+      shape       : this.modelShape,
+      colorSize   : singleChannel ? 1 : 4,
+      vox2world   : vox2model,
+      offset      : 0
+    });
+
+    // need at least 3 vertices to create a surface
+    if( surfaceParams.nVerts < 3 ) {
+      if( this.isoSurface ) {
+        this.isoSurface.isInvalid = true;
+        this._canvas.needsUpdate = true;
+      }
+      return;
+    }
+
+    const position = new Float32Array( surfaceParams.position );
+    const index = new Uint32Array( surfaceParams.index );
+
+    // migrate colors
+    const color = new Float32Array( surfaceParams.nVerts * 4 ).fill(1);
+    const colorsWhenSingleChannel = this.object.material.uniforms.colorsWhenSingleChannel.value;
+
+    if( singleChannel && Array.isArray(colorsWhenSingleChannel) && colorsWhenSingleChannel.length > 1 ) {
+      const nColors = colorsWhenSingleChannel.length;
+      const tmpColor = new Color(),
+            tmpColor2 = new Color();
+
+      let colorKey, colorKeyIdx, alpha;
+      for( let i = 0; i < surfaceParams.nVerts; i++ ) {
+        let colorKey = surfaceParams.color[ i * 3 ] / 255;
+        if( colorKey <= 0 ) {
+          tmpColor.copy( colorsWhenSingleChannel[0] );
+        } else if ( colorKey >= 1 ) {
+          tmpColor.copy( colorsWhenSingleChannel[ nColors - 1 ] );
+        } else {
+          colorKey *= nColors - 1;
+          colorKeyIdx = Math.floor( colorKey );
+          alpha = colorKey - colorKeyIdx;
+          tmpColor2.copy( colorsWhenSingleChannel[ colorKeyIdx + 1 ] ).multiplyScalar( alpha );
+          tmpColor.copy( colorsWhenSingleChannel[ colorKeyIdx ] ).multiplyScalar( 1. - alpha );
+          tmpColor.add( tmpColor2 );
+        }
+
+        color[ i * 4 ] = tmpColor.r;
+        color[ i * 4 + 1 ] = tmpColor.g;
+        color[ i * 4 + 2 ] = tmpColor.b;
+      }
+    } else {
+      for( let i = 0; i < surfaceParams.nVerts; i++ ) {
+        color[ i * 4 ] = surfaceParams.color[ i * 3 ] / 255;
+        color[ i * 4 + 1 ] = surfaceParams.color[ i * 3 + 1 ] / 255;
+        color[ i * 4 + 2 ] = surfaceParams.color[ i * 3 + 2 ] / 255;
+      }
+    }
+
+    const geometry = new BufferGeometry();
+    geometry.setIndex( new BufferAttribute(index, 1, false) );
+    geometry.setAttribute( 'position', new BufferAttribute(position, 3) );
+    geometry.setAttribute( 'color', new BufferAttribute(color, 4) );
+    geometry.computeVertexNormals();
+
+    if( this.isoSurface ) {
+      const oldGeometry = this.isoSurface.geometry;
+      this.isoSurface.geometry = geometry;
+      this.isoSurface.isInvalid = undefined;
+      oldGeometry.dispose();
+    } else {
+      const material = new MeshPhysicalMaterial({
+        'transparent' : true,
+        'side': FrontSide,
+        'vertexColors' : true,
+        'forceSinglePass' : false,
+        'reflectivity' : 0,
+        'flatShading' : false,
+        'roughness' : 0.3,
+        'ior' : 1.6,
+        'clearcoat' : 0,
+        'clearcoatRoughness' : 1,
+        'specularIntensity' : 1
+      })
+
+      this.isoSurface = new Mesh( geometry, material );
+      this.isoSurface.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+      this.isoSurface.renderOrder = CONSTANTS.RENDER_ORDER.DataCube2ISOSurface;
+      this.object.add( this.isoSurface );
+    }
+
+    this._canvas.needsUpdate = true;
+  }
+
+  createVectorFieldMesh() {
+    /**
+     * Image will be treated as tractography (vector field)
+     * Without checking, the data should be C x R x S x 3
+     *
+     * FIXME: Figure out the coords of vector space (in native voxel or ras?)
+     */
+    const vox2world = new Matrix4().copy( this.model2vox ).invert().premultiply( this._transform );
+    const vox2scan = vox2world.clone().premultiply( this.tkrToScan );
+    const scan2world = this.tkrToScan.clone().invert();
+
+    const voxelData = this.voxelData;
+
+    const nVoxels = this.nVoxels;
+
+    if(voxelData.length < nVoxels * 3) {
+      throw new Error("The volume is not a 3D vector field.");
+    }
+
+    const tmpVec3 = new Vector3();
+    const tmpDir = new Vector3();
+    const tmpMat4 = new Matrix4();
+    const tmpColor = new Color();
+    const eMat4 = tmpMat4.elements;
+    const v1 = new Vector3();
+    const v2 = new Vector3();
+
+    const geometry = new SphereGeometry( 1, 10, 6 );
+    geometry.applyMatrix4( tmpMat4.makeScale(0.3, 0.3, 1) )
+    const material = new MeshBasicMaterial({ transparent: true });
+    const mesh = new InstancedMesh(geometry, material, nVoxels);
+
+    let voxelIndex = 0;
+    let vectorCount = 0;
+    for ( let z = 0; z < this.modelShape.z; z++ ) {
+      for ( let y = 0; y < this.modelShape.y; y++ ) {
+        for ( let x = 0; x < this.modelShape.x; x++, voxelIndex++ ) {
+          // no need to round up as this has been done in the constructor
+
+          tmpDir.set(
+            voxelData[ voxelIndex ],
+            voxelData[ voxelIndex + nVoxels ],
+            voxelData[ voxelIndex + nVoxels * 2 ]
+          );
+
+          if( tmpDir.lengthSq() < 0.25 ) { continue; }
+
+          tmpDir.normalize();
+
+          tmpColor.set( Math.abs(tmpDir.x), Math.abs(tmpDir.y), Math.abs(tmpDir.z) );
+
+          // color
+          mesh.setColorAt ( vectorCount, tmpColor );
+
+          // rotation
+          if( tmpDir.z >= 0.9999) {
+            tmpMat4.identity();
+          } else if ( tmpDir.z <= -0.9999 ) {
+            tmpMat4.makeScale(-1, 1, -1);
+          } else {
+            v1.set(0, 0, 1).cross( tmpDir ).normalize();
+            v2.copy( tmpDir ).cross( v1 );
+            tmpMat4.makeBasis( v1, v2, tmpDir );
+          }
+
+          tmpVec3.set(x, y, z).applyMatrix4( vox2scan );
+          tmpMat4.setPosition( tmpVec3 ).premultiply( scan2world );
+          mesh.setMatrixAt( vectorCount, tmpMat4 );
+
+          vectorCount++;
+        }
+      }
+    }
+
+    mesh.count = vectorCount;
+    mesh.instanceColor.needsUpdate = true;
+    mesh.instanceMatrix.needsUpdate = true;
+
+    return mesh;
+
+  }
+
+  cloneForExporter({
+    target = CONSTANTS.RENDER_CANVAS.main,
+    materialModifier = {}
+  } = {}) {
+
+    if( !this.object ) { return null; }
+    if( this.forceVisible === false ) { return null; }
+    if( !this.forceVisible && !this.object.visible ) { return null; }
+
+    if( !this.isoSurface || this.isoSurface.isInvalid ) {
+      this.createISOSurface();
+    }
+    if( !this.isoSurface || this.isoSurface.isInvalid ) { return null; }
+
+    const mesh = this.isoSurface.clone();
+    mesh.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    mesh.applyMatrix4( this.object.matrixWorld );
+
+    return mesh;
+  }
 
   _onSetVoxelRenderDistance = (event) => {
     let dist = 1000.0;
@@ -366,6 +595,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.type = 'DataCube2';
     this.isDataCube2 = true;
+    this.isoSurface = null;
     this._display_mode = "hidden";
     this._selectedDataValues = [];
     this._timeSlice = 0;
@@ -378,7 +608,10 @@ class DataCube2 extends AbstractThreeBrainObject {
      * threeBrain uses tkrRAS as world coordinate
      * Default: `this._transform`: model -> tkrRAS
      * Alternative: `this._transform`: scannerRAS -> tkrRAS
-     */
+    **/
+    const subjectData = this._canvas.shared_data.get( this.subject_code );
+    this.tkrToScan = subjectData.matrices.tkrRAS_Scanner.clone();
+
     let transformSpaceFrom = g.trans_space_from || "model";
     if( Array.isArray(g.trans_mat) && g.trans_mat.length === 16 ) {
       this._transform.set(...g.trans_mat);
@@ -408,8 +641,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         // this._transform.copy( niftiData.model2tkrRAS );
 
         // model -> scanner RAS -> tkr ras
-        const subjectData = this._canvas.shared_data.get( this.subject_code );
-        const ras2tkr = subjectData.matrices.tkrRAS_Scanner.clone().invert()
+        const ras2tkr = this.tkrToScan.clone().invert();
         this._transform.multiply( niftiData.model2RAS )
           .premultiply(ras2tkr);
 
@@ -582,6 +814,15 @@ class DataCube2 extends AbstractThreeBrainObject {
         // this.voxelData = undefined;
       }
     } catch (e) {}
+
+    try {
+      if( this.isoSurface ) {
+        this.isoSurface.removeFromParent();
+        this.isoSurface.geometry.dispose();
+        this.isoSurface.material.dispose();
+      }
+    } catch (e) {}
+
     try {
       this._canvas.$el.removeEventListener(
         "viewerApp.canvas.setVoxelRenderDistance",
@@ -623,27 +864,73 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   }
 
+  setOpacity( opa ) {
+
+    this.object.material.uniforms.alpha.value = opa;
+    if( opa < 0 ){
+      this.updatePalette();
+      opa = 1;
+    }
+    if( this.isoSurface ) {
+      this.isoSurface.material.opacity = opa;
+      if( opa < 0.4 ) {
+        this.isoSurface.material.depthWrite = false;
+      } else {
+        this.isoSurface.material.depthWrite = true;
+      }
+    }
+
+  }
+
   set_display_mode( mode ) {
 
     super.set_display_mode( mode );
 
-    switch (mode) {
-      case 'main camera':
-        this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
-        break;
-      case 'side camera':
-      case 'anat. slices':
-        this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
-        break;
-      default:
-        this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+    if( this.useISOSurface && this.isoSurface && !this.isoSurface.isInvalid ) {
+      // show the isoSurface instead of the volume
+      switch (mode) {
+        case 'main camera':
+          this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          break;
+        case 'side camera':
+        case 'anat. slices':
+          this.isoSurface.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          break;
+        default:
+          this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+      }
+    } else {
+      if( this.isoSurface ) {
+        this.isoSurface.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+      }
+      switch (mode) {
+        case 'main camera':
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          break;
+        case 'side camera':
+        case 'anat. slices':
+          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          break;
+        default:
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+      }
     }
   }
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}) {
+    const displayMode = this._canvas.get_state("voxelDisplay", "hidden");
+    this.useISOSurface = this._canvas.get_state( "voxelISOSurface", false );
+    this.set_display_mode( displayMode );
+
     super.pre_render({ target : target });
     if( this.forceVisible === true ) {
       this.object.visible = true;
@@ -651,6 +938,8 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.object.visible = false;
       return;
     }
+
+
     if( target === CONSTANTS.RENDER_CANVAS.side ) {
       // sliceInstance.sliceMaterial.depthWrite = false;
       // if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {

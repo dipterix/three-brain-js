@@ -1,6 +1,7 @@
 import { AbstractThreeBrainObject, ElasticGeometry } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
+  BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute,
   Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
   SphereGeometry, InstancedMesh, DoubleSide, AlwaysDepth
@@ -321,6 +322,14 @@ class Electrode extends AbstractThreeBrainObject {
         "viewerApp.electrodes.mapToTemplate",
         this.mapToTemplate
       )
+      this._canvas.$el.removeEventListener(
+        "viewerApp.electrodes.updateData",
+        this.updateElectrodeData
+      )
+      this._canvas.$el.removeEventListener(
+        "viewerApp.electrodes.colorMapChanged",
+        this.onColorMapUpdated
+      )
     } catch (e) {}
 
     if( this.instancedObjects ) {
@@ -363,6 +372,45 @@ class Electrode extends AbstractThreeBrainObject {
     }
 
     this.mapToTemplateAffine({ subjectCode : subjectCode });
+  }
+
+  updateElectrodeData = ( event ) => {
+    const keyframes = event.detail;
+    if( !keyframes || typeof keyframes !== "object" ) { return; }
+
+    const subjectCode = this.subject_code;
+    const subjectKeyframes = keyframes[ subjectCode ];
+    if( !subjectKeyframes ) { return; }
+
+    if( !this.animationKeyFrames ) {
+      this.animationKeyFrames = {};
+    }
+
+    for(let name in subjectKeyframes) {
+      const data = subjectKeyframes[ name ];
+      const keyframe = {};
+      this.contactCenter.forEach((c, idx) => {
+        const d = data[ c.chanNum ];
+        if( !d || typeof d !== "object" ) { return; }
+        d.timeValues.forEach( v => {
+          if( !keyframe[ v.time ] ) {
+            keyframe[ v.time ] = [];
+          }
+          keyframe[ v.time ][ idx ] = v.value;
+        });
+      });
+      const keyframe2 = Object.keys( keyframe ).map(t => {
+        return [t, keyframe[ t ]];
+      }).sort((a, b) => {
+        return a[0] - b[0];
+      });
+      if( keyframe2.length ) {
+        this.animationKeyFrames[ name ] = keyframe2;
+      }
+    }
+
+    this.colorNeedsUpdate = true;
+
   }
 
   /**
@@ -503,7 +551,10 @@ class Electrode extends AbstractThreeBrainObject {
     }
     if( geomType === "SphereGeometry" ) {
       if (!geomParams || typeof geomParams !== "object") {
-        geomParams = { radius : baseSize };
+        geomParams = {
+          radius : baseSize,
+          channel_numbers: [g.number],
+        };
       }
       this.isElectrodePrototype = false;
     } else {
@@ -519,7 +570,7 @@ class Electrode extends AbstractThreeBrainObject {
     this._geometry.name = `geom_electrode_${ g.name }`;
     this._geometry.computeBoundingSphere();
     this._dataTexture = this._geometry.dataTexture;
-    const fixedClearCoat = this._geometry.parameters.fixedClearCoat;
+    this._fixedOutline = this._geometry.parameters.fixedOutline;
     const transform = this._geometry.parameters.transform;
     const hasTransform = this._geometry.parameters.hasTransform;
     this.contactCenter = this._geometry.parameters.contactCenter;
@@ -783,7 +834,15 @@ class Electrode extends AbstractThreeBrainObject {
     this._canvas.$el.addEventListener(
       "viewerApp.electrodes.mapToTemplate",
       this.mapToTemplate
-    )
+    );
+    this._canvas.$el.addEventListener(
+      "viewerApp.electrodes.updateData",
+      this.updateElectrodeData
+    );
+    this._canvas.$el.addEventListener(
+      "viewerApp.electrodes.colorMapChanged",
+      this.onColorMapUpdated
+    );
 
   }
 
@@ -791,7 +850,7 @@ class Electrode extends AbstractThreeBrainObject {
     if ( !this.hasAnimationTracks ) { return; }
     if ( varname === "[None]" ) { return; }
     const keyFrame = this.animationKeyFrames[ varname ];
-    if( !keyFrame ) { return null; }
+    if( !keyFrame || !Array.isArray(keyFrame) || !keyFrame.length ) { return null; }
 
     let idx;
     for( idx = 0 ; idx < keyFrame.length - 1 ; idx++ ) {
@@ -1081,6 +1140,9 @@ class Electrode extends AbstractThreeBrainObject {
   updateDataRange() {
     this.colorNeedsUpdate = true;
   }
+  onColorMapUpdated = () => {
+    this.colorNeedsUpdate = true;
+  }
 
   updateFixedColor() {
 
@@ -1127,8 +1189,10 @@ class Electrode extends AbstractThreeBrainObject {
         });
       }
     } else {
-      const colorHexStr = this.getFixedColor( this.numbers, displayVariableName );
-      colorNeedsUpdate = fixColor[ 0 ] ^ (colorHexStr !== undefined);
+      const colorHexStr = this.getFixedColor( Array.isArray(this.numbers) && this.numbers.length > 0 ? this.numbers[0] : this.numbers, displayVariableName );
+      if( !colorNeedsUpdate ) {
+        colorNeedsUpdate = fixColor[ 0 ] ^ (colorHexStr !== undefined);
+      }
       if( !colorHexStr ) {
         fixColor[ 0 ] = false;
       } else {
@@ -1359,7 +1423,10 @@ class Electrode extends AbstractThreeBrainObject {
 
         this._material.useDataTexture( this._dataTexture, false );
 
-        if( useDefaultColor ) {
+        if( useFixedColor.length > 0 && useFixedColor[0] ) {
+          // The color should be fixed
+          currentMaterial.color.copy( fixedColorArray[0] );
+        } else if( useDefaultColor ) {
           currentMaterial.color.copy( this.defaultColor );
         } else {
           if( Array.isArray( this.state.displayValues ) ) {
@@ -1375,11 +1442,19 @@ class Electrode extends AbstractThreeBrainObject {
     // also set clearcoat
     const outlineThreshold = this._canvas.get_state( "electrode_clearcoat", 0.0 );
     if( typeof outlineThreshold === "number" ) {
-      if( this.isElectrodePrototype ) {
-        this.instancedObjects.material.useOutline( outlineThreshold );
-      } else {
+      if( !this._fixedOutline ) {
         this._material.useOutline( outlineThreshold );
       }
+      if( this.isElectrodePrototype ) {
+        this.instancedObjects.material.useOutline( outlineThreshold );
+      }
+    }
+
+    const electrodeTranslucent = this._canvas.get_state( "electrode_translucent", 1 );
+    if( this.isElectrodePrototype ) {
+      this.instancedObjects.material.setTranslucent( electrodeTranslucent );
+    } else {
+      this._material.setTranslucent( electrodeTranslucent );
     }
   }
 
@@ -1473,7 +1548,8 @@ class Electrode extends AbstractThreeBrainObject {
 
     // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
     // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
-    if( previousDisplayVariable !== this.state.displayVariable ) {
+    if( this.colorNeedsUpdate ||
+        previousDisplayVariable !== this.state.displayVariable ) {
       // displayVariable has changed, check fixed colors
       this.updateFixedColor();
       this.colorNeedsUpdate = true;
@@ -1485,7 +1561,7 @@ class Electrode extends AbstractThreeBrainObject {
     // update color
 
     const defaultColorHex = testColorString( this._canvas.get_state( 'inactiveElectrodeColor' ) );
-    if( defaultColorHex ) {
+    if( this.colorNeedsUpdate || defaultColorHex ) {
       const previousDefaultColor = this.defaultColor.getHex();
       this.defaultColor.set( defaultColorHex );
       if( this.defaultColor.getHex() !== defaultColorHex ) {
@@ -1781,6 +1857,84 @@ class Electrode extends AbstractThreeBrainObject {
 
     return this.mapToTemplateAffine({ subjectCode: subjectCode });
 
+  }
+
+  cloneForExporter({
+    target            = CONSTANTS.RENDER_CANVAS.main,
+    materialModifier  = {}
+  } = {}) {
+
+    if( !this.isElectrodePrototype || !this.hasInstancedMesh ) {
+
+      return super.cloneForExporter({
+        target            : CONSTANTS.RENDER_CANVAS.main,
+        materialModifier  : {}
+      });
+
+    }
+
+    if( !this.object.visible ) { return null; }
+
+    const instancedMesh = this.instancedObjects;
+
+    const count = instancedMesh.count;
+    const geometry = instancedMesh.geometry;
+
+    const positionAttr = geometry.attributes.position,
+          positionCount = positionAttr.count,
+          positionArray = positionAttr.array;
+    const indexAttr = geometry.index,
+          indexArray = new Uint32Array( indexAttr.array ),
+          indexCount = indexAttr.count;
+
+
+    const newPositionCount = positionCount * count * 3;
+    const newPositionArray = new Float32Array( newPositionCount );
+    const newColorArray = new Float32Array( newPositionCount );
+    const newIndexArray = new Uint32Array( indexCount * count );
+
+    const vec3 = new Vector3();
+    const mat4 = new Matrix4();
+    const color = new Color();
+
+    for ( let i = 0; i < count; i++ ) {
+
+      instancedMesh.getMatrixAt( i, mat4 );
+      instancedMesh.getColorAt( i, color );
+      // GLTF assumes linear RGB
+      color.convertSRGBToLinear();
+      const positionOffset = positionCount * i;
+
+      for( let j = 0; j < positionCount; j++ ) {
+        vec3.fromArray( positionArray , j * 3 );
+        vec3.applyMatrix4( mat4 );
+        vec3.toArray( newPositionArray, (j + positionOffset) * 3 );
+        color.toArray( newColorArray, (j + positionOffset) * 3 );
+      }
+
+      for( let j = 0; j < indexCount ; j++ ) {
+        indexArray[j] += positionCount;
+      }
+
+      newIndexArray.set( indexArray, indexCount * i );
+
+    }
+
+    const geom = new BufferGeometry();
+    const pos = new Float32BufferAttribute( newPositionArray, 3 );
+    const col = new Float32BufferAttribute( newColorArray, 3 );
+
+    geom.setIndex( new Uint32BufferAttribute(newIndexArray, 1) );
+    geom.setAttribute( 'position', pos );
+    geom.setAttribute( 'color', col );
+
+    const material = new MeshBasicMaterial({
+      vertexColors: true
+    });
+
+    const mesh = new Mesh( geom, material );
+    mesh.applyMatrix4( instancedMesh.matrixWorld );
+    return mesh;
   }
 
 }

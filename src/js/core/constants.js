@@ -64,6 +64,7 @@ CONSTANTS.ZINDEX_BASE = 1;
 // You can only change which key is pressed. However, you cannot change shift & ctrl or alt
 // To do that you must go into the code
 CONSTANTS.KEY_DEBUG                   = "KeyD";         // `cmd+opt+shift+D` - Debug
+CONSTANTS.KEY_SIDE_PANEL              = "KeyP";         // `p` - toggle side panel
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
 CONSTANTS.KEY_CYCLE_SLICE_MODE        = "KeyM";         // `m` - cycle through slice mode
 CONSTANTS.KEY_CYCLE_LEFT              = "BracketLeft";  // `[` - cycle through left hemisphere material
@@ -78,8 +79,9 @@ CONSTANTS.KEY_CYCLE_ELECTRODES_PREV   = "Comma";        // `,` - choosing previo
 CONSTANTS.KEY_CYCLE_ELEC_VISIBILITY   = "KeyV";         // `v` - toggle electrode visibility
 CONSTANTS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "KeyV";  // `⇧V` - toggle electrode label visibility
 CONSTANTS.KEY_CYCLE_ELEC_OUTLINE      = "KeyO";         // `o` - cycle through outline options
+CONSTANTS.KEY_CYCLE_ELEC_TRANSLUCENT  = "KeyT";         // `t` - cycle through translucent options
 CONSTANTS.KEY_CYCLE_ELEC_SHAPE        = "KeyO";         // `⇧O` - cycle through electrode shapes
-CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `p` - cycle through surfaces types
+CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `⇧P` - cycle through surfaces types
 CONSTANTS.KEY_CYCLE_MATERIAL          = "KeyM";         // `⇧M` - change surface material types (lighting model)
 CONSTANTS.KEY_CYCLE_VOXEL_TYPE        = "KeyA";         // `a` - change voxel (volume) to be displayed
 CONSTANTS.KEY_CYCLE_ATLAS_MODE        = "KeyL";         // `l` - cycle through voxel display mode
@@ -104,6 +106,7 @@ CONSTANTS.KEY_CYCLE_REMOVE_EDITOR     = "KeyR";         // `r` - remove editor k
 
 
 CONSTANTS.TOOLTIPS = {};
+CONSTANTS.TOOLTIPS.KEY_SIDE_PANEL              = "p";
 CONSTANTS.TOOLTIPS.KEY_ZOOM                    = "z/Z";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SLICE_MODE        = "m";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT              = "[";
@@ -117,8 +120,9 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_PREV   = ",";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_VISIBILITY   = "v";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY   = "⇧V";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_OUTLINE      = "o";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_TRANSLUCENT  = "t";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_SHAPE        = "⇧O";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE           = "p";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE           = "⇧P";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR     = "k";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_MATERIAL          = "⇧M";
 CONSTANTS.TOOLTIPS.KEY_OVERLAY_CORONAL         = "⇧C";
@@ -203,8 +207,9 @@ This value allows the default rendering order of scene graph objects to be overr
  */
 CONSTANTS.RENDER_ORDER = {
   'DataCube2' : -1,
+  'DataCube2ISOSurface' : 501,
   'DataCube'  : CONSTANTS.MAX_RENDER_ORDER - 1,
-  "Electrode" : -500,
+  "Electrode" : 500,
   "InstancedElectrode": -501,
 };
 
@@ -219,7 +224,8 @@ CONSTANTS.RENDER_CANVAS = {
 };
 
 CONSTANTS.GEOMETRY = {
-  "crosshair-gap-half" : 0
+  "crosshair-gap-half" : 0,
+  "electrode-outline-threhsold" : 0.7
 };
 
 

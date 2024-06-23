@@ -25,8 +25,8 @@ class ElectrodeMaterial extends MeshBasicMaterial {
 
   useOutline( outlineThreshold ) {
     if( outlineThreshold > 0.01 ) {
+      this.uniforms.outlineThreshold.value = outlineThreshold;
       if( this.defines.USE_OUTLINE === undefined ) {
-        this.uniforms.outlineThreshold.value = outlineThreshold;
         this.defines.USE_OUTLINE = "";
         this.needsUpdate = true;
       }
@@ -36,6 +36,39 @@ class ElectrodeMaterial extends MeshBasicMaterial {
         this.needsUpdate = true;
       }
     }
+  }
+
+  setTranslucent( level ) {
+    // level = 0 or false: nothing is translucent, depth=always
+    // level = 1 or true: contact is translucent, outline depth = always
+    // level = 2: depth = always for all
+    if( level === 0 || level === false ) {
+      if( this.defines.ALWAYS_DEPTH === undefined ) {
+        this.defines.ALWAYS_DEPTH = "";
+        this.needsUpdate = true;
+      }
+      return;
+    }
+
+    if( this.defines.ALWAYS_DEPTH === "" ) {
+      delete this.defines.ALWAYS_DEPTH;
+      this.needsUpdate = true;
+    }
+
+    if( level === 1 || level === true ) {
+      // outline is always at the front
+      if( this.defines.OUTLINE_ALWAYS_DEPTH === undefined ) {
+        this.defines.OUTLINE_ALWAYS_DEPTH = "";
+        this.needsUpdate = true;
+      }
+      return;
+    }
+
+    if( this.defines.OUTLINE_ALWAYS_DEPTH === "" ) {
+      delete this.defines.OUTLINE_ALWAYS_DEPTH;
+      this.needsUpdate = true;
+    }
+
   }
 
   useDataTexture( texture, enabled = true ) {
@@ -169,11 +202,24 @@ diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.0 ), ( 1.0 - reflectProd ) * d
 
 #if defined( USE_OUTLINE )
 
-  gl_FragDepth = gl_FragCoord.z;
+  #if defined ( ALWAYS_DEPTH )
+
+    gl_FragDepth = gl_DepthRange.near;
+
+  #elif defined ( OUTLINE_ALWAYS_DEPTH )
+
+    gl_FragDepth = gl_FragCoord.z;
+
+  #endif
 
   if( outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
     diffuseColor.rgb = vec3( 0.0 );
-    gl_FragDepth = gl_DepthRange.near;
+
+    #if defined ( ALWAYS_DEPTH ) || defined ( OUTLINE_ALWAYS_DEPTH )
+
+      gl_FragDepth = gl_DepthRange.near;
+
+    #endif
   }
 
 #endif

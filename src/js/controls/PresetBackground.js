@@ -10,6 +10,7 @@ function registerPresetBackground( ViewerControlCenter ){
     const initialValue = this.settings.background || "#ffffff",
           folderName = CONSTANTS.FOLDERS['background-color'];
 
+    /*
     const citation = this.gui.addController(
       'Viewer Citation Information', () => {}
     )
@@ -20,6 +21,7 @@ function registerPresetBackground( ViewerControlCenter ){
     $a.setAttribute("target", "_blank");
     $a.style.lineHeight = "var(--widget-height)";
     citation.domElement.replaceChildren($a);
+    */
 
     const controller = this.gui.addController(
       'Background Color', '#FFFFFF',

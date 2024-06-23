@@ -19,6 +19,13 @@ class EnhancedGUI extends GUI {
 
     if( !this.parent || !this.parent.isEnhancedGUI ) {
       this._fullPaths = [];
+
+      if( args.logoElement ) {
+        // ---- Logo -----
+        const logo = this.addFolder("_logo_");
+        logo.domElement.replaceWith( args.logoElement );
+      }
+
       this.addFolder('Default');
     } else {
       this._fullPaths = [...this.parent._fullPaths];

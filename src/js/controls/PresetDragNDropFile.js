@@ -32,7 +32,7 @@ function ensureColorMap( filename ) {
     colorMap[ prefix ] = {
       single: getColorFromFilename( prefix ),
       discrete: "default",
-      continuous: "turbo",
+      continuous: "rainbow",
     }
   }
   return colorMap[ prefix ];
@@ -136,8 +136,7 @@ function addOpacityController({ inst, canvas, gui, fileName, parentFolder }) {
 
   if( inst.isDataCube2 ) {
     ctrl.onChange(v => {
-      if(!v) { v = 0; }
-      inst.object.material.uniforms.alpha.value = v;
+      inst.setOpacity( v );
       canvas.needsUpdate = true;
     }).setValue( defaultValue );
   } else {
@@ -334,7 +333,10 @@ function addValueClippingController({ inst, canvas, gui, fileName, parentFolder 
 
 }
 
-function postProcessVolume({ data, fileName, gui, folderName, canvas, controlCenter }) {
+function postProcessVolume({ data, fileName, folderName, app }) {
+  const gui = app.controllerGUI;
+  const controlCenter = app.controlCenter;
+  const canvas = app.canvas;
   data.fileName = fileName;
   const inst = gen_datacube2( data, canvas );
   inst.forceVisible = true;
@@ -383,7 +385,10 @@ function postProcessVolume({ data, fileName, gui, folderName, canvas, controlCen
   return inst;
 }
 
-function postProcessSurface({ data, fileName, gui, folderName, canvas, controlCenter }) {
+function postProcessSurface({ data, fileName, folderName, app }) {
+  const gui = app.controllerGUI;
+  const controlCenter = app.controlCenter;
+  const canvas = app.canvas;
   data.fileName = fileName;
   const inst = gen_free( data, canvas );
   inst.forceVisible = true;
@@ -424,8 +429,10 @@ function postProcessSurface({ data, fileName, gui, folderName, canvas, controlCe
   return inst;
 }
 
-function postProcessSurfaceColor({ data, fileName, gui, folderName, canvas, controlCenter }) {
-
+function postProcessSurfaceColor({ data, fileName, folderName, app }) {
+  const gui = app.controllerGUI;
+  const controlCenter = app.controlCenter;
+  const canvas = app.canvas;
   data.fileName = fileName;
   const parentFolder = `${folderName} > Configure ROI Surfaces`;
 
@@ -478,7 +485,11 @@ function postProcessSurfaceColor({ data, fileName, gui, folderName, canvas, cont
   return;
 }
 
-function postProcessText({ data, fileName, gui, folderName, canvas }) {
+function postProcessText({ data, fileName, folderName, app }) {
+  const gui = app.controllerGUI;
+  const controlCenter = app.controlCenter;
+  const canvas = app.canvas;
+
   if( Array.isArray( data ) ) {
     // treated as csv/tsv table
     if( !data.length ) { return; }
@@ -493,12 +504,13 @@ function postProcessText({ data, fileName, gui, folderName, canvas }) {
         const color = el["Color"];
         if ( typeof color === "string" && color.length === 7 ) {
           const fname = normalizeImageName( el["Filename"] );
-          ensureColorMap( fname );
-          colorMap[ fname ].single = color;
+          ensureColorMap( fname ).single = color;
         }
       });
       updateColorMap( gui );
       return;
+    } else if ( sample["Electrode"] ) {
+      app.updateElectrodeData({ data : data });
     }
   }
 }
@@ -598,10 +610,8 @@ function registerDragNDropFile( ViewerControlCenter ){
       const inst = postProcess({
         data: data,
         fileName: normalizedFilename,
-        gui: gui,
         folderName: folderName,
-        canvas: canvas,
-        controlCenter: this
+        app: this.app
       });
 
       if( inst && inst.isThreeBrainObject ) {

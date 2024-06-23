@@ -1,7 +1,7 @@
 import {
   Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4,
   // OrthographicCamera,
-  WebGLRenderer,
+  WebGLRenderer, WebGL1Renderer,
   DirectionalLight, AmbientLight,
   Raycaster, ArrowHelper, BoxHelper,
   LoadingManager, FileLoader, FontLoader,
@@ -49,16 +49,23 @@ const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 const _mainCameraUpdatedEvent = {
   type  : "viewerApp.mainCamera.updated",
   muffled: true
-}
+};
 
 const _stateDataChangeEvent = {
   type      : "viewerApp.state.updated",
   immediate : false
-}
+};
 
 const _subjectStateChangedEvent = {
   type : "viewerApp.subject.changed"
-}
+};
+
+const _colorMapChanged = {
+  type : "viewerApp.electrodes.colorMapChanged",
+  immediate: true
+};
+
+const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
 
 /* ------------------------------------ Layer setups ------------------------------------
@@ -187,6 +194,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Generate a canvas domElement using 2d context to put all elements together
     // Since it's 2d canvas, we might also add customized information onto it
     this.domElement = document.createElement('canvas');
+    this.domElement.style.position = "absolute";
     this.domContextWrapper = new CanvasContext2D( this.domElement, this.pixel_ratio[0] );
     this.domContext = this.domContextWrapper.context;
     this.background_color = '#ffffff'; // white background
@@ -295,7 +303,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     	});
 
     }else{
-    	this.main_renderer = new WebGLRenderer({ antialias: false, alpha: true });
+    	this.main_renderer = new WebGL1Renderer({ antialias: false, alpha: true });
     }
   	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
   	this.main_renderer.setSize( width, height );
@@ -304,6 +312,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.main_renderer.setClearColor( this.background_color );
 
     this.main_canvas.appendChild( this.domElement );
+    this.main_canvas.appendChild( this.main_renderer.domElement );
 
     let wrapper_canvas = document.createElement('div');
     this.wrapper_canvas = wrapper_canvas;
@@ -965,6 +974,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       immediate : immediate
     });
   }
+  setControllerValues ({ data, immediate = true } = {}) {
+    this.dispatch({
+      type : "viewerApp.controller.setValue",
+      data : data,
+      immediate : immediate
+    });
+  }
 
   setSliceCrosshair({x, y, z, immediate = true, centerCrosshair = false} = {}) {
 
@@ -1210,7 +1226,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return this.mouseRaycaster;
   }
 
-  // -------- Camera, control trackballs ........
+  // -------- Camera, control trackball ........
   resetSideCanvas({
     width, zoomLevel = true, position = false,
     coronal = true, axial = true, sagittal = true
@@ -1460,6 +1476,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return this.colorMaps.get( this.get_state( 'color_map', '' ) );
   }
 
+  setColorMapControlColors(colors, dataName) {
+    let cmap;
+    if( typeof dataName !== "string" ) {
+      cmap = this.currentColorMap();
+    } else {
+      cmap = this.colorMaps.get( dataName );
+    }
+
+    if(!cmap) { return; }
+
+    cmap.updateColorMap( colors );
+    this.dispatch( _colorMapChanged );
+    this.needsUpdate = true;
+  }
+
   switch_media( name ){
     this.video_canvas._playing = false;
     this.video_canvas.pause();
@@ -1551,6 +1582,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   update(){
 
+    if(
+      this.scene.background &&
+      this.scene.background.isDynamicBackgound
+    ) {
+      // no energy save
+      this.scene.background.update();
+    }
+
     this.updateRenderFlag();
 
     this.trackball.update();
@@ -1582,7 +1621,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.domContext.clearRect( 0, 0, _width, _height );
 
     // copy the main_renderer context
-    this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
+    // this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
 
   }
 
@@ -1683,10 +1722,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // set electrode outline clearcoat value
     const renderOutlines = this.get_state( "outline_state", "auto" );
+    let outlineThreshold = 0.0;
     if ( renderOutlines === "on" ) {
-      this.set_state( "electrode_clearcoat", 0.5 );
+      outlineThreshold = CONSTANT_GEOM_PARAMS[ "electrode-outline-threhsold" ];
     } else if ( renderOutlines === "off" ) {
-      this.set_state( "electrode_clearcoat", 0.0 );
+      outlineThreshold = 0.0;
     } else {
       const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
       const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
@@ -1698,11 +1738,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           (right_mtype === "normal" && right_opacity > 0.2 && right_opacity < 1) ||
           (right_mtype === "wireframe" && right_opacity > 0.1)
       ) {
-        this.set_state( "electrode_clearcoat", 0.5 );
+        outlineThreshold = CONSTANT_GEOM_PARAMS[ "electrode-outline-threhsold" ];
       } else {
-        this.set_state( "electrode_clearcoat", 0.0 );
+        outlineThreshold = 0.0;
       }
     }
+    this.set_state( "electrode_clearcoat", outlineThreshold );
 
     // Pre render all meshes
     this.mesh.forEach((m) => {
@@ -1931,7 +1972,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   renderSelectedObjectInfo(
     x = 10, y = 10, w = 100, h = 100,
-    contextWrapper = undefined, force_left = false ){
+    contextWrapper = undefined ){
 
     // Add selected object information, or if not showing is set
     if( !this.animParameters.hasObjectFocused || this.get_state( 'info_text_disabled') ){
@@ -1942,7 +1983,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( !contextWrapper ){
       contextWrapper = this.domContextWrapper;
     }
-
     const objectInfo = this.animParameters.objectFocused;
 
     this._lineHeight_normal = this._lineHeight_normal || Math.round( 20 * this.pixel_ratio[0] );
@@ -1954,7 +1994,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     contextWrapper.set_font( this._fontSize_normal, this._fontType );
 
     let text_left;
-    if( this.sideCanvasEnabled && !force_left ){
+    const infoTextPosition = this.get_state( 'info_text_position' );
+    if( infoTextPosition === "left" ) {
+      text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
+    } else if ( infoTextPosition === "right" ) {
+      text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
+    } else if ( this.sideCanvasEnabled ) {
       text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
     } else {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
@@ -2629,6 +2674,64 @@ mapped = false,
 
   }
 
+  // export scene
+  cloneForExporter () {
+
+    const container = new Object3D();
+
+    // For light types that have a direction (directional and spot lights), the
+    // light's direction is defined as the 3-vector (0.0, 0.0, -1.0) and the
+    // rotation of the node orients the light accordingly.
+    const m44 = new Matrix4();
+    const light = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 0.7 );
+    light.position.copy( CONSTANTS.VEC_ANAT_I );
+    light.applyMatrix4( m44.set( 1,0,0,0, 0,1,0,0, 0,0,200,0, 0,0,0,1 ) );
+    container.add( light );
+
+    const lightIS = light.clone();
+    lightIS.applyMatrix4( m44.set( 1,0,0,0, 0,-1,0,0, 0,0,-200,0, 0,0,0,1 ) );
+    container.add( lightIS );
+
+    const lightRL = light.clone();
+    lightRL.applyMatrix4( m44.set( 0,0,200,0, 0,-1,0,0, 1,0,0,0, 0,0,0,1 ) );
+    container.add( lightRL );
+
+    const lightLR = light.clone();
+    lightLR.applyMatrix4( m44.set( 0,0,-200,0, 0,1,0,0, 1,0,0,0, 0,0,0,1 ) );
+    container.add( lightLR );
+
+    const lightAP = light.clone();
+    lightAP.applyMatrix4( m44.set( 0,1,0,0, 0,0,200,0, 1,0,0,0, 0,0,0,1 ) );
+    container.add( lightAP );
+
+    const lightPA = light.clone();
+    lightPA.applyMatrix4( m44.set( 0,-1,0,0, 0,0,-200,0, 1,0,0,0, 0,0,0,1 ) );
+    container.add( lightPA );
+
+    // export this subject
+    this.threebrain_instances.forEach(inst => {
+      try {
+        const object = inst.cloneForExporter({
+          'target' : CONSTANTS.RENDER_CANVAS.main,
+        });
+        if( object ) {
+          container.add( object );
+        }
+      } catch (e) {
+        console.warn( e );
+      }
+    });
+
+    m44.set( -1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1 );
+    container.applyMatrix4( m44 );
+
+    const scene = new Scene();
+    scene.add( container );
+
+    return scene;
+
+  }
+
   // ------------------------------ Drivers -----------------------------------
   setBackground({ color } = {}) {
     if( color === undefined || color === null ) { return; }
@@ -2644,7 +2747,10 @@ mapped = false,
     if( !this.scene.background ) {
       this.scene.background = new Color();
     }
-    this.scene.background.set( this.background_color );
+
+    if( this.scene.background && this.scene.background.isColor ) {
+      this.scene.background.set( this.background_color );
+    }
 
     // Set renderer background to be v
     this.main_renderer.setClearColor( this.background_color );
@@ -2678,6 +2784,7 @@ mapped = false,
     // MNI 305 position of the intersection
     return this.calculate_mni305( m.copy( this._crosshairPosition ) );
   }
+
 
 }
 

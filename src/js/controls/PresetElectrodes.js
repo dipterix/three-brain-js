@@ -165,6 +165,43 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
+    const translucentOptions = ["contact-only", "none", "contact+outline"];
+    const controllerElectrodeTranslucent = this.gui.addController( 'Translucent', "contact-only",
+                      { args : translucentOptions, folderName : folderName } )
+      .onChange(( v ) => {
+        switch ( v ) {
+          case "none":
+            this.canvas.set_state("electrode_translucent", 0);
+            break;
+          case "contact+outline":
+            this.canvas.set_state("electrode_translucent", 2);
+            break;
+          default:
+            this.canvas.set_state("electrode_translucent", 1);
+        }
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_ELEC_TRANSLUCENT,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_TRANSLUCENT,
+        name    : 'Translucent',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        let selectedIndex = ( translucentOptions.indexOf( controllerElectrodeTranslucent.getValue() ) + 1) % translucentOptions.length;
+        if( selectedIndex >= 0 ){
+          controllerElectrodeTranslucent.setValue( translucentOptions[ selectedIndex ] );
+        }
+      }
+    });
+
     this.canvas.set_state('electrode_label', { scale : 2, visible : false });
     this.gui
       .addController('Text Scale', 1.5, { folderName : folderName })

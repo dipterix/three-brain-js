@@ -46,6 +46,7 @@ class DataCube extends AbstractThreeBrainObject {
     // get cube (volume) data
     if( g.isVolumeCube ) {
       const niftiData = canvas.get_data("volume_data", g.name, g.group.group_name);
+      const niftiMask = canvas.get_data("volume_mask", g.name, g.group.group_name);
 
       if( niftiData.imageDataType === undefined ) {
         // float64 array, not supported
@@ -70,6 +71,11 @@ class DataCube extends AbstractThreeBrainObject {
         this.cubeData = niftiData.getNormalizedImage();
         dataTextureType = FloatType;
       }
+      if( niftiMask && niftiMask.image.length === this.cubeData.length ) {
+        this.maskData = new Uint8Array( niftiMask.image );
+      } else {
+        this.maskData = null;
+      }
       this.cubeShape = new Vector3().copy( niftiData.shape );
       const affine = niftiData.affine.clone();
       if( subjectData && typeof subjectData === "object" && subjectData.matrices ) {
@@ -80,6 +86,7 @@ class DataCube extends AbstractThreeBrainObject {
       this._uniforms.world2IJK.value.copy( affine ).invert();
     } else {
       this.cubeData = new Uint8Array(canvas.get_data('datacube_value_'+g.name, g.name, g.group.group_name));
+      this.maskData = null;
       this.cubeShape = new Vector3().fromArray( canvas.get_data('datacube_dim_'+g.name, g.name, g.group.group_name) );
       this._uniforms.world2IJK.value.set(1,0,0,128, 0,1,0,128, 0,0,1,128, 0,0,0,1);
     }
@@ -96,6 +103,21 @@ class DataCube extends AbstractThreeBrainObject {
     // Generate shader
     this._uniforms.map.value = this.dataTexture;
     this._uniforms.mapShape.value.copy( this.cubeShape );
+
+    if( this.maskData ) {
+      this.maskTexture = new Data3DTexture(
+        this.maskData, this.cubeShape.x, this.cubeShape.y, this.cubeShape.z
+      );
+      this.maskTexture.minFilter = NearestFilter;
+      this.maskTexture.magFilter = NearestFilter;
+      this.maskTexture.format = RedFormat;
+      this.maskTexture.type = UnsignedByteType;
+      this.maskTexture.unpackAlignment = 1;
+      this.maskTexture.needsUpdate = true;
+      this._uniforms.mapMask.value = this.maskTexture;
+    } else {
+      this.maskTexture = null;
+    }
 
     const sliceMaterial = new RawShaderMaterial( {
       glslVersion: GLSL3,
@@ -157,6 +179,7 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryXY.dispose();
       this.dataTexture.dispose();
+      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshXY.userData.instance = this;
     this.sliceXY = sliceMeshXY;
@@ -165,6 +188,7 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryXZ.dispose();
       this.dataTexture.dispose();
+      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshXZ.userData.instance = this;
     this.sliceXZ = sliceMeshXZ;
@@ -173,6 +197,7 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryYZ.dispose();
       this.dataTexture.dispose();
+      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshYZ.userData.instance = this;
     this.sliceYZ = sliceMeshYZ;
@@ -328,6 +353,7 @@ class DataCube extends AbstractThreeBrainObject {
     super.disposeGPU();
     this.sliceMaterial.dispose();
     this.dataTexture.dispose();
+    if( this.maskTexture ) { this.maskTexture.dispose(); }
   }
 
   dispose(){
@@ -337,6 +363,7 @@ class DataCube extends AbstractThreeBrainObject {
     this.sliceGeometryXZ.dispose();
   	this.sliceGeometryYZ.dispose();
     this.dataTexture.dispose();
+    if( this.maskTexture ) { this.maskTexture.dispose(); }
 
     this._canvas.removeClickable( '_coronal_' + this.name );
     this._canvas.removeClickable( '_axial_' + this.name );
@@ -363,6 +390,7 @@ class DataCube extends AbstractThreeBrainObject {
     let useOverlay = false;
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
       this._uniforms.threshold.value = 0.0;
+      this._uniforms.allowDiscard.value = 1.0;
       this.sliceMaterial.depthWrite = true;
       useOverlay =
             displayOverlay === "normal" ||
@@ -370,6 +398,7 @@ class DataCube extends AbstractThreeBrainObject {
             displayOverlay === "anat. slices";
     } else {
       this._uniforms.threshold.value = -1.0;
+      this._uniforms.allowDiscard.value = 0.0;
       this.sliceMaterial.depthWrite = false;
       useOverlay = displayOverlay === "normal" ||
             displayOverlay === "side camera" ||

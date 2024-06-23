@@ -6,6 +6,7 @@ const SliceShader = {
 
     // volume data
     map : { value : null },
+    mapMask: { value : null },
 
     // volume dimension
     mapShape : { value : new Vector3().set( 256, 256, 256 ) },
@@ -30,6 +31,8 @@ const SliceShader = {
     brightness : { value : 1.0 },
     contrast : { value : 0.0 },
 
+    allowDiscard: { value : 1 },
+
   },
 
   vertexShader: remove_comments(`precision highp float;
@@ -52,8 +55,10 @@ uniform float threshold;
 uniform float brightness;
 uniform float contrast;
 uniform sampler3D map;
+uniform sampler3D mapMask;
 uniform vec3 mapShape;
 uniform mat4 world2IJK;
+uniform float allowDiscard;
 
 #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
@@ -79,12 +84,19 @@ void main() {
   vec3 samplerPosition = ((world2IJK * worldPosition).xyz) / (mapShape - 1.0);
   if( any(greaterThan( samplerPosition, vec3(1.0) )) || any( lessThan(samplerPosition, vec3(0.0)) ) ) {
     gl_FragDepth = gl_DepthRange.far;
-    color.a = 0.0;
+    color.rgba = vec4(0.0);
+
+    if( allowDiscard > 0.5 ) {
+      discard;
+    }
   } else {
     color.r = texture(map, samplerPosition).r;
-    if( color.r <= threshold ) {
-      gl_FragDepth = gl_DepthRange.far;
+    if( color.r <= threshold && texture( mapMask, samplerPosition ).r < 0.5 ) {
       color.rgba = vec4(0.0);
+      gl_FragDepth = gl_DepthRange.far;
+      if( allowDiscard > 0.5 ) {
+        discard;
+      }
     } else {
       gl_FragDepth = gl_FragCoord.z;
       color.a = 1.0;

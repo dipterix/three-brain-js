@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import WebGL from './jsm/capabilities/WebGL.js'
 import * as download from 'downloadjs';
 import { json2csv } from 'json-2-csv';
+import jsPDF from 'jspdf';
 import ClipboardJS from 'clipboard';
 import nifti from 'nifti-reader-js';
 import gifti from 'gifti-reader-js';
@@ -27,10 +28,14 @@ import { FreeSurferMesh } from './formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from './formats/FreeSurferNodeValues.js';
 import { debugManager, loaderClasses, resolveURL, Cache } from './core/DataLoaders.js';
 
+import { GLTFExporter } from './jsm/exporters/GLTFExporter.js';
+import { exportScene } from './formats/exportScene.js'
+
 import { workerPool } from './core/Workers.js';
 
 // Addons
 import { RShinyDriver } from './drivers/RShinyDriver.js'
+import { DemoBackground } from './ext/DynamicBackground.js'
 import css from '../css/dipterix.css';
 
 
@@ -55,19 +60,21 @@ const ExternLibs = {
   THREE             : THREE,
   WebGL             : WebGL,
   json2csv          : json2csv,
+  jsPDF             : jsPDF,
   downloadjs        : download,
   ClipboardJS       : ClipboardJS,
   nifti             : nifti,
   gifti             : gifti,
   QRCode            : QrCodeWithLogo,
   registration      : { svd : svd, registerRigidPoints : registerRigidPoints },
+  DemoBackground    : DemoBackground,
 };
 
 const Drivers = {
   Shiny : RShinyDriver
 };
 
-const Readers = {
+const Importers = {
   FreeSurferMesh        : FreeSurferMesh,
   FreeSurferNodeValues  : FreeSurferNodeValues,
   MGHImage              : MGHImage,
@@ -78,6 +85,11 @@ const Readers = {
   Cache                 : Cache,
 };
 
+const Exporters = {
+  GLTFExporter          : GLTFExporter,
+  exportScene           : exportScene,
+}
+
 const Workers = workerPool;
 
-export { ViewerApp, ViewerWrapper, StorageCache, Readers, Constants, Drivers, ExternLibs, Workers };
+export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, Drivers, ExternLibs, Workers };

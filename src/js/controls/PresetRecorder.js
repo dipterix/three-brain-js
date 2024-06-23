@@ -1,10 +1,15 @@
 import { CONSTANTS } from '../core/constants.js';
 import { CCanvasRecorder } from '../capture/CCanvasRecorder.js';
 import { PDFContext } from '../core/context.js';
+import { exportScene } from '../formats/exportScene.js'
+import { SVGRenderer } from '../jsm/renderers/SVGRenderer.js';
+
 
 // 2. Record Videos
 
 function registerPresetRecorder( ViewerControlCenter ){
+
+  window.SVGRenderer = SVGRenderer;
 
   ViewerControlCenter.prototype.addPreset_recorder = function(){
     const folder_name = CONSTANTS.FOLDERS[ 'video-recorder' ];
@@ -97,6 +102,17 @@ function registerPresetRecorder( ViewerControlCenter ){
 
       pdf_wrapper.context.save(`[threeBrain] ${_d}.pdf`);
     }, {folder_name: folder_name });
+
+    this.gui.addController('Download GLTF', async () => {
+      const scene = this.canvas.cloneForExporter();
+      exportScene(
+        scene,
+        "GLB",
+        {
+          maxTextureSize: this.canvas.main_renderer.capabilities.maxTextureSize,
+        }
+      );
+    });
 
   };
 

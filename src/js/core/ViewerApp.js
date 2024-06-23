@@ -8,6 +8,9 @@ import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
 import { CanvasFileLoader2 } from './DataLoaders.js';
 
+// Misc
+import { RAVELogo } from './RAVELogo.js'
+import { DemoStage } from '../ext/DemoStage.js'
 
 const _updateDataStartEvent = {
   type      : "viewerApp.updateData.start",
@@ -34,7 +37,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     cache = false,
 
     // debug mode?
-    debug = false
+    debug = false,
+
+    webgl2Enabled = true,
 
   }) {
 
@@ -50,6 +55,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     // data
     this.geoms = [];
     this.settings = {};
+    this.demoStage = new DemoStage( this );
 
     this.fileLoader = new CanvasFileLoader2({
       logger: this.debugVerbose
@@ -73,6 +79,35 @@ class ViewerApp extends ThrottledEventDispatcher {
      *      - Main canvas
      */
     this.$wrapper = $wrapper;
+    // --- Logo ---
+    this.$brandWrapper = document.createElement('div');
+    this.$brandWrapper.style.width = '100%';
+    this.$brandWrapper.style.height = "40px";
+    this.$brandWrapper.style.padding = "0 calc(var(--folder-indent))";
+
+    const $logoWrapper = document.createElement('div');
+    $logoWrapper.style.height = "40px";
+    $logoWrapper.style.float = "left";
+    $logoWrapper.appendChild( RAVELogo );
+
+    this.$brandWrapper.appendChild( $logoWrapper );
+
+    const $RAVEmsgWrapper = document.createElement('div');
+    $RAVEmsgWrapper.style.marginLeft = "45px";
+    $RAVEmsgWrapper.style.position = "relative";
+    $RAVEmsgWrapper.style.height = "40px";
+
+    const $RAVEmsg = document.createElement('div');
+    $RAVEmsg.style.position = "absolute";
+    $RAVEmsg.style.width = "100%";
+    $RAVEmsg.style.top = "50%";
+    $RAVEmsg.style.transform = "translate(0, -50%)";
+    $RAVEmsg.style.textAlign = "center";
+    $RAVEmsg.innerHTML = 'Learn more about RAVE <a href="https://rave.wiki/" target="_blank" style="color: var(--text-color);">rave.wiki</a>';
+
+    $RAVEmsgWrapper.appendChild($RAVEmsg);
+    this.$brandWrapper.appendChild($RAVEmsgWrapper);
+
     // --- A ---
     // 1. Control panel
     this.$settingsPanel = document.createElement('div');
@@ -131,7 +166,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.$wrapper,
       width ?? this.$wrapper.clientWidth,
       height ?? this.$wrapper.clientHeight,
-      250, false, this.debug, true,
+      250, false, this.debug, webgl2Enabled,
       this.fileLoader );
 
     // Add listeners for mouse
@@ -557,11 +592,12 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.debugVerbose("[ViewerApp.updateData]: Executing customized js code:\n"+this.settings.custom_javascript);
       (( viewerApp ) => {
         try {
-          ((canvas, controlCenter) => {
+          ((canvas, controlCenter, app) => {
             eval( this.settings.custom_javascript );
           }) (
             this.canvas,
-            this.controlCenter
+            this.controlCenter,
+            this
           )
         } catch (e) {
           console.warn(e);
@@ -581,6 +617,183 @@ class ViewerApp extends ThrottledEventDispatcher {
 
   }
 
+  updateElectrodeData({ data, palettes, valueRanges, updateDisplay = true }) {
+    // data is a data frame with Electrode/Channel, Subject (Opt),
+    // Time (opt), values
+    // type is either continuous or discrete
+    //
+
+    if( !data || !Array.isArray(data) || !data.length ) { return; }
+    const sample = data[ 0 ];
+    if( sample["Electrode"] === undefined ) { return; }
+    const hasTime = sample[ "Time" ] !== undefined;
+    const hasSubject = sample[ "Subject" ] !== undefined;
+    const defaultSubject = this.canvas.get_state("target_subject");
+
+    // parse and guess data types:
+    const keyframes = {};
+    const colorMapParams = {};
+
+    const RESERVED_HEADER = ["Electrode", "Time", "Subject"];
+    const ensureData = ( name, electrode, subject ) => {
+      if( keyframes[ subject ] === undefined ) { keyframes[ subject ] = {}; }
+      const subjectKeyframes = keyframes[ subject ];
+
+      let isContinuous = false;
+      const value = sample[ name ];
+      if( colorMapParams[ name ] ) {
+        isContinuous = colorMapParams[ name ].isContinuous;
+      } else {
+        try {
+          if( !isNaN( parseFloat( value ) ) ) {
+            isContinuous = true;
+          }
+        } catch (e) {}
+
+        // get control colors
+        let controlColors;
+        try {
+          controlColors = palettes[ name ];
+          if( !Array.isArray(controlColors) || controlColors.length === 0 ) {
+            controlColors = undefined;
+          }
+        } catch (e) {}
+        if( !Array.isArray(controlColors) ) {
+          if( isContinuous ) {
+            controlColors = ['0x053061','0x09386C','0x0D4178','0x124984','0x165290','0x1B5A9C','0x1F63A8','0x246BAE','0x2A72B2','0x2F79B5','0x3480B9','0x3A87BD','0x3F8EC0','0x4896C4','0x549EC9','0x61A6CD','0x6DADD1','0x7AB5D5','0x86BDDA','0x92C5DE','0x9CCAE1','0xA6CFE3','0xB0D4E6','0xBAD9E9','0xC4DEEC','0xCEE3EF','0xD6E8F1','0xDEECF4','0xE5F0F6','0xECF4F9','0xF4F8FB','0xFBFCFD','0xFEFCFA','0xFEF6F1','0xFEF0E8','0xFDEBDF','0xFDE5D7','0xFDDFCE','0xFCD9C4','0xFBD0B9','0xF9C8AE','0xF8BFA3','0xF7B799','0xF5AE8E','0xF4A583','0xEF9B7A','0xEA9072','0xE68569','0xE17A61','0xDC6F58','0xD76450','0xD25949','0xCC4D44','0xC7423E','0xC13639','0xBB2B34','0xB6202E','0xAE162A','0xA21328','0x960F26','0x8A0B24','0x7E0722','0x720320','0x67001F'];
+          } else {
+            controlColors = ['0xFFA500','0x1874CD','0x006400','0xFF4500','0xA52A2A','0x7D26CD','0x5A5156','0xE4E1E3','0xF6222E','0xFE00FA','0x16FF32','0x3283FE','0xFEAF16','0xB00068','0x1CFFCE','0x90AD1C','0x2ED9FF','0xDEA0FD','0xAA0DFE','0xF8A19F','0x325A9B','0xC4451C','0x1C8356','0x85660D','0xB10DA1','0xFBE426','0x1CBE4F','0xFA0087','0xFC1CBF','0xF7E1A0','0xC075A6','0x782AB6','0xAAF400','0xBDCDFF','0x822E1C','0xB5EFB5','0x7ED7D1','0x1C7F93','0xD85FF7','0x683B79','0x66B0FF','0x3B00FB'];
+          }
+        }
+
+        colorMapParams[ name ] = {
+          "dataName"      : name,
+          "displayName"   : name,
+          "controlColors" : controlColors,      // array of colors (key colors) or color name
+          "isContinuous"  : isContinuous,
+          "timeRange"     : hasTime ? [sample.Time, sample.Time] : null,   // time range where the color map is valid
+          "valueRange"    : isContinuous ? [0, 0] : [-1, 1],
+          "hardRange"     : null,
+          "valueKeyCount" : isContinuous ? null : {}, // This one will be used to calculate `valueKeys`
+        };
+      }
+
+      if( !subjectKeyframes[ name ] ) {
+        subjectKeyframes[ name ] = {};
+      }
+      if( !subjectKeyframes[ name ][ electrode ] ) {
+        subjectKeyframes[ name ][ electrode ] = {
+          "name" : name,
+          "timeValues": [],
+          "data_type": isContinuous ? "continuous" : "discrete",
+        };
+      }
+    }
+
+    data.forEach(( row ) => {
+      const chan = parseInt( row.Electrode );
+      if( isNaN( chan ) || chan <= 0 ) { return; }
+
+      const time = hasTime ? parseFloat( row.Time ) : 0.;
+      if( isNaN( time ) ) { return; }
+
+      const subject = row.Subject ?? row.SubjectCode ?? defaultSubject;
+
+      for( let name in row ) {
+        if( RESERVED_HEADER.includes(name) ) { continue; }
+        ensureData( name, chan, subject );
+
+        const keyframe = keyframes[ subject ][ name ][ chan ];
+        const cmapParam = colorMapParams[ name ];
+        let value = row[ name ];
+
+        if( cmapParam.isContinuous ) {
+          value = parseFloat( value );
+          if( !isNaN( value ) ) {
+            if( value < cmapParam.valueRange[0] ) {
+              cmapParam.valueRange[0] = value;
+            } else if ( value > cmapParam.valueRange[1] ) {
+              cmapParam.valueRange[1] = value;
+            }
+          }
+
+        } else {
+          value = `${ value }`;
+          cmapParam.valueKeyCount[ value ] = (cmapParam.valueKeyCount[ value ] ?? 0) + 1;
+        }
+
+        keyframe.timeValues.push({
+          time: time,
+          value: value
+        });
+
+        if( hasTime ) {
+          if( time < cmapParam.timeRange[0] ) {
+            cmapParam.timeRange[0] = time;
+          } else if ( time > cmapParam.timeRange[1] ) {
+            cmapParam.timeRange[1] = time;
+          }
+        }
+      }
+
+    });
+
+    // Create colormaps
+    let lastName;
+    for( let name in sample ) {
+      const cmapParam = colorMapParams[ name ];
+      if( cmapParam ) {
+        lastName = name;
+
+        if( cmapParam.isContinuous ) {
+          let rangeSet = false;
+          try {
+            const range = valueRanges[ name ];
+            if ( Array.isArray( range ) && range.length >= 2 ) {
+              const minV = range[0],
+                    maxV = range[1];
+              if( typeof minV === "number" && typeof maxV === "number" &&
+                  !isNaN(minV) && !isNaN(maxV) && minV <= maxV ) {
+                cmapParam.valueRange = [ minV, maxV ];
+                rangeSet = true;
+              }
+            }
+          } catch (e) {}
+          if( !rangeSet && cmapParam.valueRange ) {
+            const vMax = Math.max(
+              cmapParam.valueRange[0],
+              cmapParam.valueRange[1],
+              -cmapParam.valueRange[0],
+              -cmapParam.valueRange[1]
+            );
+            cmapParam.valueRange[0] = -vMax;
+            cmapParam.valueRange[1] = vMax;
+          }
+        } else {
+          cmapParam.valueKeys = Object.keys( cmapParam.valueKeyCount ).sort();
+        }
+
+        this.canvas.createColorMap( cmapParam );
+      }
+    }
+
+    if( lastName ) {
+      this.dispatch({
+          type      : "viewerApp.electrodes.updateData",
+          immediate : true,
+          data      : keyframes,
+      });
+
+      try {
+        if( updateDisplay === true ) {
+          this.controlCenter.updateElectrodeDisplayNames( lastName );
+        } else if ( typeof updateDisplay === "string" ) {
+          this.controlCenter.updateElectrodeDisplayNames( updateDisplay );
+        }
+      } catch (e) {}
+    }
+  }
+
   updateControllers( { reset = false } = {} ) {
     if( this.controllerGUI ) {
       try { this.controllerGUI.dispose(); } catch (e) {}
@@ -592,7 +805,8 @@ class ViewerApp extends ThrottledEventDispatcher {
     }
     this.controllerGUI = new EnhancedGUI({
       autoPlace: false,
-      title : "3D Viewer Control Panel"
+      title : "RAVE Viewer Control Panel",
+      logoElement : this.$brandWrapper
     });
     // --------------- Register GUI controller ---------------
     // Set default on close handler
@@ -733,6 +947,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     if( reset ) {
       this.controllerGUI.setFromDictionary( this.initialControllerValues );
     }
+
   }
 
   // Do not call this function directly after the initial call
@@ -759,6 +974,8 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
 
+    this.updateDemo();
+
     // needs to incrementTime after update so chosen object information can be up to date
     this.canvas.incrementTime();
     this.canvas.update();
@@ -772,6 +989,36 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.canvas.rendering = false;
 
 	}
+
+	// For demo use
+  updateDemo() {
+    if( this.demoStage._paused ) { return; }
+    this.demoStage.update();
+  }
+
+  startDemo() {
+    this.demoStage._paused = false;
+    this.demoStage.init();
+
+    window.addEventListener("blur", this.pauseDemo);
+    window.addEventListener("focus", this.resumeDemo);
+  }
+
+  stopDemo() {
+    window.removeEventListener("blur", this.pauseDemo);
+    window.removeEventListener("focus", this.resumeDemo);
+    this.demoStage.dispose();
+    this.demoStage._paused = true;
+  }
+
+  pauseDemo = () => {
+    this.demoStage._paused = true;
+  }
+
+  resumeDemo = () => {
+    this.demoStage._paused = false;
+  }
+
 }
 
 export { ViewerApp };

@@ -1,4 +1,4 @@
-import { Vector3, Matrix4, EventDispatcher } from 'three';
+import { Vector3, Matrix4, Color, EventDispatcher } from 'three';
 import { CONSTANTS } from './constants.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { copyToClipboard } from '../utility/copyToClipboard.js';
@@ -79,6 +79,7 @@ class ViewerControlCenter extends EventDispatcher {
     this.throttleLevel = 4;
     this.dispatcherEnabled = true;
     this._updateCount = 0;
+    this.app = viewerApp;
     this.canvas = viewerApp.canvas;
     this.gui = viewerApp.controllerGUI;
     this.settings = viewerApp.settings;
@@ -237,6 +238,7 @@ class ViewerControlCenter extends EventDispatcher {
 
     // Installs driver
     this.canvas.$el.addEventListener( "viewerApp.controller.setValue" , this._onDriveController );
+    this.canvas.$el.addEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
 
   }
 
@@ -245,6 +247,7 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.$mainCanvas.removeEventListener( 'mousemove', this._onMouseMove );
     this.canvas.$el.removeEventListener( "viewerApp.mouse.click" , this._onClicked );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setValue" , this._onDriveController );
+    this.canvas.$el.removeEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
     this.canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
     if( this.upLoadedFiles ) {
       this.upLoadedFiles.clear();
@@ -282,100 +285,127 @@ class ViewerControlCenter extends EventDispatcher {
     controller.setValue( displayText );
   }
 
+  _onSetOpen = ( event ) => {
+    // should be { status, animated } or true/false
+    const message = event.detail;
+    if( message === true || message === false ) {
+      this.gui.open( message );
+    }
+    if( typeof message !== "object" || message === null ) { return; }
+    if( message.open === true || message.open === false ) {
+      if( message.animated ) {
+        this.gui.openAnimated( message.open );
+      } else {
+        this.gui.open( message.open );
+      }
+    }
+
+  }
+
   _onDriveController = ( event ) => {
 
     // should be { name, value, folderName }
-    const message = event.detail;
-    if( typeof message !== "object" || message === null ) { return; }
-
-    if( typeof message.name !== "string" || message.name === "" ) { return; }
-
-    // get controller
-    const controller = this.gui.getController( message.name , message.folderName );
-    if( !controller || controller.isfake ) {
-      console.warn(`Cannot find threeBrain viewer controller: ${ message.name }`);
-      return;
+    let messages = event.detail;
+    if( !Array.isArray( messages ) ) {
+      messages = [messages];
     }
+    messages.forEach(( message ) => {
+      if( typeof message !== "object" || message === null ) { return; }
 
-    if( controller._disabled ) {
-      console.warn(`ThreeBrain viewer controller is disabled: ${ message.name }`);
-      return;
-    }
+      if( typeof message.name !== "string" || message.name === "" ) { return; }
 
-    // check controller type
-    const classList = controller.domElement.classList;
-
-    // Button
-    if( classList.contains( "function" ) ) {
-      controller.$button.click();
-      return;
-    }
-
-    // Color
-    if( classList.contains( "color" ) ) {
-      controller.setValue(
-        asColor( message.value, new Color() ).getHexString()
-      );
-      return;
-    }
-
-    // Boolean
-    if( classList.contains( "boolean" ) ) {
-      if( message.value ) {
-        controller.setValue( true );
-      } else {
-        controller.setValue( false );
+      // get controller
+      const controller = this.gui.getController( message.name , message.folderName );
+      if( !controller || controller.isfake ) {
+        console.warn(`Cannot find threeBrain viewer controller: ${ message.name }`);
+        return;
       }
-      return;
-    }
 
-    // String
-    if( classList.contains( "string" ) ) {
-      if( typeof message.value === "object" ) {
-        controller.setValue( JSON.stringify( message.value ) );
-      } else {
-        controller.setValue( message.value.toString() );
+      if( controller._disabled ) {
+        console.warn(`ThreeBrain viewer controller is disabled: ${ message.name }`);
+        return;
       }
-      return;
-    }
 
-    // option
-    if( classList.contains( "option" ) ) {
-      if(
-        Array.isArray( controller._names ) &&
-        controller._names.includes( message.value )
-      ) {
-        controller.setValue( message.value );
-      } else {
-        console.warn(`ThreeBrain viewer controller [${ message.name }] does not contain option choice: ${ message.value }`);
+      // check controller type
+      const classList = controller.domElement.classList;
+
+      // Button
+      if( classList.contains( "function" ) ) {
+        controller.$button.click();
+        return;
       }
-      return;
-    }
 
-    // Number
-    if( classList.contains( "number" ) ) {
+      // Color
+      if( classList.contains( "color" ) ) {
+        controller.setValue(
+          asColor( message.value, new Color() ).getHexString()
+        );
+        return;
+      }
 
-      if( typeof message.value !== "number" || isNaN( message.value ) ||
-          !isFinite( message.value ) ) {
-        console.warn(`ThreeBrain viewer controller [${ message.name }] needs a valid (not NaN, Infinity) numerical input.`);
-      } else {
+      // Boolean
+      if( classList.contains( "boolean" ) ) {
+        if( message.value ) {
+          controller.setValue( true );
+        } else {
+          controller.setValue( false );
+        }
+        return;
+      }
 
+      // String
+      if( classList.contains( "string" ) ) {
+        if( typeof message.value === "object" ) {
+          controller.setValue( JSON.stringify( message.value ) );
+        } else {
+          controller.setValue( message.value.toString() );
+        }
+        return;
+      }
+
+      // option
+      if( classList.contains( "option" ) ) {
         if(
-          ( controller._min !== undefined && controller._min > message.value ) ||
-          ( controller._max !== undefined && controller._max < message.value )
+          (
+            Array.isArray( controller._names ) &&
+            controller._names.includes( message.value )
+          ) || (
+            Array.isArray( controller._values ) &&
+            controller._values.includes( message.value )
+          )
         ) {
-          console.warn(`Trying to ThreeBrain viewer controller [${ message.name }]  numerical value that is out of range.`);
+          controller.setValue( message.value );
+        } else {
+          console.warn(`ThreeBrain viewer controller [${ message.name }] does not contain option choice: ${ message.value }`);
+        }
+        return;
+      }
+
+      // Number
+      if( classList.contains( "number" ) ) {
+
+        if( typeof message.value !== "number" || isNaN( message.value ) ||
+            !isFinite( message.value ) ) {
+          console.warn(`ThreeBrain viewer controller [${ message.name }] needs a valid (not NaN, Infinity) numerical input.`);
+        } else {
+
+          if(
+            ( controller._min !== undefined && controller._min > message.value ) ||
+            ( controller._max !== undefined && controller._max < message.value )
+          ) {
+            console.warn(`Trying to ThreeBrain viewer controller [${ message.name }]  numerical value that is out of range.`);
+          }
+
+          controller.setValue( message.value );
         }
 
-        controller.setValue( message.value );
+        return;
+
       }
 
-      return;
 
-    }
-
-
-    console.warn(`Unimplemented controller type for [${ message.name }].`);
+      console.warn(`Unimplemented controller type for [${ message.name }].`);
+    })
 
   }
 
@@ -476,43 +506,82 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.needsUpdate = true;
   }
 
+  /**
+   * Allow controllers to update select options without destroying controller
+   */
+  updateSingleSelectorOptions({ name, options, folderName, value, explicit = false, force = false } = {}){
+
+    if( !Array.isArray( options ) || options.length === 0 ) { return; }
+    const controller = this.gui.getController( name, folderName, explicit );
+    if( controller.isfake ) { return controller; }
+
+    let currentValue;
+    if( typeof value === "string" && options.includes( value ) ) {
+      currentValue = value;
+    } else {
+      currentValue = controller.getValue();
+      if( !options.includes( currentValue ) ) { currentValue = options[ 0 ]; }
+    }
+
+    controller._allChoices = options;
+
+    if(
+      !force && options.length === controller._values.length &&
+      controller._values.every(item => options.includes(item))
+    ) {
+      controller.setValue( currentValue );
+      return controller;
+    }
+
+    controller._values.length = 0;
+    controller.$select.innerHTML = "";
+    options.forEach(t => {
+      const $opt = document.createElement("option");
+      $opt.innerHTML = t;
+      controller.$select.appendChild( $opt );
+      controller._values.push( t );
+    });
+
+    controller.setValue( currentValue ).updateDisplay();
+
+    return controller;
+  }
+
   updateDataCube2Types( atlas ){
 
-    let ctrlDC2Type = this.gui.getController( 'Voxel Type' );
-    if( ctrlDC2Type.isfake ) { return; }
-
-    // c.options(['a', 'b'])
     const cube2Types = this.canvas.get_atlas_types();
     cube2Types.push("none");
 
-    let currentValue;
-    if( typeof atlas === "string" && cube2Types.includes( atlas ) ) {
-      currentValue = atlas;
-    } else {
-      currentValue = ctrlDC2Type.getValue();
-      if( !cube2Types.includes( currentValue ) ) { currentValue = 'none'; }
-    }
-
-    ctrlDC2Type._allChoices = cube2Types;
-
-    if(
-      cube2Types.length === ctrlDC2Type._values.length &&
-      ctrlDC2Type._values.every(item => cube2Types.includes(item))
-    ) {
-      ctrlDC2Type.setValue( currentValue );
-      return;
-    }
-
-    ctrlDC2Type._values.length = 0;
-    ctrlDC2Type.$select.innerHTML = "";
-    cube2Types.forEach(t => {
-      const $opt = document.createElement("option");
-      $opt.innerHTML = t;
-      ctrlDC2Type.$select.appendChild( $opt );
-      ctrlDC2Type._values.push( t );
+    return this.updateSingleSelectorOptions({
+      name    : 'Voxel Type',
+      options : cube2Types,
+      value   : atlas,
     });
 
-    ctrlDC2Type.setValue( currentValue ).updateDisplay();
+  }
+
+  updateElectrodeDisplayNames( varname ) {
+    const dataNames = ["[None]", ...this.canvas.colorMaps.keys()];
+
+    this.animClipNames = dataNames;
+
+    this.updateSingleSelectorOptions({
+      name    : 'Display Data',
+      options : dataNames,
+      value   : varname,
+    });
+
+    this.updateSingleSelectorOptions({
+      name    : 'Threshold Data',
+      options : dataNames,
+      force   : true
+    });
+
+    this.updateSingleSelectorOptions({
+      name    : 'Additional Data',
+      options : dataNames,
+      force   : true
+    });
 
   }
 

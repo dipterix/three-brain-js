@@ -88,7 +88,11 @@ class HauntedArcballControls extends EventDispatcher {
 		// for reset
 
   	this.target0 = this.target.clone();
-  	this.position0 = this.object.position.clone();
+  	if( this.object._originalPosition && this.object._originalPosition.isVector3 ) {
+  	  this.position0 = this.object._originalPosition;
+  	} else {
+  	  this.position0 = this.object.position.clone();
+  	}
   	this.up0 = this.object.up.clone();
 
   	this.left0 = this.object.left;
@@ -330,6 +334,16 @@ class HauntedArcballControls extends EventDispatcher {
 			}
 
 		}
+  }
+
+  enableZoom = () => {
+    this.noZoom = false;
+    this.domElement.addEventListener( 'wheel', this.onMousewheel, false );
+  }
+
+  disableZoom = () => {
+    this.noZoom = true;
+    this.domElement.removeEventListener( 'wheel', this.onMousewheel, false );
   }
 
   panCamera = () => {

@@ -12,7 +12,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'toggle-side-panels' ];
     const initialDisplay = this.settings.side_display || false;
 
-    this.gui.addController(
+    const sidePanelCtrl = this.gui.addController(
       'Show Panels', true, { folderName: folderName })
       .onChange((v) => {
         if( v ){
@@ -25,6 +25,23 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
       .setValue( initialDisplay );
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_SIDE_PANEL,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_SIDE_PANEL,
+        name    : 'Show Panels',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        const oldval = sidePanelCtrl.getValue();
+        sidePanelCtrl.setValue( !oldval );
+      }
+    });
 
     this.gui.addController(
       'Slice Brightness', 0.0, { folderName: folderName })
@@ -89,9 +106,12 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
 
 
     this.gui.addController( 'Crosshair Gap', 0.0, { folderName: folderName })
-      .min(0).max(15).step(1)
+      .min(0).max(50).step(1)
       .onChange(v => {
         if ( typeof v === "number" && v >= 0 && v < 100 ) {
+          if( v >= 49 ) {
+            v = 600;
+          }
           this.canvas.setCrosshairGap( v );
           this.broadcast();
         }
@@ -302,7 +322,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     };
 
     // show electrodes trimmed
-    this.gui.addController('Frustum Near', 10, { folderName : folderName })
+    this.gui.addController('Frustum Near', 5, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
         renderDistances.near = v;
@@ -317,7 +337,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
 
-    this.gui.addController('Frustum Far', 10, { folderName : folderName })
+    this.gui.addController('Frustum Far', 5, { folderName : folderName })
       .min(0.1).max(222).step(0.1)
       .onChange((v) => {
         renderDistances.far = v;

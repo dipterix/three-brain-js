@@ -4,7 +4,7 @@ import { registerRigidPoints } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
 import {
   Vector3, Matrix4, Quaternion, BufferGeometry, DataTexture, RGBAFormat, UVMapping,
-  UnsignedByteType, ClampToEdgeWrapping, NearestFilter,
+  UnsignedByteType, ClampToEdgeWrapping, NearestFilter, Mesh,
   BufferAttribute, Float32BufferAttribute, CatmullRomCurve3,
   PlaneGeometry, SphereGeometry, BoxGeometry, EventDispatcher
 } from 'three';
@@ -215,6 +215,26 @@ class AbstractThreeBrainObject extends EventDispatcher {
     }
   }
 
+  cloneForExporter({
+    target = CONSTANTS.RENDER_CANVAS.main,
+    materialModifier = {}
+  } = {}) {
+
+    if( !this.object || !this.object.isMesh ) { return null; }
+    if( !this.object.visible ) { return null; }
+
+    const geometry = this.object.geometry.clone();
+    const currentMaterial = Object.assign(this.object.material.clone(), materialModifier);
+
+    const mesh = new Mesh(geometry, currentMaterial);
+
+    mesh.layers.mask = this.object.layers.mask;
+    mesh.applyMatrix4( this.object.matrixWorld );
+
+    return mesh;
+
+  }
+
 
   set_display_mode( mode ){
     // hidden will set visible to false
@@ -272,7 +292,7 @@ function createBuiltinGeometry (type, {
       geom = new BufferGeometry();
       geom.parameters = {
         size: 1,
-        fixedClearCoat : fix_outline
+        fixedOutline : fix_outline
       };
       geom.setIndex( index );
 
@@ -364,6 +384,16 @@ function createBuiltinGeometry (type, {
       // remove UV
       if( geom.hasAttribute( "uv" ) ) {
         geom.deleteAttribute( "uv" );
+      }
+
+      let cn = [];
+      if( typeof channel_numbers === "number" ) {
+        cn.push( channel_numbers );
+      } else if ( Array.isArray( channel_numbers ) ) {
+        cn = channel_numbers;
+      }
+      if( cn.length > 0 ) {
+        contactCenter[0].chanNum = cn[0];
       }
     }
   }

@@ -82,7 +82,12 @@ class ViewerWrapper {
     this.viewerBootstrapData = undefined;
     // this will be the root element of the viewer
     this.$viewerWrapper = undefined;
-    this.webgl2Enabled = WebGL.isWebGL2Available();
+
+    // For debug purposes, turn this.webgl2Enabled = true to force
+    // render even though only WebGL1 is available
+    // This is most likely to fail
+    this._webgl2Enabled = WebGL.isWebGL2Available();
+    this.webgl2Enabled = this._webgl2Enabled;
 
     if( !this.webgl2Enabled ) {
       const $warning = WebGL.getWebGL2ErrorMessage();
@@ -161,7 +166,8 @@ class ViewerWrapper {
       $wrapper : this.$viewerWrapper,
       width : this.width, height : this.height,
       cache : this.cache,
-      debug : this.debug || CONSTANTS.DEBUG
+      debug : this.debug || CONSTANTS.DEBUG,
+      webgl2Enabled : this._webgl2Enabled
     });
 
     this.cacheViewer();

@@ -10,30 +10,6 @@ const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
 function registerPresetElectrodeAnimation( ViewerControlCenter ){
 
-  ViewerControlCenter.prototype.add_clip = function(
-    clip_name, focus_ui = false
-  ){
-    throw 'Do not use add_clip for now!!!'
-    if( (typeof clip_name !== 'string') || this.animClipNames.includes(clip_name) ){ return; }
-    if( !this.ctrlClipName || !this.ctrlDataThreshold ){ return; }
-    let el = document.createElement('option');
-    el.setAttribute('value', clip_name);
-    el.innerHTML = clip_name;
-    this.ctrlClipName.__select.appendChild( el );
-
-    el = document.createElement('option');
-    el.setAttribute('value', clip_name);
-    el.innerHTML = clip_name;
-    this.ctrlDataThreshold.__select.appendChild( el );
-    this.animClipNames.push( clip_name );
-
-    if( focus_ui ){
-      // This needs to be done in the next round (after dom op)
-      setTimeout(() => { this._ani_name.setValue( clip_name ); }, 100);
-    }
-
-  }
-
 
   ViewerControlCenter.prototype.changeAnimClip = function( clipName ){
 
@@ -75,7 +51,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
       this.updateElectrodeVisibility();
       // reset color-range
       if( cmap.isContinuous ) {
-        this.ctrlDisplayRange.setValue( `${cmap._softMinV.toPrecision(4)},${cmap._softMaxV.toPrecision(4)}` );
+        this.ctrlDisplayRange.setValue( `${cmap.minV.toPrecision(4)},${cmap.maxV.toPrecision(4)}` );
         this.ctrlDisplayRange.show();
       } else {
         this.ctrlDisplayRange.setValue("");
@@ -130,13 +106,14 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         { folderName : folderName, args : names , object : this.animParameters.object },
         CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION)
       .onChange((v) => {
-        if( !names.includes(v) ) { return; }
+        if( !this.animClipNames.includes(v) ) { return; }
         this.changeAnimClip( v );
         this.canvas.set_state('display_variable', v);
         // this.fire_change({ 'clip_name' : v, 'display_data' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
+    this.ctrlClipName._allChoices = this.animClipNames;
 
     this.ctrlDisplayRange = this.gui
       .addController(
@@ -212,7 +189,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         }else{
           // '' means no threshold
           this.canvas.set_state('threshold_type', 'discrete');
-          this.ctrlThresholdRange.setValue( cmap._map.join('|') );
+          this.ctrlThresholdRange.setValue( cmap.keys.join('|') );
           this.gui.hideControllers( 'Threshold Method' , folderName);
         }
         this.broadcast();
@@ -386,6 +363,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : ( event ) => {
+        const names = this.animClipNames;
         if( event.shiftKey ) {
           let current_idx = names.indexOf( this.ctrlClipName.getValue() ) - 1;
           if( current_idx < 0 ){ current_idx += names.length; }

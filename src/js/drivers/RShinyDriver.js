@@ -84,6 +84,12 @@ class RShinyDriver {
         case 'display_data':
           this.driveDisplayData( data.value );
           break;
+        case 'set_electrode_data':
+          this.driveSetElectrodeData( data.value );
+          break;
+        case 'set_electrode_palette':
+          this.driveSetElectrodePalette( data.value );
+          break;
         case 'font_magnification':
           this.driveTextSize( data.value );
           break;
@@ -357,6 +363,38 @@ class RShinyDriver {
     }
     this.canvas.needsUpdate = true;
   }
+
+  driveSetElectrodeData({ data, palettes = {}, valueRanges = {}, clearFirst = false, updateDisplay = true} = {}) {
+    if( !data ) { return; }
+    if( !Array.isArray( data ) ) {
+      if( typeof data !== "object" ) { return; }
+      // this could be data.frame but column-major
+      const _data = data;
+      const columnNames = Object.keys( _data );
+      const nrow = _data[ columnNames[0] ].length;
+
+      data = [];
+      for( let i = 0; i < nrow ; i++ ) {
+        const row = {};
+        columnNames.forEach(nm => {
+          row[ nm ] = _data[ nm ][ i ];
+        });
+        data.push( row );
+      }
+    }
+    if( !Array.isArray( data ) || data.length === 0 ) { return; }
+    if( clearFirst ) {
+      this.canvas.colorMaps.clear();
+    }
+    this.app.updateElectrodeData({ data : data, palettes : palettes, valueRanges : valueRanges, updateDisplay : updateDisplay });
+    this.canvas.needsUpdate = true;
+  }
+
+  driveSetElectrodePalette({ colors, name } = {}) {
+    this.canvas.setColorMapControlColors( colors, name );
+    this.canvas.needsUpdate = true;
+  }
+
   driveTextSize( size ) {
     if( typeof size === 'number' && !isNaN( size ) ) {
       this.canvas.setFontSize( size );

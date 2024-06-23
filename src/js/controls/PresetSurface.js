@@ -67,7 +67,7 @@ function registerPresetSurface( ViewerControlCenter ){
     controllerSurfaceType.setValue( initialSurfaceType );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_SURFACE,
-      shiftKey  : false,
+      shiftKey  : true,
       ctrlKey   : false,
       altKey    : false,
       metaKey   : false,

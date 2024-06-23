@@ -2,20 +2,26 @@ import {
   Color
 } from 'three';
 import {
-  ColorMapKeywords, addToColorMapKeywords
+  ColorMapKeywords, addToColorMapKeywords, Lut
 } from '../jsm/math/Lut2.js';
 
-class NamedLut {
+class NamedLut extends Lut {
 
   constructor({
     colormap, continuous = true, name = ""
   } = {}) {
 
+    // this.lut = [];
+		// this.map = [];
+		// this.n = 0;
+    super();
+
     // tmp objects
     this._tmpColor = new Color();
 
     // look-up key colors
-    this.lut = [];
+		this.keys = [];
+		this._keyMap = {};
 
     // max and min of data values, only used for continuous data; soft ranges
     // shouldn't exceed this hard range
@@ -24,16 +30,19 @@ class NamedLut {
 
     // boundaries of the lut, for continuous too
     // for cont. data,
-    // color-index = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.n - 1)
+    // color-index = (v - this.minV) / (this.maxV - this.minV) * (this.n - 1)
     this._defaultMinV = -1;
     this._defaultMaxV = 1;
-    this._softMinV = -1;
-    this._softMaxV = 1;
+
+    // this._softMinV = -1;
+    // this._softMaxV = 1;
+    this.minV = -1;
+    this.maxV = 1;
+
     this._legendTicks = [];
 
     // for discrete color table only key -> [0, 1]
-    // color-index = this._map.indexOf( v )
-    this._map = [];
+    // color-index = this.keys.indexOf( v )
     this._displayMap = {};
 
     // electrode value name
@@ -46,7 +55,7 @@ class NamedLut {
     this.minTime = -Infinity;
     this.maxTime = Infinity;
 
-    this.setControlColors( colormap );
+    this.updateColorMap( colormap );
   }
 
   setTimeRange( from, to ) {
@@ -110,29 +119,31 @@ class NamedLut {
     if( !this.isContinuous ) {
       throw 'setMin is only for continuous color-map';
     }
+    if( isNaN( min ) ) { return this; }
     if( min < this._minV ) {
-      this._softMinV = this._minV;
+      this.minV = this._minV;
     } else {
-      this._softMinV = min;
+      this.minV = min;
     }
     return this;
   }
   resetMin() {
-    this._softMinV = this._defaultMinV;
+    this.minV = this._defaultMinV;
   }
   setMax( max ) {
     if( !this.isContinuous ) {
       throw 'setMax is only for continuous color-map';
     }
+    if( isNaN( max ) ) { return this; }
     if( max > this._maxV ) {
-      this._softMaxV = this._maxV;
+      this.maxV = this._maxV;
     } else {
-      this._softMaxV = max;
+      this.maxV = max;
     }
     return this;
   }
   resetMax() {
-    this._softMaxV = this._defaultMaxV;
+    this.maxV = this._defaultMaxV;
   }
 
   // for discrete data
@@ -143,13 +154,16 @@ class NamedLut {
     if( !Array.isArray(keys) ) {
       throw 'setMap(keys): `keys` must be an array.';
     }
-    this._map.length = 0;
+    this.keys.length = 0;
     for( let i = 0; i < keys.length; i++ ) {
-      this._map.push( keys[ i ] );
+      const key = keys[ i ];
+      this.keys.push( key );
+      this._keyMap[ key ] = i;
     }
+    this.updateColorMap();
   }
 
-  setControlColors( colormap ) {
+  updateColorMap( colormap ) {
 
     let controlColors = undefined;
     if( colormap && Array.isArray( colormap ) && colormap.length > 0 ) {
@@ -158,7 +172,7 @@ class NamedLut {
       controlColors = ColorMapKeywords[ colormap ] || ColorMapKeywords.rainbow;
     }
 
-    if( !controlColors ) {
+    if( !controlColors && !this.map.length ) {
       if( this.lut.length > 0 ) {
         controlColors = [...this.lut];
       } else {
@@ -167,37 +181,58 @@ class NamedLut {
     }
 
     if( !Array.isArray(controlColors) || controlColors.length < 1 ) {
-      controlColors = ColorMapKeywords.rainbow;
-    }
-    const sampleElement = controlColors[0];
-
-    this.lut.length = 0;
-    for( let i = 0; i < controlColors.length; i++ ) {
-      let elem = controlColors[ i ];
-
-      if( !elem ) { continue; }
-
-      if( Array.isArray( elem ) ) {
-        if( elem.length == 0 ) { continue; }
-        if( elem.length == 1 ) { elem = elem[0]; } else { elem = elem[1]; }
-      }
-
-      if( typeof elem === "string" ) {
-        elem = elem.replace("0x", "#");
-        if( !elem.startsWith("#") ) {
-          elem = "#" + elem;
-        }
-        this.lut.push( new Color().setStyle( elem ) );
-      } else if ( typeof elem === "number" ) {
-        this.lut.push( new Color().setHex( elem ) );
-      } else if ( typeof elem === "object" && elem.isColor ) {
-        this.lut.push( elem );
+      if( this.map.length > 1 ) {
+        controlColors = undefined;
       } else {
-        throw 'Unable to parse control colors'
+        controlColors = ColorMapKeywords.rainbow;
       }
     }
-    if( this.lut === 1 ) {
-      this.lut.push( this.lut[0] );
+
+    let map = this.map;
+    if( controlColors ) {
+      const sampleElement = controlColors[0];
+
+      // this.lut.length = 0;
+      map = [];
+      const tmpColor = new Color();
+      const n = controlColors.length > 1 ? controlColors.length - 1 : 1;
+      for( let i = 0; i < controlColors.length; i++ ) {
+        let elem = controlColors[ i ];
+
+        if( !elem ) { continue; }
+
+        if( Array.isArray( elem ) ) {
+          if( elem.length == 0 ) { continue; }
+          if( elem.length == 1 ) { elem = elem[0]; } else { elem = elem[1]; }
+        }
+
+        if( typeof elem === "string" ) {
+          elem = elem.replace("0x", "#");
+          if( !elem.startsWith("#") ) {
+            elem = "#" + elem;
+          }
+          map.push( [ i / n, tmpColor.setStyle( elem ).getHex() ] );
+        } else if ( typeof elem === "number" ) {
+          map.push( [ i / n, tmpColor.setHex( elem ).getHex() ] );
+        } else if ( typeof elem === "object" && elem.isColor ) {
+          map.push( [ i / n, elem.getHex() ] );
+        } else {
+          throw 'Unable to parse control colors'
+        }
+      }
+
+      if( map.length === 1 ) {
+        map.push( [ 1., map[0][1] ] );
+      }
+    }
+
+    if( map.length ) {
+      if( this.isContinuous || map.length >= this.keys.length ) {
+        this.setColorMap( map, map.length );
+      } else {
+        this.setColorMap( map, this.keys.length );
+      }
+
     }
     return this;
   }
@@ -206,9 +241,10 @@ class NamedLut {
     this.lut = [...lut.lut];
     this._minV = lut._minV;
     this._maxV = lut._maxV;
-    this._softMinV = lut._softMinV;
-    this._softMaxV = lut._softMaxV;
-    this._map = [...lut.map];
+    this.minV = lut.minV;
+    this.maxV = lut.maxV;
+    this.keys = [...lut.keys];
+    this._keyMap = {...lut._keyMap};
     this.name = name + "-cloned";
     this.isContinuous = lut.isContinuous;
     this.hasTimeRange = lut.hasTimeRange;
@@ -235,11 +271,11 @@ class NamedLut {
         return c;
       }
       let idx;
-      if( this._softMaxV == this._softMinV ) {
+      if( this.maxV == this.minV ) {
         idx = 0.5 * (this.lut.length - 1);
       } else {
-        // color-index = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.n - 1)
-        idx = (v - this._softMinV) / (this._softMaxV - this._softMinV) * (this.lut.length - 1);
+        // color-index = (v - this.minV) / (this.maxV - this.minV) * (this.n - 1)
+        idx = (v - this.minV) / (this.maxV - this.minV) * (this.lut.length - 1);
       }
 
       if( idx <= 0 ) {
@@ -259,8 +295,9 @@ class NamedLut {
     }
 
     // discrete
-    const idx = this._map.indexOf( v );
-    if( idx < 0 || idx >= this.lut.length ) {
+    // const idx = this.keys.indexOf( v );
+    const idx = this._keyMap[ v ];
+    if( typeof idx !== "number" || !this.lut[ idx ] ) {
       c.setHex( 0xffffff );
       return c;
     }
@@ -296,7 +333,7 @@ class NamedLut {
 
     if( !this.lut.length ) { return; }
     if( this.isContinuous && this.lut.length < 2 ) { return; }
-    if( !this.isContinuous && !this._map.length ) { return; }
+    if( !this.isContinuous && !this.keys.length ) { return; }
 
     // 50% of the canvas height
     let legendHeightRatio = 0.45;
@@ -304,15 +341,15 @@ class NamedLut {
     // leave enough space to display legend strings; default is 9+7 = 16 chars
     let maxLegendTextLabel = 9;
     if( !this.isContinuous ) {
-      this._map.forEach( (v) => {
+      this.keys.forEach( (v) => {
         if( maxLegendTextLabel < v.length ) {
           maxLegendTextLabel = v.length;
         }
       });
       // this._lineHeight_legend * 2 = 60 px, this is the default block size
-      legendHeightRatio = (this._map.length - 1) * lineHeight * 2 / canvasHeight;
-      if( legendHeightRatio > 0.6 ) {
-        legendHeightRatio = 0.6;
+      legendHeightRatio = (this.keys.length - 1) * lineHeight * 2 / canvasHeight;
+      if( legendHeightRatio > 0.55 ) {
+        legendHeightRatio = 0.55;
       }
     }
     const legendStartRight = Math.ceil( fontSize * 0.42 * ( maxLegendTextLabel + 8 ) + legendWidth + offsetRight );
@@ -323,7 +360,7 @@ class NamedLut {
       this.name.length * fontSize * 0.42 - legendWidth / 2 + legendStartRight
     );
 
-    const offsetBottomRatio = 1.0 - offsetTopRatio - legendHeightRatio;
+    // const offsetBottomRatio = 1.0 - offsetTopRatio - legendHeightRatio;
 
     // legend tick text positions
     // text left boundary start legendWidth away from legend left boundary
@@ -365,7 +402,7 @@ class NamedLut {
 
       // calculate max, min, and zero tick positions (height axis)
       const zeroY = (
-        offsetTopRatio + this._softMaxV * legendHeightRatio / (this._softMaxV - this._softMinV)
+        offsetTopRatio + this.maxV * legendHeightRatio / (this.maxV - this.minV)
       ) * canvasHeight;
       const minValueY = ( legendHeightRatio + offsetTopRatio ) * canvasHeight;
       const maxValueY = offsetTopRatio * canvasHeight;
@@ -407,7 +444,7 @@ class NamedLut {
 
       // Do we need to draw zero, minV, maxV tick?
       let drawZeroTick = (
-        this._softMinV < 0 && this._softMaxV > 0 &&
+        this.minV < 0 && this.maxV > 0 &&
         minValueY - zeroY >= lineHeight * 0.7 &&
         zeroY - maxValueY >= lineHeight * 0.7
       );
@@ -420,7 +457,7 @@ class NamedLut {
         // There is a colored object rendered, display it
         highlightValueY = (
           offsetTopRatio +
-          (this._softMaxV - highlightValue) * legendHeightRatio / (this._softMaxV - this._softMinV)
+          (this.maxV - highlightValue) * legendHeightRatio / (this.maxV - this.minV)
         ) * canvasHeight;
 
         // if value is out of the legend, let it stay at top/bottom of the legend
@@ -461,14 +498,14 @@ class NamedLut {
       }
       if( drawMinTick ) {
         contextWrapper.fill_text(
-          this._softMinV.toPrecision(4),
+          this.minV.toPrecision(4),
           textStartLeft,
           minValueY + textCharHeightHalf
         );
       }
       if( drawMaxTick ) {
         contextWrapper.fill_text(
-          this._softMaxV.toPrecision(4),
+          this.maxV.toPrecision(4),
           textStartLeft,
           maxValueY + textCharHeightHalf
         );
@@ -512,9 +549,11 @@ class NamedLut {
       // discrete legend
 
       // total number of discrete values
-      const nLevels = this._map.length;
-      const itemStep = nLevels == 1 ? 52 : Math.floor(
-        legendHeightRatio / ( nLevels - 1 ) * canvasHeight
+      const maxLevels = 40;
+      const nLevels = this.keys.length;
+      const overflow = nLevels > maxLevels;
+      const itemStep = nLevels == 1 ? 52 : (
+        legendHeightRatio / ( Math.min(maxLevels, nLevels) - 1 ) * canvasHeight
       );
       const squareHeight = itemStep >= 52 ? 50 : Math.max(itemStep - 2, 4);
 
@@ -539,8 +578,25 @@ class NamedLut {
       const offsetTop = offsetTopRatio * canvasHeight;
       const squareX = canvasWidth - legendStartRight;
       const textStartLeft2 = Math.ceil( canvasWidth - textBoundaryOffsetRight + fontSize2 / 2 );
-      this._map.forEach( (text, ii) => {
+      this.keys.forEach( (text, ii) => {
         const squareCenterY = offsetTop + itemStep * ii;
+
+        if( overflow && ii > maxLevels ) { return; }
+
+        if( overflow && ii === maxLevels ) {
+          // Draw tick
+          contextWrapper.set_font_color( foreground );
+
+          contextWrapper.fill_text(
+            `... (${nLevels - ii})`,
+            textStartLeft2,
+            squareCenterY + textCharHeightHalf,
+            // Max width
+            canvasWidth - textStartLeft2 - 5
+          );
+
+          return;
+        }
 
         // Draw square
         contextWrapper.fill_rect(

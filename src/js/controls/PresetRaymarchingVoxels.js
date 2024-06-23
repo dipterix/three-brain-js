@@ -153,16 +153,18 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       }
     });
 
+
     // Controls how the datacube should be displayed
     const voxelDisplayTypes = ['hidden', 'normal', 'side camera', 'main camera', 'anat. slices'];
     const ctrlDC2Display = this.gui
       .addController(
-        'Voxel Display', 'side camera',
+        'Voxel Display', 'normal',
         {
           args : voxelDisplayTypes,
           folderName : folderName
         })
       .onChange( (v) => {
+        /*
         this.canvas.atlases.forEach( (al, subject_code) => {
           for( let atlas_name in al ){
             const m = al[ atlas_name ];
@@ -174,13 +176,14 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             }
           }
         });
+        */
 
         // TODO use event dispatcher
         this.canvas.set_state("voxelDisplay", v);
         this.canvas.set_state( "surface_color_refresh", Date() );
         this.canvas.needsUpdate = true;
       })
-      .setValue( 'side camera' );
+      .setValue( 'normal' );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_ATLAS_MODE,
       shiftKey  : false,
@@ -210,11 +213,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         let inst = this.getActiveDataCube2();
         // mesh.material.uniforms.alpha.value = opa;
         if( inst ){
-          inst.object.material.uniforms.alpha.value = opa;
-
-          if( opa < 0 ){
-            inst.updatePalette();
-          }
+          inst.setOpacity( opa );
         }
         this.canvas.set_state("overlayAlpha", opa);
         // this.fire_change({ 'atlas_alpha' : opa });
@@ -229,14 +228,18 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       .min(-100000).max(100000).step( 0.1 )
       .onChange( async ( v ) => {
         voxelLB = v;
+
         applyContinuousSelection();
+        ctrlISOSurface.setValue( false );
       });
     const ctrlContinuousThresholdUB = this.gui
       .addController('Voxel Max', 100000, { folderName : folderName })
       .min(-100000).max(100000).step( 0.1 )
       .onChange( async ( v ) => {
         voxelUB = v;
+
         applyContinuousSelection();
+        ctrlISOSurface.setValue( false );
       });
 
 
@@ -271,8 +274,47 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             selectedLabels.push( i );
           }
         });
+
         applyDiscreteSelection();
+        ctrlISOSurface.setValue( false );
       });
+
+    const ctrlISOSurface = this.gui.addController('ISO Surface', false, { folderName : folderName })
+      .onChange( v => {
+        if( v ) {
+          this.canvas.set_state("voxelISOSurface", true);
+          const inst = this.getActiveDataCube2();
+          if( inst && !inst.isoSurface ) {
+            inst.createISOSurface();
+          }
+        } else {
+          this.canvas.set_state("voxelISOSurface", false);
+        }
+
+        this.canvas.needsUpdate = true;
+      })
+      .setValue( false );
+
+    const ctrlISOUpdate = this.gui.addController('Update ISO Surface', () => {
+      const inst = this.getActiveDataCube2();
+      if( inst ) {
+        inst.createISOSurface();
+        ctrlISOSurface.setValue( true );
+      } else {
+        ctrlISOSurface.setValue( false );
+      }
+      this.canvas.needsUpdate = true;
+    },{ folderName : folderName });
+
+    const $ctrlISOWrapper = document.createElement("div");
+    $ctrlISOWrapper.classList.add("widget");
+    ctrlISOSurface.$widget.replaceWith( $ctrlISOWrapper );
+
+    ctrlISOSurface.$widget.style.width = "auto";
+    ctrlISOUpdate.$widget.style.marginLeft = "var(--spacing)";
+    $ctrlISOWrapper.appendChild( ctrlISOSurface.$widget );
+    $ctrlISOWrapper.appendChild( ctrlISOUpdate.$widget );
+    ctrlISOUpdate.domElement.remove();
 
   };
 
