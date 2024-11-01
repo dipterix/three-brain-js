@@ -2,7 +2,7 @@
 
 <img src="https://github.com/dipterix/threeBrain/blob/master/adhoc/demo.gif?raw=true" width="100%" />
 
-[![](https://img.shields.io/badge/website-yael.wiki-green)](https://yael.wiki)
+[![](https://img.shields.io/badge/demo-rave.wiki-green)](https://rave.wiki/posts/3dviewer/viewer201.html)
 [![](https://img.shields.io/badge/DOI-10.1523%2FENEURO.0328--23.2023-blue?link=https%3A%2F%2Fdoi.org%2F10.1523%2FENEURO.0328-23.2023)](https://doi.org/10.1523/ENEURO.0328-23.2023)
 ![](https://img.shields.io/github/package-json/v/dipterix/three-brain-js/main)
 [![](https://img.shields.io/npm/v/%40rave-ieeg%2Fthree-brain)](https://www.npmjs.com/package/@rave-ieeg/three-brain)
@@ -28,15 +28,6 @@ For hard-core developers who wish to incorporate the package into your project:
 ```sh
 npm i @rave-ieeg/three-brain
 ```
-
-## Roadmap
-
-- [ ] Jul, 2024: Finish documentation; 
-- [X] Dec, 2023: Derail R and implement JavaScript code to generate data configurations 
-- [X] Oct, 2023: Publish electrode localization paper
-- [X] Aug, 2023: Implement drivers to allow other programs to change the viewers via JavaScript events
-- [X] Jan, 2023: Create initial commit for the viewer
-- [X] Dec, 2022: Isolate the viewer part from R package `threeBrain`
 
 ## Citation
 
