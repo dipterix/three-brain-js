@@ -10,17 +10,28 @@ function registerPresetCoordinateCompass( ViewerControlCenter ){
       .onChange((v) => {
 
         if( v ) {
-          this.canvas.compass.visible = true;
-          this.canvas.compass.forceVisible = undefined;
-          this.canvas.crosshairCompass.forceVisible = undefined;
-        } else {
-          this.canvas.compass.forceVisible = false;
-          this.canvas.crosshairCompass.forceVisible = false;
-        }
 
+          this.canvas.compass.visible = true;
+
+          // compass object in side viewers
+          const slideMode = this.gui.getController('Slice Mode').getValue();
+
+          if( slideMode === "canonical" ) {
+            this.canvas.crosshairCompass.visible = false;
+          } else {
+            this.canvas.crosshairCompass.visible = true;
+          }
+
+        } else {
+
+          this.canvas.compass.visible = false;
+          this.canvas.crosshairCompass.visible = false;
+
+        }
 
         this.canvas.needsUpdate = true;
         this.broadcast();
+
       });
   };
 

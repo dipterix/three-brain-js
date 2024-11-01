@@ -367,7 +367,7 @@ class EnhancedGUI extends GUI {
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
       "Frustum Near", "Frustum Far",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
-      "Voxel Min", "Voxel Max",
+      "Voxel Min", "Voxel Max", "Symmetric Color Map",
 
       "Surface Material", "Surface Type", "Clipping Plane",
       "Left Hemisphere", "Right Hemisphere",

@@ -170,6 +170,37 @@ class FreeMesh extends AbstractThreeBrainObject {
     return this._trackInfo;
   }
 
+  setTrackColors({ colors, colorSize = 4, colorMax = 255 } = {}) {
+    // default is setting colors with RGBA, Uint8Array
+
+    this._ensureTrackColor();
+    const colorScale = 255 / colorMax;
+
+    const buffer = this._trackInfo.colorArray;
+
+    // Color is always RGB, no alpha is used
+    const nBufferItems = buffer.length / 3;
+    const valueItems = colors.length / colorSize;
+
+    const n = nBufferItems > valueItems ? valueItems : nBufferItems;
+
+    if( colorSize < 3 ) {
+      for(let i = 0; i < n; i++) {
+        const rrr = colors[ i * colorSize ] * colorScale;
+        buffer[ i * 3 ] = rrr;
+        buffer[ i * 3 + 1 ] = rrr;
+        buffer[ i * 3 + 2 ] = rrr;
+      }
+    } else {
+      for(let i = 0; i < n; i++) {
+        buffer[ i * 3 ] = colors[ i * colorSize ] * colorScale;
+        buffer[ i * 3 + 1 ] = colors[ i * colorSize + 1 ] * colorScale;
+        buffer[ i * 3 + 2 ] = colors[ i * colorSize + 2 ] * colorScale;
+      }
+    }
+    this._geometry.attributes.trackColor.needsUpdate = true;
+  }
+
   // Primary color (Curv, sulc...)
   _set_primary_color( color_name, update_color = false ){
     if( update_color ) {

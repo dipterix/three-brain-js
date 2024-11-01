@@ -1,6 +1,6 @@
 {
   "name": "@rave-ieeg/three-brain",
-  "version": "1.0.2",
+  "version": "1.2.0",
   "description": "Yet a 3D Viewer for Brain",
   "browser": "dist/threebrain.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "downloadjs": "^1.4.7",
     "fflate": "^0.7.4",
     "gifti-reader-js": "^0.4.6",
+    "gl-matrix": "^3.4.3",
     "json-2-csv": "^3.14.1",
     "jspdf": "^2.3.1",
     "lil-gui": "^0.18.2",

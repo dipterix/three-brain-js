@@ -3,7 +3,7 @@ import {
   // OrthographicCamera,
   WebGLRenderer, WebGL1Renderer,
   DirectionalLight, AmbientLight,
-  Raycaster, ArrowHelper, BoxHelper,
+  Raycaster, ArrowHelper, BoxHelper, AlwaysDepth,
   LoadingManager, FileLoader, FontLoader,
   AnimationClip, AnimationMixer, Clock,
   Mesh, SubtractiveBlending,
@@ -37,12 +37,6 @@ import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '..
 import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
-import { is_electrode } from '../geometry/electrode.js';
-import { gen_datacube } from '../geometry/datacube.js';
-import { gen_datacube2 } from '../geometry/datacube2.js';
-import { gen_tube } from '../geometry/tube.js';
-import { gen_free } from '../geometry/free.js';
-import { gen_linesements } from '../geometry/line.js';
 
 const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
@@ -212,12 +206,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Add crosshair for side-canvas
     // generate crosshair
   	this.crosshairGroup = new Object3D();
-    this.crosshairCompass = new BasicCompass ({
-      arrowLength : 2,
-      textDistance : 6,
-      textSize: 4,
-      layer : CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13
-    });
   	const crosshairGeometryLR = new BufferGeometry()
   	  .setFromPoints([
   	    new Vector3( -256, 0, 0 ), new Vector3( - CONSTANTS.GEOMETRY["crosshair-gap-half"], 0, 0 ),
@@ -263,9 +251,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.crosshairGroup.add( crosshairIS );
     this.crosshairGroup.IS = crosshairIS;
 
-    // Add crosshair text
     this.scene.add( this.crosshairGroup );
+
+    // Add crosshair text
+    this.crosshairCompass = new BasicCompass ({
+      arrowLength : 2,
+      textDistance : 6,
+      textSize: 4,
+      layer : CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13
+    });
     this.scene.add( this.crosshairCompass.container );
+
+    // For electrodes with guided directions
+    this.crossArrowHelper = new ArrowHelper(
+      new Vector3( 0, 0, 1 ), new Vector3( 0, 0, 0 ), 5, 0x00ffff, 2 );
+    this.crossArrowHelper.children[0].material.depthFunc = AlwaysDepth;
+    this.crossArrowHelper.children[1].material.depthFunc = AlwaysDepth;
+    this.crossArrowHelper.visible = false;
+    this.scene.add( this.crossArrowHelper );
     this._crosshairPosition = new Vector3();
 
     /* Main camera
@@ -1006,6 +1009,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     this.crosshairGroup.position.copy( this._crosshairPosition );
     this.crosshairCompass.position.copy( this._crosshairPosition );
+    this.crossArrowHelper.position.copy( this._crosshairPosition );
 
     // Calculate datacube2 crosshair label/values
     // get active datacube2
@@ -1336,12 +1340,20 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           if( this.get_state("sideCameraTrackMainCamera") === "snap-to-electrode" ) {
             intersectPoint.centerCrosshair = true;
           }
+          this.highlightTarget.position.copy( intersectPoint );
+          const radius = intersectPoint.radius ?? 1.0;
+          this.highlightTarget.scale.set(radius, radius, radius);
+          this.highlightTarget.chanNum = intersectPoint.chanNum;
         }
         if( inst.contactCenter.length === 1 ) {
           // one contact case
           this.highlight( this.object_chosen, false );
         } else {
-          this.highlight( null, true );
+          if( intersectPoint ) {
+            this.highlight( this.highlightTarget, false );
+          } else {
+            this.highlight( null, true );
+          }
         }
       } else {
         this.highlight( this.object_chosen, false );
@@ -1388,8 +1400,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( m.isObject3D ) {
       this.highlightBox.setFromObject( m );
     } else {
-      this.highlightTarget.position.copy( m );
-      this.highlightBox.setFromObject( this.highlightTarget );
+      this.highlightBox.visible = false;
+      return;
+      // this.highlightTarget.position.copy( m );
+      // this.highlightBox.setFromObject( this.highlightTarget );
     }
     if( !this.highlightBox.userData.added ){
       this.highlightBox.userData.added = true;
@@ -1596,11 +1610,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.updateRenderFlag();
 
-    this.compass.update();
+    this.updateCrosshairGroup();
 
-    const slicerState = this.get_state("sideCameraTrackMainCamera", "canonical");
-    this.crosshairCompass.visible = slicerState !== "canonical";
-    this.crosshairCompass.update();
+    this.compass.update();
 
     // check if time has timeChanged
     this.threebrain_instances.forEach((inst) => {
@@ -1644,81 +1656,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_renderer.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
-
-    // Set crosshair quaternion and positions
-    const slicerState = this.get_state("sideCameraTrackMainCamera", "canonical");
-    switch( slicerState )
-    {
-      case "snap-to-electrode":
-        const electrode = getThreeBrainInstance( this.object_chosen );
-        if( electrode && electrode.isElectrodePrototype ) {
-          if( electrode.direction.lengthSq() > 0 ) {
-
-            const cameraNormalized = this._tmpVec3A.copy( this.mainCamera.position ).normalize();
-            const dir = this._tmpVec3.copy( cameraNormalized )
-              .cross( electrode.direction )
-              .cross( electrode.direction )
-              .normalize();
-
-            if( dir.lengthSq() > 0.999 ) {
-              const crossProd = dir.dot(cameraNormalized);
-
-              const elm4 = this._tmpMat4.identity().elements;
-              if( Math.abs( crossProd ) > 0.71 ) { // 45 degrees
-                // dir is the normal of the plane
-                const z = dir.multiplyScalar( Math.sign( crossProd ) );
-                const y = electrode.direction;
-                const isYUp = y.dot( this.mainCamera.up ) >= 0;
-                const x = this._tmpVec3A.copy( y ).cross( z );
-                if( isYUp ) {
-                  elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
-                  elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
-                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
-                } else {
-                  elm4[0] = -x.x; elm4[1] = -x.y; elm4[2] = -x.z;
-                  elm4[4] = -y.x; elm4[5] = -y.y; elm4[6] = -y.z;
-                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
-                }
-              } else {
-                // dir is the up of the plane
-                const z = electrode.direction;
-                if( z.dot( cameraNormalized ) < 0 ) {
-                  z.multiplyScalar( -1 );
-                }
-                const x = dir.copy( this.mainCamera.up )
-                  .cross( z )
-                  .normalize();
-                const y = this._tmpVec3A.copy( z ).cross( x );
-                elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
-                elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
-                elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
-              }
-
-              this._tmpMat4.decompose(
-                this.crosshairGroup.position,
-                this.crosshairGroup.quaternion,
-                this.crosshairGroup.scale
-              );
-
-              break;
-            }
-
-          }
-        }
-      case "line-of-sight":
-        this.crosshairGroup.position.set( 0, 0, 0 );
-        this.crosshairGroup.quaternion.copy( this.mainCamera.quaternion );
-        this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        break;
-
-      default:
-        this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
-        this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-        this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-    }
-    this.crosshairGroup.position.copy( this._crosshairPosition );
-    this.crosshairCompass.position.copy( this._crosshairPosition );
 
     // set electrode outline clearcoat value
     const renderOutlines = this.get_state( "outline_state", "auto" );
@@ -1837,6 +1774,147 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._renderFlag = this._renderFlag & 0b110;
     this.needsUpdate = undefined;
 
+  }
+
+  updateCrosshairGroup() {
+    // Set crosshair quaternion and positions
+    const slicerState = this.get_state("sideCameraTrackMainCamera", "canonical");
+
+    switch( slicerState )
+    {
+      case "snap-to-electrode":
+        let electrode = getThreeBrainInstance( this.object_chosen );
+        if( electrode ) {
+          if( !electrode.isElectrodePrototype ) {
+            // might be localization?
+            try {
+              if( electrode.object.userData.localization_instance ) {
+                const protos = Object.values( this.electrodePrototypes.get( electrode.subject_code ) );
+                if( protos.length > 0 ) {
+                  electrode = protos[0];
+                }
+              }
+            } catch (e) {}
+
+          }
+
+          if( electrode.isElectrodePrototype && electrode.direction.lengthSq() > 0 ) {
+
+            const cameraNormalized = this._tmpVec3A.copy( this.mainCamera.position ).normalize();
+            const dir = this._tmpVec3.copy( cameraNormalized )
+              .cross( electrode.direction )
+              .cross( electrode.direction )
+              .normalize();
+
+            if( dir.lengthSq() > 0.999 ) {
+              const crossProd = dir.dot(cameraNormalized);
+
+              const elm4 = this._tmpMat4.identity().elements;
+              if( Math.abs( crossProd ) > 0.71 ) { // 45 degrees
+                // dir is the normal of the plane
+                const z = dir.multiplyScalar( Math.sign( crossProd ) );
+                const y = electrode.direction;
+                const isYUp = y.dot( this.mainCamera.up ) >= 0;
+                const x = this._tmpVec3A.copy( y ).cross( z );
+                if( isYUp ) {
+                  elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
+                  elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
+                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+                } else {
+                  elm4[0] = -x.x; elm4[1] = -x.y; elm4[2] = -x.z;
+                  elm4[4] = -y.x; elm4[5] = -y.y; elm4[6] = -y.z;
+                  elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+                }
+              } else {
+                // dir is the up of the plane
+                const z = electrode.direction;
+                if( z.dot( cameraNormalized ) < 0 ) {
+                  z.multiplyScalar( -1 );
+                }
+                const x = dir.copy( this.mainCamera.up )
+                  .cross( z )
+                  .normalize();
+                const y = this._tmpVec3A.copy( z ).cross( x );
+                elm4[0] = x.x; elm4[1] = x.y; elm4[2] = x.z;
+                elm4[4] = y.x; elm4[5] = y.y; elm4[6] = y.z;
+                elm4[8] = z.x; elm4[9] = z.y; elm4[10] = z.z;
+              }
+
+              this._tmpMat4.decompose(
+                this.crosshairGroup.position,
+                this.crosshairGroup.quaternion,
+                this.crosshairGroup.scale
+              );
+
+              this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+              this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+
+              break;
+            }
+          }
+        }
+      case "line-of-sight":
+        this.crosshairGroup.position.set( 0, 0, 0 );
+        this.crosshairGroup.scale.set(1, 1, 1);
+        this.crosshairGroup.quaternion.copy( this.mainCamera.quaternion );
+        this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        break;
+      case "column-row-slice":
+        const inst = this.get_state("activeDataCube2Instance");
+        if( inst && inst.isDataCube2 ) {
+          /*
+          // IJK to world
+          this._tmpMat4.copy( inst.model2vox )
+            .invert().premultiply( inst.object.matrixWorld );
+          const elm4 = this._tmpMat4.elements;
+          // this.crosshairGroup.position.set( 0, 0, 0 );
+          elm4[ 12 ] = 0;
+          elm4[ 13 ] = 0;
+          elm4[ 14 ] = 0;
+          // Also make sure the hand does not change
+          if( elm4[0] < 0 ) {
+            elm4[0] = -elm4[0];
+            elm4[3] = -elm4[3];
+            elm4[6] = -elm4[6];
+          }
+          if( elm4[4] < 0 ) {
+            elm4[1] = -elm4[1];
+            elm4[4] = -elm4[4];
+            elm4[7] = -elm4[7];
+          }
+          if( elm4[8] < 0 ) {
+            elm4[2] = -elm4[2];
+            elm4[5] = -elm4[5];
+            elm4[8] = -elm4[8];
+          }
+
+          this._tmpMat4.decompose(
+            this.crosshairGroup.position,
+            this.crosshairGroup.quaternion,
+            this._tmpVec3
+          );
+          */
+
+          this.crosshairGroup.position.set(0, 0, 0);
+          this.crosshairGroup.quaternion.copy( inst.object.quaternion );
+          this.crosshairGroup.LR.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+          this.crosshairGroup.PA.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+
+          break;
+        }
+
+      default:
+        this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
+        this.crosshairGroup.scale.set(1, 1, 1);
+        this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+        this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    }
+    this.crosshairGroup.position.copy( this._crosshairPosition );
+    this.crosshairCompass.position.copy( this._crosshairPosition );
+    if( this.crosshairCompass.visible ) {
+      this.crosshairCompass.update();
+    }
   }
 
   updateTimeRange(){
@@ -2322,6 +2400,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     let map_type_surface = args.map_type_surface || state.get( 'map_type_surface' ) || 'sphere.reg';
     let map_type_volume = args.map_type_volume || state.get( 'map_type_volume' ) || 'mni305';
+    let map_surface_target = args.map_surface_target || state.get( 'map_surface_target' ) || 'auto';
     let surface_opacity_left = args.surface_opacity_left || state.get( 'surface_opacity_left' ) || 1;
     let surface_opacity_right = args.surface_opacity_right || state.get( 'surface_opacity_right' ) || 1;
 
@@ -2367,12 +2446,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
                           [material_type_left, material_type_right] );
                           */
 
-    if( map_template ){
-      this.map_electrodes( target_subject, map_type_surface, map_type_volume );
-    }else{
-      this.map_electrodes( target_subject, 'reset', 'reset' );
-    }
-
     // reset overlay
     activeSlices = state.get("activeSliceInstance");
     if( activeSlices && activeSlices.isDataCube ) {
@@ -2393,6 +2466,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     state.set( 'surface_opacity_left', surface_opacity_left );
     state.set( 'surface_opacity_right', surface_opacity_right );
     state.set( 'tkRAS_MNI305', tkRAS_MNI305 );
+
+    if( map_template ){
+      this.map_electrodes( target_subject, map_type_surface, map_type_volume, map_surface_target );
+    }else{
+      this.map_electrodes( target_subject, 'reset', 'reset', map_surface_target );
+    }
 
     // reset origin to AC
     // this.origin.position.copy( anterior_commissure );
@@ -2569,7 +2648,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   // Map electrodes
-  map_electrodes( target_subject, surface = 'sphere.reg', volume = 'mni305' ){
+  map_electrodes( targetSubject, surface = 'sphere.reg', volume = 'mni305', surfaceType = undefined ){
 
     /* debug code
     target_subject = 'N27';surface = 'std.141';volume = 'mni305';origin_subject='YAB';
@@ -2594,8 +2673,9 @@ mapped = false,
     this.dispatch( {
       type : "viewerApp.electrodes.mapToTemplate",
       data : {
-        subject : target_subject,
+        subject : targetSubject,
         surface : surface,
+        surfaceType: surfaceType,
         volume  : volume
       },
       immediate : true

@@ -227,10 +227,15 @@ class NamedLut extends Lut {
     }
 
     if( map.length ) {
-      if( this.isContinuous || map.length >= this.keys.length ) {
+      if( this.isContinuous ) {
         this.setColorMap( map, map.length );
       } else {
-        this.setColorMap( map, this.keys.length );
+        if( map.length > this.keys.length ) {
+          // then the colors at keys will be exactly the map colors
+          this.setColorMap( map, map.length - 1 );
+        } else {
+          this.setColorMap( map, this.keys.length );
+        }
       }
 
     }

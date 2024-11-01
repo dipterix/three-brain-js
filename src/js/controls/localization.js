@@ -27,6 +27,10 @@ const COL_SELECTED = 0xff0000,
 
 const pal = [0x1874CD, 0x1F75C6, 0x2677BF, 0x2E78B9, 0x357AB2, 0x3C7BAC, 0x447DA5, 0x4B7E9F, 0x528098, 0x598292, 0x61838B, 0x688585, 0x70867E, 0x778878, 0x7E8971, 0x858B6B, 0x8D8C64, 0x948E5E, 0x9B9057, 0xA39151, 0xAA934A, 0xB29444, 0xB9963D, 0xC09737, 0xC89930, 0xCF9A2A, 0xD69C23, 0xDD9E1D, 0xE59F16, 0xECA110, 0xF3A209, 0xFBA403, 0xFFA300, 0xFFA000, 0xFF9D00, 0xFF9A00, 0xFF9700, 0xFF9400, 0xFF9100, 0xFF8E00, 0xFF8B00, 0xFF8800, 0xFF8500, 0xFF8100, 0xFF7E00, 0xFF7B00, 0xFF7800, 0xFF7500, 0xFF7200, 0xFF6F00, 0xFF6C00, 0xFF6900, 0xFF6600, 0xFF6300, 0xFF6000, 0xFF5D00, 0xFF5A00, 0xFF5700, 0xFF5400, 0xFF5100, 0xFF4E00, 0xFF4B00, 0xFF4800, 0xFF4500];
 
+/**
+ * This class has gone through lots of modification. I hope one day I have a
+ * chance to re-write this class :)
+ */
 class LocElectrode {
   constructor(
     subject_code, localization_order, initial_position,
@@ -608,7 +612,6 @@ class LocElectrode {
     let pos = this._adjust({ radius : 1.0 * baseRadius });
     this._setPosition( pos );
 
-
     pos = this._adjust({ radius : 2.0 * baseRadius });
     this._setPosition( pos );
 
@@ -635,7 +638,9 @@ class LocElectrode {
     const inst = this.get_volume_instance();
 
     const matrix_ = inst.object.matrixWorld.clone(),
-          matrix_inv = matrix_.clone().invert();
+          matrix_inv = matrix_.clone().invert(),
+          matModel2Vox = inst.model2vox,
+          matVox2Model = inst.model2vox.clone().invert();
 
     const modelShape = new Vector3().copy( inst.modelShape );
     const mx = modelShape.x,
@@ -678,7 +683,7 @@ class LocElectrode {
     // get position
     const position = this.instance._params.position;
     pos0.fromArray( position );
-    pos.fromArray( position ).applyMatrix4( matrix_inv );
+    pos.fromArray( position ).applyMatrix4( matrix_inv ).applyMatrix4( matModel2Vox );
 
     // (p - vec3(0.5, -0.5, 0.5)) * scale_inv + 0.5
     // (pos+margin_voxels/2) is in IJK voxel coordinate right now
@@ -686,9 +691,9 @@ class LocElectrode {
     // (pos + margin_lengths/2) / f scales to the voxel IJK corner
     //
     const ijk0 = new Vector3().set(
-      Math.round( ( pos.x + modelShape.x / 2 ) - 1.0 ),
-      Math.round( ( pos.y + modelShape.y / 2 ) - 1.0 ),
-      Math.round( ( pos.z + modelShape.z / 2 ) - 1.0 )
+      Math.round( pos.x ),
+      Math.round( pos.y ),
+      Math.round( pos.z )
     );
     const ijk1 = new Vector3().set(
       Math.max( Math.min( ijk0.x, mx - delta.x * max_step_size - 1 ), delta.x * max_step_size ),
@@ -736,8 +741,8 @@ class LocElectrode {
     ijk_new.add( ijkLB );
 
     // (ijk + 0.5 - margin_voxels / 2) * f
-    ijk_new.multiplyScalar( 2.0 ).sub( modelShape ).addScalar( 1.0 ).multiplyScalar( 0.5 );
-    pos.copy( ijk_new );
+    // ijk_new.multiplyScalar( 2.0 ).sub( modelShape ).addScalar( 1.0 ).multiplyScalar( 0.5 );
+    pos.copy( ijk_new ).applyMatrix4( matVox2Model );
 
     // reverse back
     pos.applyMatrix4( matrix_ );
@@ -776,7 +781,7 @@ function electrode_from_slice( scode, canvas ){
   return( pos );
 }
 
-function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
+function interpolate_electrode_from_ct( inst, canvas, electrodes, settings, electrodePrototype = null ){
   /**
    * settings = {
         rawInput : "<this is the user input>",
@@ -811,7 +816,7 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
   // position of last localized electrode
   const prev = dst.clone();
 
-  const n = settings.spacings.length - 1;
+  const n = settings.spacings.length;
   const step = new Vector3();
   const tmp = new Vector3();
   const est = new Vector3();
@@ -820,9 +825,12 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
   const re = [];
 
   let added = false;
-  for( let ii = 0; ii < n; ii++ ){
+
+
+  let _nextPosition = ( ii ) => {
 
     const expectedSpacing = settings.spacings[ ii ];
+
     step.copy( prev ).sub( end ).multiplyScalar( 1 / remainingDistance );
     remainingDistance -= expectedSpacing;
     tmp.copy( step ).multiplyScalar( remainingDistance );
@@ -842,25 +850,7 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
       re.push( res.minDistanceXYZ );
       added = true;
     }
-    /*
-    for( let delta = 0.5; delta < step.length() / 2; delta += 0.5 ){
-      const res = intersect_volume(src, dir, inst, canvas, delta, false);
-      if(!isNaN(res.x) && res.distanceTo(est) < 10 + delta / 10 ){
-        prev.copy( res );
-        re.push( res.clone() );
-        added = true;
-        break;
-      }
-    }
-    if(!added) {
-      const res = getClosestVoxel( inst, est, step.length() * 2.0, prev, step.length() * 0.8);
-      if( isFinite( res.minDistance ) ) {
-        prev.copy( res.minDistanceXYZ );
-        re.push( res.minDistanceXYZ );
-        added = true;
-      }
-    }
-    */
+
     if(!added) {
       const actualSpacing = prev.distanceTo( est );
       spacingOffset += Math.abs( actualSpacing - stepLength );
@@ -868,6 +858,75 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
       prev.copy( est );
       re.push( est.clone() );
     }
+  };
+
+  let nextPosition;
+
+  // check if the initial position should be inferred from electrode prototype
+  if( electrodes.length === 2 && electrodePrototype !== null &&
+      typeof( electrodePrototype ) === "object" && electrodePrototype.isElectrodePrototype &&
+      Array.isArray( electrodePrototype.contactCenter ) ) {
+
+    nextPosition = ( ii ) => {
+
+      if( electrodePrototype.contactCenter.length < ii + 2) {
+        _nextPosition( ii );
+        return;
+      }
+
+      const expectedSpacing = settings.spacings[ ii ];
+      remainingDistance -= expectedSpacing;
+      est.copy( electrodePrototype.contactCenter[ ii + 1 ] );
+      electrodePrototype.object.localToWorld( est );
+      dir.copy( est ).sub( src ).normalize();
+
+      // adjust
+      added = false;
+      const stepLength = expectedSpacing * distanceRatio;
+
+      const actualSpacing = prev.distanceTo( est );
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+      totalLength += actualSpacing;
+      prev.copy( est );
+      re.push( est.clone() );
+    }
+  } else {
+    nextPosition = _nextPosition;
+  }
+
+  for( let ii = 0; ii < n; ii++ ){
+
+    nextPosition( ii );
+
+    /*
+    const expectedSpacing = settings.spacings[ ii ];
+        step.copy( prev ).sub( end ).multiplyScalar( 1 / remainingDistance );
+    remainingDistance -= expectedSpacing;
+    tmp.copy( step ).multiplyScalar( remainingDistance );
+    est.copy( end ).add( tmp );
+    dir.copy( est ).sub( src ).normalize();
+
+    // adjust
+    added = false;
+    const stepLength = expectedSpacing * distanceRatio;
+
+    const res = getClosestVoxel( inst, est, stepLength * 1.0, prev, stepLength * 0.8);
+    if( isFinite( res.minDistance ) ) {
+      const actualSpacing = prev.distanceTo( res.minDistanceXYZ );
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+      totalLength += actualSpacing;
+      prev.copy( res.minDistanceXYZ );
+      re.push( res.minDistanceXYZ );
+      added = true;
+    }
+    if(!added) {
+      const actualSpacing = prev.distanceTo( est );
+      spacingOffset += Math.abs( actualSpacing - stepLength );
+      totalLength += actualSpacing;
+      prev.copy( est );
+      re.push( est.clone() );
+    }
+    */
 
   }
 
@@ -880,7 +939,7 @@ function interpolate_electrode_from_ct( inst, canvas, electrodes, settings ){
     strictSpacing : settings.strictSpacing,
     distanceRatio : totalLength / settings.distance,
     expectedSpacing : settings.distance,
-    averageOffset : spacingOffset / ( n + 1 )
+    averageOffset : spacingOffset / n
   });
 }
 
@@ -1016,7 +1075,7 @@ function interpolate_electrode_from_slice( canvas, electrodes, settings ){
 
   const distanceRatio = direction.length() / settings.distance;
 
-  const n = settings.spacings.length - 1; // n to interpolate
+  const n = settings.spacings.length; // n to interpolate
   const step = direction.clone();
   const est = new Vector3();
 
@@ -1039,7 +1098,7 @@ function interpolate_electrode_from_slice( canvas, electrodes, settings ){
     strictSpacing : settings.strictSpacing,
     distanceRatio : distanceRatio,
     expectedSpacing : settings.distance,
-    averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
+    averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 1 )
   });
 }
 
@@ -1132,6 +1191,9 @@ function register_controls_localization( ViewerControlCenter ){
   }
 
   ViewerControlCenter.prototype.clearLocalization = function( fireEvents = true ){
+
+    this.canvas.crossArrowHelper.visible = false;
+
     const scode = this.canvas.get_state("target_subject");
 
     const plist = this.canvas.electrodePrototypes.get( scode );
@@ -1150,6 +1212,7 @@ function register_controls_localization( ViewerControlCenter ){
     this.canvas.switch_subject();
 
     const electrodePrototype = this.localizationData.electrodePrototype;
+    this.localizationData.electrodePrototype = null;
     if( electrodePrototype && electrodePrototype.isThreeBrainObject ) {
       electrodePrototype.dispose();
     }
@@ -1162,6 +1225,7 @@ function register_controls_localization( ViewerControlCenter ){
   };
 
   ViewerControlCenter.prototype.localizeAddPrototype = function(geomParams) {
+
     const scode = this.canvas.get_state("target_subject");
     const name = geomParams.name ?? "";
 
@@ -1209,12 +1273,38 @@ function register_controls_localization( ViewerControlCenter ){
     const inst = this.canvas.add_object( params );
     inst.defaultColor.set(COL_PROTOTYPE);
     this.localizationData.electrodePrototype = inst;
+
+    // Check if arrow helper needs to be displayed
+    if( inst._hasModelUp ) {
+      this.canvas.crossArrowHelper.visible = true;
+    } else {
+      this.canvas.crossArrowHelper.visible = false;
+    }
+
+    // set conntrollers
+    const viewerOptions = geomParams.viewer_options || {};
+
+    const symmetricMap = viewerOptions["Symmetric Color Map"] ?? false;
+    viewerOptions["Symmetric Color Map"] = symmetricMap;
+    viewerOptions["Voxel Display"] = viewerOptions["Voxel Display"] ?? "normal";
+
+    if( !symmetricMap && typeof viewerOptions["Voxel Min"] !== "number" ) {
+      const c = this.gui.getController("Voxel Min");
+      if( !c.isfake && typeof c._max === "number" && c._max >= 3000 &&
+          c.getValue() < 0 ) {
+        // electrode CT density is around 3000 normally
+        viewerOptions["Voxel Min"] = 3000;
+      }
+    }
+
+    this.gui.setFromDictionary( viewerOptions );
   }
 
   ViewerControlCenter.prototype.localizeAddElectrode = function({
     Coord_x, Coord_y, Coord_z, Hemisphere = "auto",
     mode, fireEvents = true, ...moreArgs
   } = {}){
+
     const electrodes = this.localizationData.electrodes;
     const scode = this.canvas.get_state("target_subject");
     let edit_mode = mode;
@@ -1440,7 +1530,10 @@ function register_controls_localization( ViewerControlCenter ){
     this.gui.addController( 'Auto-Adjust Highlighted', () => {
       if( refine_electrode &&
           refine_electrode.isLocElectrode ){
-        refine_electrode.adjust();
+
+        const searchRadius = this.localizationData
+          .getContactRadiusFromPrototype( refine_electrode.localization_order - 1 );
+        refine_electrode.adjust({ baseRadius : searchRadius });
 
         this.broadcast({
           data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
@@ -1468,7 +1561,9 @@ function register_controls_localization( ViewerControlCenter ){
 
     this.gui.addController( 'Auto-Adjust All', () => {
       electrodes.forEach((el) => {
-        el.adjust();
+        // get radius information from prototype
+        const searchRadius = this.localizationData.getContactRadiusFromPrototype( el.localization_order - 1 );
+        el.adjust({ baseRadius : searchRadius });
       });
 
       this.broadcast({
@@ -1573,7 +1668,10 @@ function register_controls_localization( ViewerControlCenter ){
 
         if( mode == "CT/volume" ){
           const inst = this.getActiveDataCube2();
-          res = interpolate_electrode_from_ct( inst, this.canvas, electrodes, v );
+          res = interpolate_electrode_from_ct(
+            inst, this.canvas, electrodes, v,
+            this.localizationData.electrodePrototype
+          );
         } else {
           res = interpolate_electrode_from_slice( this.canvas, electrodes, v );
         }
@@ -1589,14 +1687,17 @@ function register_controls_localization( ViewerControlCenter ){
         if( res.positions.length ){
           const last_elec = electrodes.pop();
           res.direction.normalize();
-          res.positions.push(new Vector3().fromArray(
-            last_elec.instance._params.position
-          ));
+          // res.positions.push(new Vector3().fromArray(
+          //   last_elec.instance._params.position
+          // ));
           last_elec.dispose();
           let autoRefine = auto_refine.getValue();
           if( autoRefine && res.strictSpacing &&
               typeof res.distanceRatio === "number" ) {
-            autoRefine = res.averageOffset;
+            autoRefine = this.localizationData.getContactRadiusFromPrototype( electrodes.length );
+            if( autoRefine === 1.0 ) {
+              autoRefine = res.averageOffset;
+            }
             console.log(autoRefine);
           }
 
@@ -1608,6 +1709,8 @@ function register_controls_localization( ViewerControlCenter ){
             el.__interpolate_direction = res.direction.clone().normalize();
             electrodes.push( el );
           });
+
+          refine_electrode = electrodes[ electrodes.length - 1 ];
 
           this.canvas.switch_subject();
         }
@@ -1660,7 +1763,10 @@ function register_controls_localization( ViewerControlCenter ){
           let autoRefine = auto_refine.getValue();
           if( autoRefine && res.strictSpacing &&
               typeof res.distanceRatio === "number" ) {
-            autoRefine = res.averageOffset;
+            autoRefine = this.localizationData.getContactRadiusFromPrototype( electrodes.length );
+            if( autoRefine === 1.0 ) {
+              autoRefine = res.averageOffset;
+            }
             console.log( autoRefine );
           }
 
@@ -1671,6 +1777,8 @@ function register_controls_localization( ViewerControlCenter ){
             el.set_mode( mode );
             electrodes.push( el );
           });
+
+          refine_electrode = electrodes[ electrodes.length - 1 ];
 
           this.canvas.switch_subject();
         }
@@ -1685,7 +1793,7 @@ function register_controls_localization( ViewerControlCenter ){
     );
 
     // Add electrode from crosshair
-    this.gui.addController( 'Register from Crosshair', () => {
+    const registerFromCrosshair = () => {
       const mode = edit_mode.getValue();
       const scode = this.canvas.get_state("target_subject");
       if( !mode || mode == "disabled" ||
@@ -1697,13 +1805,31 @@ function register_controls_localization( ViewerControlCenter ){
               scode, electrodes.length + 1, tkrRAS, this.canvas,
               false, elec_size.getValue());
       el.set_mode( mode );
+      refine_electrode = el;
       electrodes.push( el );
       this.canvas.switch_subject();
       this.broadcast({
         data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
       });
-    }, {
+    };
+    this.gui.addController( 'Register from Crosshair', registerFromCrosshair, {
       folderName: folderName
+    });
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_REGISTER_FROM_CROSSHAIR,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_REGISTER_FROM_CROSSHAIR,
+        name    : 'Register from Crosshair',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        registerFromCrosshair();
+      }
     });
 
     // Download as CSV
@@ -1776,12 +1902,19 @@ function register_controls_localization( ViewerControlCenter ){
 
           const num = electrodes.length + 1,
               group_name = `group_Electrodes (${scode})`;
+          let autoRefine = this.canvas.get_state( "auto_refine_electrodes", false );
+          if( autoRefine ) {
+            autoRefine = this.localizationData.getContactRadiusFromPrototype( electrodes.length );
+          }
           const el = new LocElectrode(
-            scode, num, electrode_position, this.canvas, undefined,
+            scode, num, electrode_position, this.canvas, autoRefine,
             elec_size.getValue());
           el.set_mode( mode );
+          refine_electrode = el;
+
           electrodes.push( el );
           this.canvas.switch_subject();
+
         } else {
 
           // mode is to refine
@@ -1796,6 +1929,11 @@ function register_controls_localization( ViewerControlCenter ){
               refine_electrode.update_color();
             }
             refine_electrode = el.userData.localization_instance;
+            if( !refine_electrode && el.userData.instance.isElectrodePrototype ) {
+              // could be prototype
+              const cid = el.userData.instance.state.focusedContact;
+              refine_electrode = this.localizationData.electrodes[ cid ];
+            }
             if( refine_electrode ) {
               refine_electrode.update_color( COL_SELECTED );
             }
@@ -1817,7 +1955,11 @@ function register_controls_localization( ViewerControlCenter ){
     }) => {
       if( !refine_electrode || !is_electrode( refine_electrode.object ) ){ return; }
       const mode = edit_mode.getValue();
-      if( mode !== "refine" ){ return; }
+      if(
+        mode !== "refine" &&
+        mode !== "CT/volume" &&
+        mode !== "MRI slice"
+      ){ return; }
 
       pos.set(0, 0, 0);
       pos[ axis ] = step;

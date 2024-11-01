@@ -577,6 +577,15 @@ function registerDragNDropFile( ViewerControlCenter ){
         filenameLowerCase.endsWith("sulc")
       ) {
         dataType = "surfaceColor";
+      } else if (
+        filenameLowerCase.endsWith("annot")
+      ) {
+        dataType = "surfaceAnnot";
+      } else if (
+        filenameLowerCase.endsWith("tt.gz") ||
+        filenameLowerCase.endsWith("tt")
+      ) {
+        dataType = "fiberTract";
       }
       const normalizedFilename = normalizeImageName( fileName );
 
@@ -600,6 +609,42 @@ function registerDragNDropFile( ViewerControlCenter ){
           break;
         case 'surfaceColor':
           postProcess = postProcessSurfaceColor;
+          break;
+        case 'surfaceAnnot':
+          postProcess = ({ data } = {}) => {
+            // get hemisphere and surface type (maybe)
+            let hemi = ["Left", "Right"];
+            if ( filenameLowerCase.startsWith("lh") ) {
+              hemi = ["Left"];
+            } else if ( fileName.startsWith("rh") ) {
+              hemi = ["Right"];
+            }
+
+            // window.annot = data;
+
+            // obtain the current subject
+            const subjectCode = canvas.get_state("target_subject");
+
+            // get the surface
+            const surfaceList = canvas.surfaces.get( subjectCode );
+
+            for(let h = 0; h < hemi.length; h++) {
+              const surface = surfaceList[`FreeSurfer ${hemi[h]} Hemisphere - pial (${subjectCode})`];
+              if( surface ) {
+                const surfaceName = `${ hemi[h][0].toLowerCase() }h.pial`;
+                const inst = surface.userData.instance;
+                inst.setTrackColors({ colors : data.vertexColor, colorSize : 4, colorMax : 255 });
+              }
+            }
+            canvas.needsUpdate = true;
+            const sDispCtrl = gui.getController("Surface Color");
+            sDispCtrl.setValue("vertices");
+          };
+          break;
+        case 'fiberTract':
+          postProcess = ({ data } = {}) => {
+            window.fiber = data;
+          };
           break;
         default:
           postProcess = postProcessText;

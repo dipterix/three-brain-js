@@ -32,11 +32,44 @@ class DataCube2 extends AbstractThreeBrainObject {
     this._selectedDataValues[ 1 ] = dataUB;
 
     // calculate voxelData -> colorKey transform
-    let data2ColorKeySlope = 1, data2ColorKeyIntercept = 0;
-    // if( this.lutAutoRescale ) {
-    data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - this.__dataLB);
-    data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (this.__dataLB + this.__dataUB)) / 2.0;
-    // }
+    let data2ColorKeySlope = 1,
+        // slope when colorkey is symmetric
+        data2ColorKeySlopeNeg = 1,
+        data2ColorKeyIntercept = 0,
+        voxelValueToKeyIndex = null;
+    if( this._canvas.get_state("symmetricColorDataCube2", false)  ) {
+      let symValue = this._canvas.get_state("symmetricValueDataCube2", 0);
+      if( typeof symValue !== "number" ) {
+        symValue = 0;
+      }
+      data2ColorKeyIntercept = this.lutMinColorID;
+
+      if( this.__dataUB > symValue ) {
+        data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - symValue);
+      } else {
+        data2ColorKeySlope = 0;
+      }
+      if( this.__dataLB < symValue ) {
+        data2ColorKeySlopeNeg = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataLB - symValue);
+      } else {
+        data2ColorKeySlopeNeg = 0;
+      }
+
+      voxelValueToKeyIndex = ( voxelValue ) => {
+        if( voxelValue >= symValue ) {
+          return Math.round( (voxelValue - symValue) * data2ColorKeySlope + data2ColorKeyIntercept );
+        }
+        return Math.round( (voxelValue - symValue) * data2ColorKeySlopeNeg + data2ColorKeyIntercept );
+      }
+
+    } else {
+      data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - this.__dataLB);
+      data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (this.__dataLB + this.__dataUB)) / 2.0;
+
+      voxelValueToKeyIndex = ( voxelValue ) => {
+        return Math.round(voxelValue * data2ColorKeySlope + data2ColorKeyIntercept)
+      }
+    }
 
     if( typeof(timeSlice) === "number" ){
       this._timeSlice = Math.floor( timeSlice );
@@ -68,8 +101,8 @@ class DataCube2 extends AbstractThreeBrainObject {
               // hide this voxel as it's beyong threshold
               voxelColor[ voxelIndex ] = 0;
             } else {
-              voxelColorKey = Math.floor(voxelValue * data2ColorKeySlope + data2ColorKeyIntercept);
-              voxelA = lutMap[ voxelColorKey ];
+              voxelColorKey = voxelValueToKeyIndex( voxelValue );
+              voxelA = lutMap[ voxelColorKey < 0 ? 0 : voxelColorKey ];
 
               // NOTICE: we expect consecutive integer color keys!
               if( voxelA === undefined ) {
@@ -77,7 +110,8 @@ class DataCube2 extends AbstractThreeBrainObject {
                 voxelColor[ voxelIndex ] = 0;
               } else {
 
-                voxelColor[ voxelIndex ] = voxelA.R;
+                // Make sure the color is not 0 (discard)
+                voxelColor[ voxelIndex ] = voxelA.R > 0 ? voxelA.R : 1;
 
                 // set bounding box
                 if( boundingMinX > x ) { boundingMinX = x; }
@@ -116,8 +150,8 @@ class DataCube2 extends AbstractThreeBrainObject {
               // hide this voxel as it's beyong threshold
               voxelColor[ voxelIndex * 4 + 3 ] = 0;
             } else {
-              voxelColorKey = Math.round(voxelValue * data2ColorKeySlope + data2ColorKeyIntercept);
-              voxelRGBA = lutMap[ voxelColorKey ];
+              voxelColorKey = voxelValueToKeyIndex( voxelValue );
+              voxelRGBA = lutMap[ voxelColorKey < 0 ? 0 : voxelColorKey ];
 
               // NOTICE: we expect consecutive integer color keys!
               if( voxelRGBA === undefined ) {
@@ -736,6 +770,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.colorTexture = new Data3DTexture(
       this.voxelColor, this.modelShape.x, this.modelShape.y, this.modelShape.z
     );
+
     this.colorTexture.minFilter = NearestFilter;
     this.colorTexture.magFilter = NearestFilter;
     this.colorTexture.format = this.colorFormat;
@@ -882,6 +917,40 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   }
 
+  updateTextureFilter() {
+    let tryLinearFilter = false;
+    if(
+      this.isDataContinuous &&
+      (
+        this._display_mode === 'side camera' ||
+        this._display_mode === 'anat. slices'
+      )
+    ) {
+
+      const slicerState = this._canvas.get_state("sideCameraTrackMainCamera", "canonical");
+      if( slicerState !== "column-row-slice" ) {
+        tryLinearFilter = true;
+      }
+    }
+    if( tryLinearFilter ) {
+
+      if( this.colorTexture.magFilter !== LinearFilter ) {
+        this.colorTexture.magFilter = LinearFilter;
+        this.colorTexture.minFilter = LinearFilter;
+        this.colorTexture.needsUpdate = true;
+      }
+
+    } else {
+
+      if( this.colorTexture.magFilter !== NearestFilter ) {
+        this.colorTexture.magFilter = NearestFilter;
+        this.colorTexture.minFilter = NearestFilter;
+        this.colorTexture.needsUpdate = true;
+      }
+
+    }
+  }
+
   set_display_mode( mode ) {
 
     super.set_display_mode( mode );
@@ -924,6 +993,7 @@ class DataCube2 extends AbstractThreeBrainObject {
           this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
       }
     }
+
   }
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}) {
@@ -951,6 +1021,8 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.object.material.depthTest = true;
       this.object.material.uniforms.dithering.value = this._dithering ?? 1.0;
     }
+
+    this.updateTextureFilter();
   }
 
   getCrosshairValue({ x, y, z }) {

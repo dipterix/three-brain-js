@@ -1,4 +1,4 @@
-import { MeshBasicMaterial } from 'three';
+import { MeshBasicMaterial, Vector3 } from 'three';
 import { remove_comments } from '../utils.js';
 
 
@@ -16,6 +16,15 @@ class ElectrodeMaterial extends MeshBasicMaterial {
       outlineThreshold  : { value : 0 },
       dataTexture       : { value : null },
       darken            : { value : 0 },
+
+      // model direction for calculating outlines
+      tangent           : { value : new Vector3() },
+
+      // max length along the trajectory to show,
+      // `tangent` must be set
+      // -Inf ~ -0: show all
+      // 0 ~ l: show max of l
+      maxLength         : { value : -1 },
     }
 
     this.defines = {};
@@ -71,6 +80,22 @@ class ElectrodeMaterial extends MeshBasicMaterial {
 
   }
 
+  setMaxRenderLength( len ) {
+    if( typeof len !== "number" ) { return; }
+
+    if( !isFinite(len) || len <= 0 ) {
+      len = -1;
+    }
+
+    if( this.uniforms.maxLength.value != len ) {
+      this.uniforms.maxLength.value = len;
+    }
+  }
+
+  setModelDirection( dir ) {
+    this.uniforms.tangent.value.copy( dir ).normalize();
+  }
+
   useDataTexture( texture, enabled = true ) {
     const previousTexture = this.uniforms.dataTexture.value;
     if( texture ) {
@@ -109,17 +134,20 @@ class ElectrodeMaterial extends MeshBasicMaterial {
 
   onBeforeCompile ( shader, renderer ) {
     this._shader = shader;
-    shader.uniforms.outlineThreshold = this.uniforms.outlineThreshold;
-    shader.uniforms.dataTexture = this.uniforms.dataTexture;
+    for( let uniformKey in this.uniforms ) {
+      shader.uniforms[ uniformKey ] = this.uniforms[ uniformKey ];
+    }
 
     // vertexShader par vars
     shader.vertexShader = remove_comments(`
 
+uniform vec3 tangent;
 varying float reflectProd;
 
 #if defined( USE_DATATEXTURE )
 
   varying vec2 vUv;
+  varying float positionAlongTrjectory;
 
 #endif
     `) + shader.vertexShader;
@@ -147,9 +175,24 @@ vec4 vOriginProjected = pmv * vec4( position, 1.0 );
 vOriginProjected.z = -vOriginProjected.w;
 vec3 vOrigin = (inverse(pmv) * vOriginProjected).xyz;
 
-vec3 cameraRay = normalize( position.xyz - vOrigin.xyz );
+// cameraRay is in model
+vec3 cameraRay = position.xyz - vOrigin.xyz;
 
-reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+if( length(tangent) > 0.5 ) {
+  cameraRay = cameraRay - tangent * dot( cameraRay, tangent );
+
+#if defined( USE_DATATEXTURE )
+
+  positionAlongTrjectory = dot( position, tangent );
+
+} else {
+  positionAlongTrjectory = 0.0;
+
+#endif
+}
+
+
+reflectProd = abs( dot( normalize( normal ), normalize( cameraRay ) ) );
 
 `)
     );
@@ -166,10 +209,11 @@ uniform float darken;
 varying float reflectProd;
 
 
-
 #if defined( USE_DATATEXTURE )
 
   uniform mediump sampler2D dataTexture;
+  uniform float maxLength;
+  varying float positionAlongTrjectory;
   varying vec2 vUv;
 
 #endif
@@ -189,7 +233,12 @@ varying float reflectProd;
 
   if( any( greaterThan( vUv , vec2(1.0001) ) ) || any( lessThan( vUv , vec2(-0.0001) ) ) ) {
     diffuseColor.rgb = vec3( 0.0 );
-    diffuseColor.a = 0.15;
+
+    if( maxLength > 0.0 && abs( positionAlongTrjectory ) > maxLength ) {
+      diffuseColor.a = 0.0;
+    } else {
+      diffuseColor.a = 0.15;
+    }
   }
 
 #else
@@ -200,15 +249,17 @@ varying float reflectProd;
 
 diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.0 ), ( 1.0 - reflectProd ) * darken );
 
+float fDepth = gl_FragCoord.z;
+
 #if defined( USE_OUTLINE )
 
   #if defined ( ALWAYS_DEPTH )
 
-    gl_FragDepth = gl_DepthRange.near;
+    fDepth = gl_DepthRange.near;
 
   #elif defined ( OUTLINE_ALWAYS_DEPTH )
 
-    gl_FragDepth = gl_FragCoord.z;
+    fDepth = gl_FragCoord.z;
 
   #endif
 
@@ -217,12 +268,25 @@ diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.0 ), ( 1.0 - reflectProd ) * d
 
     #if defined ( ALWAYS_DEPTH ) || defined ( OUTLINE_ALWAYS_DEPTH )
 
-      gl_FragDepth = gl_DepthRange.near;
+      fDepth = gl_DepthRange.near;
 
     #endif
   }
 
 #endif
+
+if( diffuseColor.a <= 0.0001 ) {
+
+  // Hide the fragment if alpha is 0 (reaching maxLength)
+  gl_FragDepth = gl_DepthRange.far;
+
+} else {
+
+  // It's important to set this because gl_FragDepth does not automatically
+  // reset to gl_FragCoord.z
+  gl_FragDepth = fDepth;
+}
+
       `)
     );
 

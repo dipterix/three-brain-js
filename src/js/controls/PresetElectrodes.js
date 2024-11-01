@@ -135,6 +135,15 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
+    this.gui
+      .addController( 'Prototype Cutoff', 0, { folderName : folderName } )
+      .min(0).max(500).step(1)
+      .onChange(( v ) => {
+        this.canvas.set_state( 'electrode_prototype_length_cutoff', v );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+
     this.canvas.set_state("outline_state", "auto");
     const outlineOptions = ["auto", "on", "off"];
     const controllerElectrodeOutline = this.gui.addController( 'Outlines', "auto",
@@ -166,7 +175,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
     });
 
     const translucentOptions = ["contact-only", "none", "contact+outline"];
-    const controllerElectrodeTranslucent = this.gui.addController( 'Translucent', "contact-only",
+    const controllerElectrodeTranslucent = this.gui.addController( 'Translucent', "contact+outline",
                       { args : translucentOptions, folderName : folderName } )
       .onChange(( v ) => {
         switch ( v ) {
@@ -237,15 +246,29 @@ function registerPresetElectrodes( ViewerControlCenter ){
   };
 
   ViewerControlCenter.prototype.addPreset_map_template = function(){
+
+    let surfaceTypeChoices = this.canvas.getAllSurfaceTypes().cortical;
+    if( !Array.isArray( surfaceTypeChoices ) || surfaceTypeChoices.length === 0 ){
+      surfaceTypeChoices = ["pial"];
+    }
+    surfaceTypeChoices = surfaceTypeChoices.filter(x => CONSTANTS.FREESURFER_SURFACE_TYPES.includes(x))
+    surfaceTypeChoices.unshift("auto");
+
     const folderName = CONSTANTS.FOLDERS[ 'electrode-mapping' ];
     const controllerMapElectrodes = this.gui
       .addController('Map Electrodes', false, { folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'map_template': v });
         if( v ){
-          this.gui.showControllers( [ 'Surface Mapping' , 'Volume Mapping' ] , folderName );
+          this.gui.showControllers( [
+            'Surface Mapping' , 'Volume Mapping',
+            'Target Surface', 'Projection Threshold'
+          ] , folderName );
         } else {
-          this.gui.hideControllers( [ 'Surface Mapping' , 'Volume Mapping' ], folderName );
+          this.gui.hideControllers( [
+            'Surface Mapping' , 'Volume Mapping',
+            'Target Surface', 'Projection Threshold'
+          ], folderName );
         }
         this.broadcast();
         this.canvas.needsUpdate = true;
@@ -260,15 +283,33 @@ function registerPresetElectrodes( ViewerControlCenter ){
       });
 
     this.gui.addController('Volume Mapping', 'mni305',
-                            { args : ['mni305', 'mni305.linear', 'no mapping'], folderName : folderName })
+                            { args : ['mni305', 'mni305.linear', 'sphere.reg', 'no mapping'], folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'map_type_volume': v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
 
+    this.gui.addController('Projection Threshold', 30, { folderName : folderName })
+      .min(0).max(30).step(0.1)
+      .onChange((v) => {
+        this.canvas.set_state( 'electrodeProjectionThreshold' , v );
+        this.canvas.switch_subject( '/' );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.gui.addController('Target Surface', 'auto',
+                            { args : surfaceTypeChoices, folderName : folderName })
+      .onChange((v) => {
+        this.canvas.set_state( 'map_surface_target' , v );
+        this.canvas.switch_subject( '/' );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
     // hide mapping options
-    this.gui.hideControllers( [ 'Surface Mapping', 'Volume Mapping' ] , folderName );
+    this.gui.hideControllers( [ 'Surface Mapping', 'Volume Mapping', 'Target Surface', 'Projection Threshold' ] , folderName );
 
     // need to check if this is multiple subject case
     if( this.canvas.shared_data.get( ".multiple_subjects" ) ){

@@ -61,7 +61,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
 
-    const sliceModeOptions = ["canonical", "line-of-sight", "snap-to-electrode"];
+    const sliceModeOptions = ["canonical", "line-of-sight", "snap-to-electrode", "column-row-slice"];
 
     const controllerSliceMode = this.gui
       .addController( 'Slice Mode', "canonical", {
@@ -69,6 +69,9 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       })
       .onChange((v) => {
         if( typeof v !== "string" ) { return; }
+
+        let compassVisible = this.gui.getController( "Display Coordinates" ).getValue();
+
         switch ( v ) {
           case "line-of-sight":
             this.canvas.set_state("sideCameraTrackMainCamera", "line-of-sight");
@@ -76,10 +79,16 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
           case "snap-to-electrode":
             this.canvas.set_state("sideCameraTrackMainCamera", "snap-to-electrode");
             break;
+          case "active-voxel": // compatible
+          case "column-row-slice":
+            this.canvas.set_state("sideCameraTrackMainCamera", "column-row-slice");
+            break;
 
           default:
             this.canvas.set_state("sideCameraTrackMainCamera", "canonical");
+            compassVisible = false;
         }
+        this.canvas.crosshairCompass.visible = compassVisible;
         this.canvas.needsUpdate = true;
         this.broadcast();
       })

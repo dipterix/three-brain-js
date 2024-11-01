@@ -20,12 +20,14 @@ import { CONSTANTS } from './core/constants.js';
 import { ViewerWrapper } from './core/ViewerWrapper.js';
 import { ViewerApp } from './core/ViewerApp.js';
 import { StorageCache } from './core/StorageCache.js';
+import { GeometryFactory } from './core/GeometryFactory.js';
 
 // Formats
 import { MGHImage } from './formats/MGHImage.js';
 import { NiftiImage } from './formats/NIfTIImage.js';
 import { FreeSurferMesh } from './formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from './formats/FreeSurferNodeValues.js';
+import { TTTract } from './formats/TTTract.js';
 import { debugManager, loaderClasses, resolveURL, Cache } from './core/DataLoaders.js';
 
 import { GLTFExporter } from './jsm/exporters/GLTFExporter.js';
@@ -79,6 +81,7 @@ const Importers = {
   FreeSurferNodeValues  : FreeSurferNodeValues,
   MGHImage              : MGHImage,
   NiftiImage            : NiftiImage,
+  TTTract               : TTTract,
   debugManager          : debugManager,
   loaderClasses         : loaderClasses,
   resolveURL            : resolveURL,
@@ -92,4 +95,4 @@ const Exporters = {
 
 const Workers = workerPool;
 
-export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, Drivers, ExternLibs, Workers };
+export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, Drivers, ExternLibs, Workers, GeometryFactory };

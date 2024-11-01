@@ -54,7 +54,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       const dataCubeInstance = this.getActiveDataCube2();
       if( !dataCubeInstance || !dataCubeInstance.isDataCube2 ) {
         // hide selection controllers
-        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max'], folderName);
+        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
       } else {
 
         // Hold palette so it does not update
@@ -81,7 +81,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             }
           }
 
-          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max'], folderName);
+          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
           this.gui.hideControllers(['Voxel Label'], folderName);
           // update controllers' min, max, steps
           ctrlContinuousThresholdLB.min( lb ).max( ub )
@@ -94,7 +94,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
           applyContinuousSelection();
         } else {
           this.gui.showControllers(['Voxel Display', 'Voxel Label'], folderName);
-          this.gui.hideControllers(['Voxel Min', 'Voxel Max'], folderName);
+          this.gui.hideControllers(['Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
           const previousLabel = this._voxelLabelCache[ v ];
 
           if( typeof previousLabel === 'string' ) {
@@ -241,6 +241,37 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         applyContinuousSelection();
         ctrlISOSurface.setValue( false );
       });
+
+    this.gui
+      .addController('Symmetric Color Map', false, { folderName : folderName })
+      .onChange(v => {
+        if( v ) {
+          this.canvas.set_state("symmetricColorDataCube2", true);
+          ctrlSymValue.show();
+        } else {
+          this.canvas.set_state("symmetricColorDataCube2", false);
+          ctrlSymValue.hide();
+        }
+
+        applyContinuousSelection();
+        ctrlISOSurface.setValue( false );
+
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    const ctrlSymValue = this.gui
+      .addController('Symmetric Density Value', 0, { folderName : folderName })
+      .onChange(v => {
+        if( typeof v !== "number" ) { return; }
+        this.canvas.set_state("symmetricValueDataCube2", v);
+
+        applyContinuousSelection();
+        ctrlISOSurface.setValue( false );
+
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      }).hide();
 
 
 

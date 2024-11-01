@@ -98,11 +98,7 @@ CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_R = "Digit1";     // `1/⇧1` - adjust e
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_A = "Digit2";     // `2/⇧2` - adjust electrode locations along Anterior/Posterior axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_S = "Digit3";     // `3/⇧3` - adjust electrode locations along Superior/Inferior axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_QUATERNION = "Digit4";     // `4/⇧4` - rotate electrode shaft
-CONSTANTS.KEY_CYCLE_ELEC_EDITOR       = "Backquote";    // `` ` `` - cycle through electrodes (localization, experimental)
-CONSTANTS.KEY_CYCLE_SURFTYPE_EDITOR   = "Digit4";       // `4` - toggle electrode type (surface ot iEEG, experimental)
-CONSTANTS.KEY_NEW_ELECTRODE_EDITOR    = "Digit1";       // `1` - new electrode (experimental)
-CONSTANTS.KEY_LABEL_FOCUS_EDITOR      = "Digit2";       // `2` - quick edit label (experimental)
-CONSTANTS.KEY_CYCLE_REMOVE_EDITOR     = "KeyR";         // `r` - remove editor key (experimental)
+CONSTANTS.KEY_REGISTER_FROM_CROSSHAIR = "Backquote";    // `` ` `` - Register electrode from crosshair
 
 
 CONSTANTS.TOOLTIPS = {};
@@ -113,8 +109,8 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT              = "[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT             = "]";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_OPACITY      = "⇧[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_OPACITY     = "⇧]";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_MESH_CLIPPING    = "<";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_MESH_CLIPPING   = ">";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_MESH_CLIPPING    = "⇧<";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT_MESH_CLIPPING   = "⇧>";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_NEXT   = ".";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELECTRODES_PREV   = ",";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_VISIBILITY   = "v";
@@ -134,13 +130,9 @@ CONSTANTS.TOOLTIPS.KEY_MOVE_SAGITTAL           = "w/W";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_CLIPPING_PLANE    = "c";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION         = "d/D";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION        = "s";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_ELEC_EDITOR       = "`";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFTYPE_EDITOR   = "4";
-CONSTANTS.TOOLTIPS.KEY_NEW_ELECTRODE_EDITOR    = "1";
-CONSTANTS.TOOLTIPS.KEY_LABEL_FOCUS_EDITOR      = "2";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_REMOVE_EDITOR     = "r";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_VOXEL_TYPE        = "a";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "l";
+CONSTANTS.TOOLTIPS.KEY_REGISTER_FROM_CROSSHAIR     = "`";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_R = "1/⇧1";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_A = "2/⇧2";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_S = "3/⇧3";
@@ -201,6 +193,15 @@ CONSTANTS.THRESHOLD_OPERATORS = [
   'v not in [T1,T2]'
 ];
 
+// FreeSurfer surface types
+CONSTANTS.FREESURFER_SURFACE_TYPES = [
+  "pial", "pial_lgi", "pial.T1",
+  "white", "smoothwm", "smoothwm.nofix", "white.preaparc",
+  "sphere.reg", "sphere", "qsphere.nofix",
+  "inflated", "inflated.nofix",
+  "orig", "orig.nofix", "orig.premesh"
+];
+
 /**
  * .renderOrder : Number
 This value allows the default rendering order of scene graph objects to be overridden although opaque and transparent objects remain sorted independently. When this property is set for an instance of Group, all descendants objects will be sorted and rendered together. Sorting is from lowest to highest renderOrder. Default value is 0.
@@ -209,7 +210,7 @@ CONSTANTS.RENDER_ORDER = {
   'DataCube2' : -1,
   'DataCube2ISOSurface' : 501,
   'DataCube'  : CONSTANTS.MAX_RENDER_ORDER - 1,
-  "Electrode" : 500,
+  "Electrode" : -500,
   "InstancedElectrode": -501,
 };
 

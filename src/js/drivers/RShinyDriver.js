@@ -172,6 +172,7 @@ class RShinyDriver {
       is_electrode  : false,
       current_time  : 0,
       time_range    : [ 0 , 0 ],
+      subject       : instance.subject_code
     };
 
     const colorMapName = this.canvas.get_state( 'color_map' );
@@ -189,13 +190,64 @@ class RShinyDriver {
     ];
 
     if( is_electrode(objectChosen) ) {
-      const m = CONSTANTS.REGEXP_ELECTRODE.exec( g.name );
-      if( m && m.length === 4 ){
 
-        data.subject = m[1];
-        data.electrode_number = parseInt( m[2] );
-        data.is_electrode = true;
+      data.is_electrode = true;
+
+      if( instance.isElectrodePrototype ) {
+
+        const contact = instance.contactCenter[ instance.state.focusedContact ];
+        data.electrode_number = contact.chanNum;
+        data.position = instance.state.contactPositions.tkrRAS.toArray();
+        data.isElectrodePrototype = true;
+
+        data.object = {
+          "name"  : g.name,
+          "type"  : "electrode",
+          "position"  : data.position,
+          "group" :{
+            "group_name" : groupName
+          },
+          "subject_code" : instance.subject_code,
+          "subtype" : "CustomGeometry",
+          "radius"  : contact.radius,
+          "prototype_name"  : instance.protoName,
+          "is_electrode"    : true,
+          "use_template"    : g.use_template,
+          "surface_type"    : g.surface_type,
+          "hemisphere"      : g.hemisphere,
+          "MNI305_position" : instance.state.contactPositions.mni305.toArray(),
+          "MNI152_position" : instance.state.contactPositions.mni152.toArray(),
+          "scanner_position": instance.state.contactPositions.scanner.toArray(),
+          "number"          : data.electrode_number,
+        };
+
+      } else {
+
+        data.electrode_number = instance.numbers[0];
+
+        data.object = {
+          "name"  : g.name,
+          "type"  : "electrode",
+          "position"  : data.position,
+          "group" :{
+            "group_name" : groupName
+          },
+          "subject_code" : instance.subject_code,
+          "subtype" : "SphereGeometry",
+          "radius"  : g.radius,
+          "prototype_name"  : null,
+          "is_electrode"    : true,
+          "use_template"    : g.use_template,
+          "surface_type"    : g.surface_type,
+          "hemisphere"      : g.hemisphere,
+          "MNI305_position" : instance.state.contactPositions.mni305.toArray(),
+          "MNI152_position" : instance.state.contactPositions.mni152.toArray(),
+          "scanner_position": instance.state.contactPositions.scanner.toArray(),
+          "number"          : data.electrode_number,
+        };
+
       }
+
     }
 
     return data;

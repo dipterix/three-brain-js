@@ -99,8 +99,27 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.localizationData = {
       electrodes : [],
-      electrodePrototype : null
+      electrodePrototype : null,
     };
+
+    this.localizationData.getContactRadiusFromPrototype = (index) => {
+      const inst = this.localizationData.electrodePrototype;
+      if(!inst || typeof inst !== "object" || !inst.isElectrodePrototype) {
+        // default radius
+        return 1.0;
+      }
+      if(
+        index < 0 || !Array.isArray(inst.contactCenter) ||
+        inst.contactCenter.length <= index
+      ) {
+        return 1.0;
+      }
+      const radius = inst.contactCenter[index].radius;
+      if( typeof radius !== "number" ) {
+        return 1.0;
+      }
+      return radius;
+    }
 
     this.animParameters = this.canvas.animParameters;
 
@@ -132,22 +151,44 @@ class ViewerControlCenter extends EventDispatcher {
       metaKey   : false,
       callback  : () => {
         const focusedObject = this.canvas.object_chosen || this.canvas._last_object_chosen;
-        let previousObject, firstObject;
-        // place flag first as the function might ends early
         this.canvas.needsUpdate = true;
+
+        if( is_electrode(focusedObject) ) {
+          // check if this is a prototype geometry
+          const inst = focusedObject.userData.instance;
+          if( inst.isElectrodePrototype ) {
+
+            // this is the focused contact
+            const newFocusedContact = inst.state.focusedContact + 1;
+
+            if( newFocusedContact < inst.contactCenter.length ) {
+
+              // Not the last contact
+              const intersectPoint = focusedObject.localToWorld( inst.contactCenter[ newFocusedContact ].clone() );
+
+              this.canvas.focusObject(
+                focusedObject,
+                {
+                  helper : true,
+                  intersectPoint : intersectPoint
+                }
+              );
+
+              return;
+            }
+          }
+        }
+
+        // place flag first as the function might ends early
+        let previousObject, firstObject;
 
         for( let meshName of this.canvas.mesh.keys() ){
           const obj = this.canvas.mesh.get( meshName );
           if( is_electrode( obj ) && obj.visible ) {
 
-            if( !focusedObject ) {
-              this.canvas.focusObject( obj , { helper : true } );
-              return;
-            }
-
-            if ( previousObject && previousObject.name === focusedObject.name ) {
-              this.canvas.focusObject( obj , { helper : true } );
-              return;
+            if ( !focusedObject || ( previousObject && focusedObject && previousObject.name === focusedObject.name ) ) {
+              previousObject = obj;
+              break;
             }
 
             previousObject = obj;
@@ -155,13 +196,33 @@ class ViewerControlCenter extends EventDispatcher {
 
           }
         }
-        if( previousObject !== undefined ){
+        if( previousObject && focusedObject && previousObject.name === focusedObject.name ){
 
-          if( previousObject.name === focusedObject.name ){
-            // focus on the first one
-            previousObject = firstObject;
+          // focus on the first one
+          previousObject = firstObject;
+
+        }
+
+        if( is_electrode(previousObject) ){
+          const inst = previousObject.userData.instance;
+
+          if( inst.isElectrodePrototype ) {
+
+            const intersectPoint = previousObject.localToWorld( inst.contactCenter[ 0 ].clone() );
+
+            this.canvas.focusObject(
+              previousObject,
+              {
+                helper : true,
+                intersectPoint : intersectPoint
+              }
+            );
+
+          } else {
+
+            this.canvas.focusObject( previousObject, { helper : true } );
+
           }
-          this.canvas.focusObject( previousObject, { helper : true } );
         }
       }
     })
@@ -175,24 +236,68 @@ class ViewerControlCenter extends EventDispatcher {
       metaKey   : false,
       callback  : () => {
         const focusedObject = this.canvas.object_chosen || this.canvas._last_object_chosen;
-        let previousObject, firstObject;
+        let previousObject;
         // place flag first as the function might ends early
         this.canvas.needsUpdate = true;
+
+        if( is_electrode(focusedObject) ) {
+          // check if this is a prototype geometry
+          const inst = focusedObject.userData.instance;
+          if( inst.isElectrodePrototype ) {
+
+            // this is the focused contact
+            const newFocusedContact = inst.state.focusedContact - 1;
+
+            if( newFocusedContact >= 0 ) {
+
+              // Not the last contact
+              const intersectPoint = focusedObject.localToWorld( inst.contactCenter[ newFocusedContact ].clone() );
+
+              this.canvas.focusObject(
+                focusedObject,
+                {
+                  helper : true,
+                  intersectPoint : intersectPoint
+                }
+              );
+
+              return;
+            }
+          }
+        }
+
 
         for( let meshName of this.canvas.mesh.keys() ){
           const obj = this.canvas.mesh.get( meshName );
           if( is_electrode( obj ) && obj.visible ) {
 
             if( previousObject && focusedObject && obj.name == focusedObject.name ){
-              this.canvas.focusObject( previousObject, { helper : true } );
-              return ;
+              break;
             }
             previousObject = obj;
 
           }
         }
-        if( previousObject ){
-          this.canvas.focusObject( previousObject, { helper : true } );
+        if( is_electrode(previousObject) ){
+          const inst = previousObject.userData.instance;
+
+          if( inst.isElectrodePrototype ) {
+
+            const intersectPoint = previousObject.localToWorld( inst.contactCenter[ inst.contactCenter.length - 1 ].clone() );
+
+            this.canvas.focusObject(
+              previousObject,
+              {
+                helper : true,
+                intersectPoint : intersectPoint
+              }
+            );
+
+          } else {
+
+            this.canvas.focusObject( previousObject, { helper : true } );
+
+          }
         }
       }
     })

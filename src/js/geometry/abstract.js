@@ -267,7 +267,7 @@ class AbstractThreeBrainObject extends EventDispatcher {
 
 function createBuiltinGeometry (type, {
 	  position, index, uv,
-	  normal = undefined, channel_map = undefined,
+	  normal = undefined, channel_map = undefined, marker_map = undefined,
 	  texture_size = [1, 1], transform = undefined,
 	  radius = 1, fix_outline = true,
 	  contact_center = null, channel_numbers = null, contact_sizes = null,
@@ -337,8 +337,13 @@ function createBuiltinGeometry (type, {
       }
 
       if( channel_map ) {
-        geom.setAttribute( 'channelMap', new BufferAttribute( new Uint8Array( channel_map ), 4 ) );
+        geom.setAttribute( 'channelMap', new BufferAttribute( new Uint16Array( channel_map ), 4 ) );
         geom.parameters.useChannelMap = true;
+      }
+
+      if( marker_map ) {
+        geom.setAttribute( 'markerMap', new BufferAttribute( new Uint16Array( marker_map ), 4 ) );
+        geom.parameters.useMarkerMap = true;
       }
 
       const cc = contact_center;
@@ -438,6 +443,7 @@ function createBuiltinGeometry (type, {
     normal    : geom.getAttribute("normal"),
     uv        : geom.getAttribute("uv"),
     channelMap: geom.getAttribute("channelMap"),
+    markerMap : geom.getAttribute("markerMap"),
     dataTexture: dataTexture,
   };
 }
@@ -507,12 +513,17 @@ class ElasticGeometry extends BufferGeometry {
 
 		if( results.normal ) {
 		  this.setAttribute( 'normal', results.normal );
+		} else {
+		  this.computeVertexNormals();
 		}
 		if( results.uv ) {
 		  this.setAttribute( 'uv', results.uv );
 		}
 		if( results.channelMap ) {
 		  this.setAttribute( 'channelMap', results.channelMap );
+		}
+		if( results.markerMap ) {
+		  this.setAttribute( 'markerMap', results.markerMap );
 		}
 
 		this.updatePositionsFromTrajectory();

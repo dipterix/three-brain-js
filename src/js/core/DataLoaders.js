@@ -10,6 +10,9 @@ import { GiftiMesh } from '../formats/GIfTIMesh.js';
 import { STLMesh } from '../formats/STLMesh.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
+import { FreeSurferAnnot } from '../formats/FreeSurferAnnot.js';
+import { TTTract } from '../formats/TTTract.js';
+
 
 const debugManager = new LoadingManager();
 debugManager.onStart = function ( url, itemsLoaded, itemsTotal ) {
@@ -294,6 +297,10 @@ class BasicLoader extends Loader {
       .catch(reject);
     });
   }
+
+  copyData( el ) {
+    return el;
+  }
 }
 
 class JSONLoader extends BasicLoader {
@@ -320,59 +327,73 @@ class CSVLoader extends BasicLoader {
   }
 }
 
-class NiftiLoader extends BasicLoader {
+
+class TypedLoader extends BasicLoader {
+
+  classType = undefined;
+
+  parse( data ) {
+    if( this.classType === undefined ) {
+      throw new Error("TypedLoader: please implement this.classType");
+    }
+    return new this.classType( data );
+  }
+
+  copyData( el ) {
+    if( this.classType === undefined ) {
+      throw new Error("TypedLoader: please implement this.classType");
+    }
+    return new this.classType().copy( el );
+  }
+}
+
+class NiftiLoader extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "NiftiLoader";
-
-  parse( buffer ) {
-    return new NiftiImage( buffer );
-  }
+  classType = NiftiImage;
 }
 
-class STLLoader2 extends BasicLoader {
+class STLLoader2 extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "STLLoader2";
-
-  parse( buffer ) {
-    return new STLMesh( buffer );
-  }
+  classType = STLMesh;
 }
 
-class MGHLoader extends BasicLoader {
+class TTLoader extends TypedLoader {
+  responseType = "arraybuffer";
+  loaderName = "TTLoader";
+  classType = TTTract;
+}
+
+class MGHLoader extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "MGHLoader";
-
-  parse( buffer ) {
-    return new MGHImage( buffer );
-  }
+  classType = MGHImage;
 }
 
-class GiftiLoader extends BasicLoader {
+class GiftiLoader extends TypedLoader {
   responseType = "text";
   loaderName = "GiftiLoader";
   mimeType = undefined; // so text string is returned
-
-  parse( buffer ) {
-    return new GiftiMesh( buffer );
-  }
+  classType = GiftiMesh;
 }
 
-class FreeSurferMeshLoader extends BasicLoader {
+class FreeSurferMeshLoader extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "FreeSurferMeshLoader";
-
-  parse( buffer ) {
-    return new FreeSurferMesh( buffer );
-  }
+  classType = FreeSurferMesh;
 }
 
-class FreeSurferNodeLoader extends BasicLoader {
+class FreeSurferNodeLoader extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "FreeSurferNodeLoader";
+  classType = FreeSurferNodeValues;
+}
 
-  parse( buffer ) {
-    return new FreeSurferNodeValues( buffer );
-  }
+class FreeSurferAnnotLoader extends TypedLoader {
+  responseType = "arraybuffer";
+  loaderName = "FreeSurferAnnotLoader";
+  classType = FreeSurferAnnot;
 }
 
 const loaderClasses = {
@@ -383,7 +404,9 @@ const loaderClasses = {
   "MGHLoader"   : MGHLoader,
   "GiftiLoader" : GiftiLoader,
   "FreeSurferMeshLoader": FreeSurferMeshLoader,
-  "FreeSurferNodeLoader": FreeSurferNodeLoader
+  "FreeSurferNodeLoader": FreeSurferNodeLoader,
+  "FreeSurferAnnotLoader": FreeSurferAnnotLoader,
+  "TTLoader"    : TTLoader,
 }
 
 for(let loaderType in loaderClasses) {
@@ -410,12 +433,16 @@ function guessLoaderType( url ) {
     loaderType = "GiftiLoader";
   } else if ( urlLowerCase.endsWith("sulc") || urlLowerCase.endsWith("curv") ) {
     loaderType = "FreeSurferNodeLoader";
+  } else if ( urlLowerCase.endsWith("annot") ) {
+    loaderType = "FreeSurferAnnotLoader";
   } else if ( urlLowerCase.endsWith("json") ) {
     loaderType = "JSONLoader";
   } else if ( urlLowerCase.endsWith("csv") || urlLowerCase.endsWith("tsv") ) {
     loaderType = "CSVLoader";
   } else if ( urlLowerCase.endsWith("stl") ) {
     loaderType = "STLLoader2";
+  } else if ( urlLowerCase.endsWith("tt") || urlLowerCase.endsWith("tt.gz") ) {
+    loaderType = "TTLoader";
   } else {
     loaderType = "FreeSurferMeshLoader";
   }
@@ -577,43 +604,11 @@ class CanvasFileLoader2 extends Loader {
     } else {
       if( data.isAsync ) {
         const content = data.data;
-        switch (data.loaderType) {
-          case 'NiftiLoader':
-            return {
-              "_originalData_": new NiftiImage().copy( data.data )
-            };
-            break;
-          case 'MGHLoader':
-            return {
-              "_originalData_": new MGHImage().copy( data.data )
-            };
-            break;
-          case 'GiftiLoader':
-            return {
-              "_originalData_": new GiftiMesh().copy( data.data )
-            };
-            break;
-          case 'STLLoader2':
-            return {
-              "_originalData_": new STLMesh().copy( data.data )
-            };
-            break;
-          case 'FreeSurferMeshLoader':
-            return {
-              "_originalData_": new FreeSurferMesh().copy( data.data )
-            };
-            break;
-          case 'FreeSurferNodeLoader':
-            return {
-              "_originalData_": new FreeSurferNodeValues().copy( data.data )
-            };
-            break;
-
-          default:
-            return {
-              "_originalData_": data.data
-            };
+        const loaderCls = loaderClasses[ data.loaderType ];
+        if( loaderCls === undefined ) {
+          return { "_originalData_": content };
         }
+        return { "_originalData_": new loaderCls().copyData( content ) };
       } else {
         return {
           "_originalData_": data.data

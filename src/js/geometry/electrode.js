@@ -1,10 +1,10 @@
-import { AbstractThreeBrainObject, ElasticGeometry } from './abstract.js';
+import { AbstractThreeBrainObject, ElasticGeometry, getThreeBrainInstance } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
   BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute,
   Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
-  SphereGeometry, InstancedMesh, DoubleSide, AlwaysDepth
+  SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth
 } from 'three';
 // import { addColorCoat } from '../shaders/addColorCoat.js';
 import { ElectrodeMaterial } from '../shaders/ElectrodeMaterial.js';
@@ -20,7 +20,7 @@ const MATERIAL_PARAMS_BASIC = {
   'reflectivity'  : 0,
   'color'         : 0xffffff,
   'vertexColors'  : false,
-  'side'          : DoubleSide,
+  'side'          : FrontSide,
 };
 
 function guessHemisphere(g) {
@@ -336,9 +336,6 @@ class Electrode extends AbstractThreeBrainObject {
       this.instancedObjects.dispose();
       delete this.instancedObjects.userData.instance;
     }
-    if( this._upArrow ) {
-      this._upArrow.dispose()
-    }
   }
 
   // fat arrow to make sure listeners are correct for child classes
@@ -346,6 +343,7 @@ class Electrode extends AbstractThreeBrainObject {
     const mapConfig = event.detail;
     const subjectCode = mapConfig.subject,
           surfaceMapping = mapConfig.surface,
+          surfaceType = mapConfig.surfaceType,
           volumeMapping = mapConfig.volume;
 
     if( surfaceMapping === "reset" || volumeMapping === "reset" ) {
@@ -366,9 +364,16 @@ class Electrode extends AbstractThreeBrainObject {
       isSurfaceElectrode = true;
     }
 
-    if( isSurfaceElectrode && surfaceMapping === "sphere.reg" ) {
-      this.mapToTemplateSurface({ subjectCode : subjectCode });
-      return;
+    if( isSurfaceElectrode ) {
+      if( surfaceMapping === "sphere.reg" ) {
+        this.mapToTemplateSurface({ subjectCode : subjectCode, surfaceType : surfaceType });
+        return;
+      }
+    } else {
+      if( volumeMapping === "sphere.reg" ) {
+        this.mapToTemplateSurface({ subjectCode : subjectCode, surfaceType : surfaceType });
+        return;
+      }
     }
 
     this.mapToTemplateAffine({ subjectCode : subjectCode });
@@ -577,9 +582,11 @@ class Electrode extends AbstractThreeBrainObject {
 
     // materials
     this._material = new ElectrodeMaterial( MATERIAL_PARAMS_BASIC );
+    this._material.setModelDirection( this._geometry.parameters.modelDirection );
 
     // mesh
     this.object = new Mesh( this._geometry, this._material );
+    this.object.renderOrder = CONSTANTS.RENDER_ORDER.Electrode;
     // make sure not hidden by other objects;
     this.object.name = 'mesh_electrode_' + g.name;
     if( hasTransform ) {
@@ -652,10 +659,23 @@ class Electrode extends AbstractThreeBrainObject {
 
     const modelUp = this._geometry.parameters.modelUp;
     if( modelUp.lengthSq() > 0.5 ) {
-      this._upArrow = new ArrowHelper(modelUp, new Vector3( 0, 0, 0 ), 5, 0x00ffff, 2 );
-      this._upArrow.children[0].material.depthFunc = AlwaysDepth;
-      this._upArrow.children[1].material.depthFunc = AlwaysDepth;
-      this.object.add( this._upArrow );
+      this._hasModelUp = true;
+
+      this.arrowHelper = new ArrowHelper(
+        modelUp,
+        new Vector3( 0, 0, 0 ),
+        3, 0x1a1a1a, 2
+      );
+      this.arrowHelper.scale.set(2, 1, 0.5);
+      this.arrowHelper.cone.material.opacity = 0.5;
+      this.arrowHelper.cone.material.transparent = true;
+      this.arrowHelper.line.visible = false;
+      this.object.add( this.arrowHelper );
+
+    } else {
+
+      this._hasModelUp = false;
+      this.arrowHelper = null;
     }
 
     this.object.userData.dispose = () => { this.dispose(); };
@@ -799,7 +819,11 @@ class Electrode extends AbstractThreeBrainObject {
       .sub( this._tmpVec3.setFromMatrixPosition( matrixWorld ) )
       .normalize();
 
-    this.up.copy( this._geometry.parameters.modelUp ).sub( this._tmpVec3 ).normalize();
+    this.up.copy( this._geometry.parameters.modelUp )
+      .applyMatrix4( matrixWorld )
+      .sub( this._tmpVec3 )
+      .normalize();
+
     return;
   }
 
@@ -1207,9 +1231,15 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   updateVisibility() {
-    // 4. set visibility
+
+    // 4.1 Update prototype cutoff length
+    let cutoffLen = this._canvas.get_state( 'electrode_prototype_length_cutoff', 0 );
+    this._material.setMaxRenderLength( cutoffLen );
+
+    // 4.2 set visibility
     const vis = this._canvas.get_state( 'electrode_visibility', 'all visible');
     const repr = this._canvas.get_state( 'electrode_representation', 'shape+contact' );
+
     const setVisible = ( visible ) => {
       if( visible ) {
         this.object.visible = true;
@@ -1217,39 +1247,23 @@ class Electrode extends AbstractThreeBrainObject {
           switch (repr) {
             case 'prototype':
               this.object.layers.enableAll();
-              if( this._upArrow ) {
-                this._upArrow.children[0].layers.enableAll();
-                this._upArrow.children[1].layers.enableAll();
-              }
               this.instancedObjects.visible = false;
               break;
 
             case 'contact-only':
               this.object.layers.disableAll();
               this.instancedObjects.visible = true;
-              if( this._upArrow ) {
-                this._upArrow.children[0].layers.disableAll();
-                this._upArrow.children[1].layers.disableAll();
-              }
               break;
 
             default:
               this.object.layers.enableAll();
               this.instancedObjects.visible = true;
-              if( this._upArrow ) {
-                this._upArrow.children[0].layers.enableAll();
-                this._upArrow.children[1].layers.enableAll();
-              }
           }
         }
       } else {
         this.object.visible = false;
         if( this.hasInstancedMesh ) {
           this.instancedObjects.visible = false;
-        }
-        if( this._upArrow ) {
-          this._upArrow.children[0].layers.disableAll();
-          this._upArrow.children[1].layers.disableAll();
         }
       }
     };
@@ -1282,6 +1296,7 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.displayRepresentation = repr;
       this.colorNeedsUpdate = true;
     }
+
   }
 
   updateColors() {
@@ -1308,6 +1323,8 @@ class Electrode extends AbstractThreeBrainObject {
 
       const defaultColor = this.defaultColor;
       const channelMap = this._geometry.getAttribute("channelMap");
+      const markerMap = this._geometry.getAttribute("markerMap");
+
       const useFixedColor = this.state.fixColor;
       const fixedColorArray = this.state.fixedColor;
 
@@ -1323,6 +1340,7 @@ class Electrode extends AbstractThreeBrainObject {
       const useChannelMap = (
         useDataTexture && params.useChannelMap && channelMap
       ) ? true : false;
+      const useMarkerMap = useChannelMap && params.useMarkerMap && markerMap;
       /**
        * The logic is:
        * if fixColor[ ii ] === true, then use fixedColor[ ii ]
@@ -1347,6 +1365,7 @@ class Electrode extends AbstractThreeBrainObject {
 
         // channel mapping (x, y, width, height)
         const channelMapArray = useChannelMap ? channelMap.array : [];
+        const markerMapArray = useMarkerMap ? markerMap.array : [];
 
         let color; // Reused color object, used to calculate & assign color
 
@@ -1382,17 +1401,46 @@ class Electrode extends AbstractThreeBrainObject {
             // temporary variables
             let j,              // Contact location in colorArray
                 r, c, w, h,     // row-column-width-height in texture if `useChannelMap`
-                k, l;           // iterator
+                k, l, k1, l1;           // iterator
+
+            if( useMarkerMap ) {
+              r = markerMapArray[ i * 4 ] - 1;
+              c = markerMapArray[ i * 4 + 1 ] - 1;
+              w = markerMapArray[ i * 4 + 2 ]; // Math.min(, textureWidth - r);
+              h = markerMapArray[ i * 4 + 3 ]; // Math.min(, textureHeight - c);
+              if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
+
+                for( l = 0, l1 = 0; l < h; l++, l1++ ) {
+                  if( l1 >= textureHeight ) {
+                    l1 -= textureHeight;
+                  }
+                  for( k = 0, k1 = 0; k < w; k++, k1++ ) {
+                    if( k1 >= textureWidth ) {
+                      k1 -= textureWidth;
+                    }
+                    j = r + k1 + ( c + l1 ) * textureWidth;
+                    colorArray[ j * 4 + 3 ] = 255;
+                  }
+                }
+              }
+            }
+
             if( useChannelMap ) {
               r = channelMapArray[ i * 4 ] - 1;
               c = channelMapArray[ i * 4 + 1 ] - 1;
-              w = Math.min(channelMapArray[ i * 4 + 2 ], textureWidth - r);
-              h = Math.min(channelMapArray[ i * 4 + 3 ], textureHeight - c);
+              w = channelMapArray[ i * 4 + 2 ]; // Math.min(, textureWidth - r);
+              h = channelMapArray[ i * 4 + 3 ]; // Math.min(, textureHeight - c);
               if (r >= 0 && c >= 0 && w > 0 && h > 0 && r < textureWidth && c < textureHeight) {
 
-                for( l = 0; l < h; l++ ) {
-                  for( k = 0; k < w; k++ ) {
-                    j = r + k + ( c + l ) * textureWidth;
+                for( l = 0, l1 = 0; l < h; l++, l1++ ) {
+                  if( l1 >= textureHeight ) {
+                    l1 -= textureHeight;
+                  }
+                  for( k = 0, k1 = 0; k < w; k++, k1++ ) {
+                    if( k1 >= textureWidth ) {
+                      k1 -= textureWidth;
+                    }
+                    j = r + k1 + ( c + l1 ) * textureWidth;
                     colorArray[ j * 4 ] = color.r * 255;
                     colorArray[ j * 4 + 1 ] = color.g * 255;
                     colorArray[ j * 4 + 2 ] = color.b * 255;
@@ -1400,6 +1448,7 @@ class Electrode extends AbstractThreeBrainObject {
                   }
                 }
               }
+
             } else {
               colorArray[ i * 4 ] = color.r * 255;
               colorArray[ i * 4 + 1 ] = color.g * 255;
@@ -1450,9 +1499,10 @@ class Electrode extends AbstractThreeBrainObject {
       }
     }
 
-    const electrodeTranslucent = this._canvas.get_state( "electrode_translucent", 1 );
+    const electrodeTranslucent = this._canvas.get_state( "electrode_translucent", 2 );
     if( this.isElectrodePrototype ) {
       this.instancedObjects.material.setTranslucent( electrodeTranslucent );
+      this._material.setTranslucent( electrodeTranslucent );
     } else {
       this._material.setTranslucent( electrodeTranslucent );
     }
@@ -1499,6 +1549,13 @@ class Electrode extends AbstractThreeBrainObject {
     if( this.isElectrode && !this.isPositionValid ) {
       this.object.visible = false;
       return ;
+    }
+
+    if( this._hasModelUp ) {
+      if( this._canvas.crossArrowHelper.visible ) {
+        this._canvas.crossArrowHelper.setDirection( this.up );
+      }
+      // this.arrowHelper.setDirection( this.up );
     }
 
     const time = this._canvas.animParameters.time;
@@ -1584,10 +1641,6 @@ class Electrode extends AbstractThreeBrainObject {
         this.state.contactPositions.scanner.copy( cpos ).applyMatrix4( this.transforms.model2scan );
         this.state.contactPositions.mni305.copy( cpos ).applyMatrix4( this.transforms.model2mni305 );
 
-        if( this._upArrow ) {
-          this._upArrow.position.copy( cpos );
-        }
-
         contactIsSet = true;
       }
     }
@@ -1598,9 +1651,6 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.contactPositions.scanner.setFromMatrixPosition( this.transforms.model2scan );
       this.state.contactPositions.mni305.setFromMatrixPosition( this.transforms.model2mni305 );
 
-      if( this._upArrow ) {
-        this._upArrow.position.set(0, 0, 0)
-      }
     }
 
     // update MNI152
@@ -1634,7 +1684,10 @@ class Electrode extends AbstractThreeBrainObject {
 
     // update pos to snaping to the electrode
     if( cid >= 0 ) {
-      pos.copy( this.contactCenter[ cid ] );
+      const contact = this.contactCenter[ cid ];
+      pos.copy( contact );
+      pos.radius = contact.radius ?? 1.0;
+      pos.chanNum = contact.chanNum;
     }
     this.object.localToWorld( pos );
     return;
@@ -1727,12 +1780,16 @@ class Electrode extends AbstractThreeBrainObject {
 
     recalculate = recalculate || this._ensureTemplateCache( subjectCode, [ transformName ] );
 
+    const mappings = this.transforms.native2template[ subjectCode ];
+    if( !mappings[ transformName ] || mappings[ transformName ].surfaceType !== surfaceType ) {
+      recalculate = true;
+    }
+
     // this.transforms.native2template[ subjectCode ].model2Surface;
     if( !recalculate ) { return subjectCode; }
 
     // make sure we have the rotation
     this.getAffineTranformToTemplate({ subjectCode: subjectCode });
-    const mappings = this.transforms.native2template[ subjectCode ];
     const model2Surface = mappings[ transformName ].copy( mappings.model2tkr_Affine );
 
     // Not mapped, invalid sphere position (length should be ~100)
@@ -1780,6 +1837,13 @@ class Electrode extends AbstractThreeBrainObject {
     // 0 0 0 -> newPosition
     model2Surface.copy( mappings.model2tkr_Affine ).setPosition( newPosition );
 
+    // Get surface position and make sure it's world position
+    // normally this is no-op, except for inflated brain, where surface origins
+    // are not 0,0,0
+    model2Surface.premultiply( surfaceInstance.object.matrixWorld );
+
+    model2Surface.surfaceType = surfaceType;
+
     /**
     const shiftDistance = tmp.fromArray( g.position ).distanceTo( newPosition );
 
@@ -1826,33 +1890,44 @@ class Electrode extends AbstractThreeBrainObject {
     return this.state;
   }
 
-  mapToTemplateSurface({ subjectCode } = {}) {
+  mapToTemplateSurface({ subjectCode, surfaceType } = {}) {
 
-    const g = this._params;
-    let surfaceType = g.surface_type;
-    if( typeof surfaceType !== "string" ) {
-      surfaceType = "pial"
+    if( typeof surfaceType !== "string" || surfaceType === 'auto' ) {
+      surfaceType = this._canvas.get_state("surface_type", "pial");
+      if( !CONSTANTS.FREESURFER_SURFACE_TYPES.includes( surfaceType ) ) {
+        surfaceType = this._params.surface_type;
+        if( typeof surfaceType !== "string" ) {
+          surfaceType = "pial";
+        }
+      }
     }
 
-    const mappedSubject = this.getSurfaceTransformToTemplate( { subjectCode : subjectCode, surfaceType : surfaceType } );
-
-    if( mappedSubject === this.subject_code ) {
-      this.useMatrix4( this.transforms.model2tkr );
-      this.state.templateMappingActive = false;
-      this.state.templateSubject = this.subject_code;
-      this.state.templateMappingMethod = "Affine";
-      this.state.templateCoordSys = "MNI305";
-      return this.state;
+    const projectionOffset = this._params.surface_offset;
+    let useSurfaceMapping = false;
+    if( typeof projectionOffset === "number" ) {
+      const offsetThreshold = this._canvas.get_state('electrodeProjectionThreshold', 0);
+      if( offsetThreshold < 0 || offsetThreshold >= 30 || projectionOffset <= offsetThreshold ) {
+        useSurfaceMapping = true;
+      }
+    } else {
+      useSurfaceMapping = true;
     }
 
-    if( typeof mappedSubject === "string" ) {
-      const mappings = this.transforms.native2template[ mappedSubject ];
-      this.useMatrix4( mappings.model2Surface );
-      this.state.templateMappingActive = true;
-      this.state.templateSubject = subjectCode;
-      this.state.templateMappingMethod = "SurfaceMapping";
-      this.state.templateCoordSys = "sphere.reg";
-      return this.state;
+    if( useSurfaceMapping ) {
+      const mappedSubject = this.getSurfaceTransformToTemplate( {
+        subjectCode : subjectCode,
+        surfaceType : surfaceType
+      } );
+
+      if( typeof mappedSubject === "string" ) {
+        const mappings = this.transforms.native2template[ mappedSubject ];
+        this.useMatrix4( mappings.model2Surface );
+        this.state.templateMappingActive = true;
+        this.state.templateSubject = subjectCode;
+        this.state.templateMappingMethod = "SurfaceMapping";
+        this.state.templateCoordSys = "sphere.reg";
+        return this.state;
+      }
     }
 
     return this.mapToTemplateAffine({ subjectCode: subjectCode });
@@ -1912,8 +1987,11 @@ class Electrode extends AbstractThreeBrainObject {
         color.toArray( newColorArray, (j + positionOffset) * 3 );
       }
 
-      for( let j = 0; j < indexCount ; j++ ) {
-        indexArray[j] += positionCount;
+      if( i > 0 ) {
+        // No need to increase the index for first instance
+        for( let j = 0; j < indexCount ; j++ ) {
+          indexArray[j] += positionCount;
+        }
       }
 
       newIndexArray.set( indexArray, indexCount * i );
@@ -1968,11 +2046,13 @@ function gen_electrode(g, canvas) {
 }
 
 function is_electrode(e) {
-  if(e && e.isMesh && e.userData.construct_params && e.userData.construct_params.is_electrode){
-    return(true);
-  }else{
-    return(false);
-  }
+
+  if(!e || !e.isMesh) { return false; }
+
+  const inst = getThreeBrainInstance(e);
+  if(!inst || !inst.isElectrode) { return false; }
+
+  return(true);
 }
 
 export { gen_electrode, is_electrode };

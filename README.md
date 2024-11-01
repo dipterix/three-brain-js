@@ -1,6 +1,6 @@
 ## JavaScript Library for YAEL (Your Advanced Electrode Localizer)
 
-<img src="https://github.com/dipterix/threeBrain/blob/master/docs/demo.gif?raw=true" width="100%" />
+<img src="https://github.com/dipterix/threeBrain/blob/master/adhoc/demo.gif?raw=true" width="100%" />
 
 [![](https://img.shields.io/badge/website-yael.wiki-green)](https://yael.wiki)
 [![](https://img.shields.io/badge/DOI-10.1523%2FENEURO.0328--23.2023-blue?link=https%3A%2F%2Fdoi.org%2F10.1523%2FENEURO.0328-23.2023)](https://doi.org/10.1523/ENEURO.0328-23.2023)

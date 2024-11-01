@@ -204,31 +204,52 @@ class SideCanvas {
 
 
   get headerText () {
-    if( this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical") !== "canonical" ) {
-      switch ( this.type ) {
-        case 'coronal':
-          return "Normal (Horizontal)";
-          break;
-        case 'axial':
-          return "Line of Sight";
-          break;
-        case 'sagittal':
-          return "Normal (Vertical)";
-          break;
-        default:
+    switch ( this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical") ) {
+      case 'canonical': {
+        switch ( this.type ) {
+          case 'coronal':
+            return "CORONAL (R=R)";
+            break;
+          case 'axial':
+            return "AXIAL (R=R)";
+            break;
+          case 'sagittal':
+            return "SAGITTAL";
+            break;
+          default:
+        }
+        break;
       }
-    } else {
-      switch ( this.type ) {
-        case 'coronal':
-          return "CORONAL (R=R)";
-          break;
-        case 'axial':
-          return "AXIAL (R=R)";
-          break;
-        case 'sagittal':
-          return "SAGITTAL";
-          break;
-        default:
+
+      case 'column-row-slice': {
+        switch ( this.type ) {
+          case 'coronal':
+            return "ROW";
+            break;
+          case 'axial':
+            return "COLUMN";
+            break;
+          case 'sagittal':
+            return "SLICE";
+            break;
+          default:
+        }
+        break;
+      }
+
+      default: {
+        switch ( this.type ) {
+          case 'coronal':
+            return "Normal (Horizontal)";
+            break;
+          case 'axial':
+            return "Line of Sight";
+            break;
+          case 'sagittal':
+            return "Normal (Vertical)";
+            break;
+          default:
+        }
       }
     }
   }
@@ -250,6 +271,7 @@ class SideCanvas {
     const up = canvasSize[1]/2 + canvasPosition.top - event.clientY + 2;
 
     this.raiseTop();
+    // this.mainCanvas.updateCrosshairGroup();
     this.pan({
       right : right, up : up, unit : "css",
       updateMainCamera : !event.shiftKey
@@ -319,8 +341,9 @@ class SideCanvas {
     let centerCanvas = false;
 
     // Use the underlying position, because this might happen very fast (before rendering)
-    tmpVec3.copy( this.mainCanvas._crosshairPosition )
-      .applyQuaternion( tmpQuaternion.copy( this.mainCanvas.crosshairGroup.quaternion ).invert() );
+    // tmpVec3.copy( this.mainCanvas._crosshairPosition )
+    //  .applyQuaternion( tmpQuaternion.copy( this.mainCanvas.crosshairGroup.quaternion ).invert() );
+    tmpVec3.set(0, 0, 0);
 
     const halfMarginWidth = (view.fullWidth - view.width) / 2.0;
     const halfMarginHeight = (view.fullHeight - view.height) / 2.0;
@@ -378,7 +401,10 @@ class SideCanvas {
     // console.log(`x: ${depthX}, y: ${depthY} of [${canvasSize[0]}, ${canvasSize[1]}]`);
     // console.log(`x: ${sagittalDepth}, y: ${coronalDepth}, z: ${axialDepth}`);
 
-    tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion );
+    const tmpVec32 = tmpVec3.clone();
+
+    tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion )
+      .add( this.mainCanvas._crosshairPosition );
 
     // update slice depths
     if( updateMainCamera ) {
@@ -661,8 +687,9 @@ class SideCanvas {
 
     const delta = evt.deltaY * 0.03;
 
-    tmpVec3.copy( this.mainCanvas._crosshairPosition )
-      .applyQuaternion( tmpQuaternion.copy( this.mainCanvas.crosshairGroup.quaternion ).invert() );
+    tmpVec3.set(0, 0, 0);
+    // tmpVec3.copy( this.mainCanvas._crosshairPosition )
+    //  .applyQuaternion( tmpQuaternion.copy( this.mainCanvas.crosshairGroup.quaternion ).invert() );
 
     let centerCrosshair;
 
@@ -682,7 +709,8 @@ class SideCanvas {
       default:
         // code
     }
-    tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion );
+    tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion )
+      .add( this.mainCanvas._crosshairPosition );
 
     this.mainCanvas.setSliceCrosshair({
       x : tmpVec3.x,
