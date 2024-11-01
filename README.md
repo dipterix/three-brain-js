@@ -7,7 +7,7 @@
 ![](https://img.shields.io/github/package-json/v/dipterix/three-brain-js/main)
 [![](https://img.shields.io/npm/v/%40rave-ieeg%2Fthree-brain)](https://www.npmjs.com/package/@rave-ieeg/three-brain)
 
-**This repository is for only developers who wish to incorporate YAEL into their own programs.** If you are looking for integrated electrode localization & visualization tools, please check our website: [yael.wiki](https://yael.wiki).
+**This repository is ONLY for developers who wish to incorporate YAEL into their own 3D programs, not for end-users.** If you are looking for integrated electrode localization & visualization tools, please check our website: [rave.wiki](https://rave.wiki).
 
 This repository contains a JavaScript engine for visualizing 3D brain models via modern web browsers (with [`WebGL2` support](https://get.webgl.org/webgl2/)). The key features include:
 
