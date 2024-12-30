@@ -6,6 +6,8 @@
 // External libraries
 import * as THREE from 'three';
 import WebGL from './jsm/capabilities/WebGL.js'
+import { Lut, ColorMapKeywords, addToColorMapKeywords } from './jsm/math/Lut2.js'
+import { NamedLut } from './core/NamedLut.js'
 import * as download from 'downloadjs';
 import { json2csv } from 'json-2-csv';
 import jsPDF from 'jspdf';
@@ -61,6 +63,11 @@ const Constants = CONSTANTS;
 const ExternLibs = {
   THREE             : THREE,
   WebGL             : WebGL,
+  ColorMap          : {
+    Lut : Lut, NamedLut : NamedLut,
+    ColorMapKeywords : ColorMapKeywords,
+    addToColorMapKeywords : addToColorMapKeywords,
+  },
   json2csv          : json2csv,
   jsPDF             : jsPDF,
   downloadjs        : download,

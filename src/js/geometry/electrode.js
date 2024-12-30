@@ -11,7 +11,7 @@ import { ElectrodeMaterial } from '../shaders/ElectrodeMaterial.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { asArray } from '../utility/asArray.js';
 import { testColorString } from '../utility/color.js';
-import { pointPositionByDistances, registerRigidPoints } from '../Math/svd.js';
+import { pointPositionByDistances, registerRigidPoints, registerRigidPoints2 } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
 
 
@@ -338,6 +338,8 @@ class Electrode extends AbstractThreeBrainObject {
     }
   }
 
+
+
   // fat arrow to make sure listeners are correct for child classes
   mapToTemplate = ( event ) => {
     const mapConfig = event.detail;
@@ -352,6 +354,8 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.templateSubject = this.subject_code;
       this.state.templateMappingMethod = "Affine";
       this.state.templateCoordSys = "MNI305";
+
+      this.updatePrototypeModel({ coordinateSys : "native" });
       return;
     }
     // check if this is a surface
@@ -364,19 +368,37 @@ class Electrode extends AbstractThreeBrainObject {
       isSurfaceElectrode = true;
     }
 
+    // determine the mapping type
+    let mappingType = volumeMapping;
     if( isSurfaceElectrode ) {
-      if( surfaceMapping === "sphere.reg" ) {
-        this.mapToTemplateSurface({ subjectCode : subjectCode, surfaceType : surfaceType });
-        return;
-      }
-    } else {
-      if( volumeMapping === "sphere.reg" ) {
-        this.mapToTemplateSurface({ subjectCode : subjectCode, surfaceType : surfaceType });
-        return;
-      }
+      mappingType = surfaceMapping;
     }
 
-    this.mapToTemplateAffine({ subjectCode : subjectCode });
+    switch (mappingType) {
+      case "sphere.reg": {
+        // Snap to surfaces
+        this.mapToTemplateSurface({ subjectCode : subjectCode, surfaceType : surfaceType });
+        this.updatePrototypeModel({ coordinateSys : "native" });
+        break;
+      }
+
+      case "mni305.affine+fix.target": {
+        this.mapToTemplateAffine({ subjectCode : subjectCode });
+        this.updatePrototypeModel({ coordinateSys : "mni305FixTarget" });
+        break;
+      }
+
+      case "mni305": {
+        this.mapToTemplateAffine({ subjectCode : subjectCode });
+        this.updatePrototypeModel({ coordinateSys : "mni305User" });
+        break;
+      }
+
+      default:
+        this.mapToTemplateAffine({ subjectCode : subjectCode });
+        this.updatePrototypeModel({ coordinateSys : "native" });
+    }
+
   }
 
   updateElectrodeData = ( event ) => {
@@ -511,11 +533,12 @@ class Electrode extends AbstractThreeBrainObject {
     this.direction = new Vector3().set(0, 0, 1);
     this.up = new Vector3().set(0, 0, 0);  // example, DBS front face
     this.transforms = {
-      model2tkr       : null,  // will set soon
-      spherePosition  : new Vector3(),
-      model2mni305    : new Matrix4(),
-      model2scan      : new Matrix4(),
-      native2template : {},
+      model2tkr           : null,  // will set soon
+      spherePosition      : new Vector3(),
+      // Affine transform from freesurfer
+      model2mni305Affine  : new Matrix4(),
+      model2scan          : new Matrix4(),
+      native2template     : {},
     };
 
 
@@ -626,7 +649,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.object.add( this._textSprite );
 
     // Also add instancedMesh within the object
-    if( Array.isArray( this.contactCenter ) && this.contactCenter.length > 0 ) {
+    if( this.isElectrodePrototype && Array.isArray( this.contactCenter ) && this.contactCenter.length > 0 ) {
       this.hasInstancedMesh = true;
       const nContacts = this.contactCenter.length;
       const instancedGeometry = new SphereGeometry( 1 );
@@ -693,18 +716,73 @@ class Electrode extends AbstractThreeBrainObject {
       .multiply( model2tkr );
 
     // model to MNI305 ( model -> tkr -> MNI305)
-    this.transforms.model2mni305
+    // `model2mni305Affine` is an affine transform from model to MNI305
+    this.transforms.model2mni305Affine
       .copy( subjectTransforms.tkrRAS_MNI305 )
       .multiply( model2tkr );
 
     // adjust if MNI305 position is set
     const mni305Array = this._params.MNI305_position;
-    if( Array.isArray( mni305Array ) && mni305Array.length >= 3 ) {
-      const userMNI305 = new Vector3().fromArray( mni305Array );
-      const dist = userMNI305.length();
-      if( !isNaN(dist) && isFinite(dist) && dist > 0 ) {
-        this.transforms.model2mni305.setPosition( userMNI305 );
+    if( Array.isArray( mni305Array ) && mni305Array.length >= 3 && this.contactCenter.length > 0 ) {
+
+      let mni305Count = mni305Array.length / 3;
+      if( mni305Count > this.contactCenter.length ) {
+        mni305Count = this.contactCenter.length;
       }
+
+      // since we will apply `model2mni305Affine` when template-mapped
+      // we need to calculate its inverse so the model space coordinates can be calculated
+      const mni305ToModelAffine = this.transforms.model2mni305Affine.clone().invert();
+
+      // calculate _mni305FixTargetXYZ - _nativeXYZ
+      const targetContact = this.contactCenter[ 0 ];
+      const offset = new Vector3().fromArray( mni305Array );
+
+      // check if mni305Array is zero (no-op)
+      if( offset.lengthSq() > 0 ) {
+        // calculate offset from native to mni305 in model space
+        offset.applyMatrix4( mni305ToModelAffine );
+
+        offset.x -= targetContact._nativeX;
+        offset.y -= targetContact._nativeY;
+        offset.z -= targetContact._nativeZ;
+      }
+
+      // set _mni305FixTargetXYZ and _mni305UserZ
+      const tmpVec3 = this._tmpVec3;
+      for( let i = 0; i < this.contactCenter.length; i++ ) {
+
+        const contactPosition = this.contactCenter[ i ];
+
+        // apply offset to model
+        contactPosition._mni305FixTargetX = contactPosition._nativeX + offset.x;
+        contactPosition._mni305FixTargetY = contactPosition._nativeY + offset.y;
+        contactPosition._mni305FixTargetZ = contactPosition._nativeZ + offset.z;
+
+        if( i < mni305Count ) {
+
+          // Calculate user-specified contact-level mni305 in model space
+          tmpVec3.fromArray( mni305Array, i * 3 );
+
+          if( tmpVec3.lengthSq() > 0 ) {
+
+            tmpVec3.applyMatrix4( mni305ToModelAffine );
+            contactPosition._mni305UserX = tmpVec3.x;
+            contactPosition._mni305UserY = tmpVec3.y;
+            contactPosition._mni305UserZ = tmpVec3.z;
+
+          } else {
+
+            contactPosition._mni305UserX = targetContact._nativeX;
+            contactPosition._mni305UserY = targetContact._nativeY;
+            contactPosition._mni305UserZ = targetContact._nativeZ;
+
+          }
+
+        }
+
+      }
+
     }
 
     // get spherePosition
@@ -776,28 +854,41 @@ class Electrode extends AbstractThreeBrainObject {
 
   }
 
-  updateControlPoints ({ which, worldPosition }) {
-    const controlPoints = this._geometry.parameters.controlPoints;
-    if( which ) {
-      if( !worldPosition.isVector3 ) {
-        throw new TypeError("electrode.updateControlPoints: `worldPosition` must be a THREE.Vector3");
+  updatePrototypeModel ({ coordinateSys = "native" } = {}) {
+
+    if( !Array.isArray( this.contactCenter ) || this.contactCenter.length === 0 ) {
+      coordinateSys = "native";
+    } else {
+
+      // no such coordinateSys
+      if( this.contactCenter[0][ `_${ coordinateSys }X` ] === undefined ) {
+        coordinateSys = "native";
       }
-      if( !isFinite( worldPosition.lengthSq()) ) { return; }
-      if( !Array.isArray( controlPoints.model ) || controlPoints.model.length < 3 ) {
-        throw new RangeError("electrode.updateControlPoints: insufficient prototype controlPoints.")
-      }
-      // no need to update
-      if( which >= 0 && which < controlPoints.model.length ) {
-        let cw = controlPoints.world[ which ];
-        if( !cw || typeof cw !== "object" || !cw.isVector3 ) {
-          cw = new Vector3().copy( worldPosition );
-          controlPoints.world[ which ] = cw;
+
+      const xName = `_${ coordinateSys }X`,
+            yName = `_${ coordinateSys }Y`,
+            zName = `_${ coordinateSys }Z`;
+      const contactMatrix = new Matrix4().identity();
+
+      this.contactCenter.forEach( (el, ii) => {
+
+        el.set( el[ xName ], el[ yName ], el[ zName ] );
+
+        if( this.hasInstancedMesh ) {
+          const contactRadius = el.radius ?? 0.1;
+          contactMatrix.makeScale(contactRadius, contactRadius, contactRadius).setPosition( el );
+          this.instancedObjects.setMatrixAt( ii, contactMatrix );
         }
+      });
+
+      if( this.hasInstancedMesh ) {
+        this.instancedObjects.instanceMatrix.needsUpdate = true;
       }
+
     }
 
-    const m44 = registerRigidPoints( controlPoints.model , controlPoints.world );
-    this.useMatrix4(m44);
+    // has to be prototype
+    this._geometry.updatePositions();
   }
 
   updateElectrodeDirection() {
@@ -845,7 +936,9 @@ class Electrode extends AbstractThreeBrainObject {
 
     // electrodes must be clickable, ignore the default settings
     this._canvas.makeClickable( this.name, this.object );
-    this._canvas.makeClickable( this.name+"__instanced", this.instancedObjects );
+    if( this.hasInstancedMesh ) {
+      this._canvas.makeClickable( this.name+"__instanced", this.instancedObjects );
+    }
 
     // set label size
     const electrodeLabelState = this._canvas.state_data.get("electrode_label");
@@ -1637,9 +1730,16 @@ class Electrode extends AbstractThreeBrainObject {
       const cpos = this.contactCenter[ whichContact ];
 
       if( cpos && cpos.isVector3 ) {
-        this.state.contactPositions.tkrRAS.copy( cpos ).applyMatrix4( this.transforms.model2tkr );
-        this.state.contactPositions.scanner.copy( cpos ).applyMatrix4( this.transforms.model2scan );
-        this.state.contactPositions.mni305.copy( cpos ).applyMatrix4( this.transforms.model2mni305 );
+        this.state.contactPositions.tkrRAS
+          .set( cpos._nativeX, cpos._nativeY, cpos._nativeZ )
+          .applyMatrix4( this.transforms.model2tkr );
+        this.state.contactPositions.scanner
+          .set( cpos._nativeX, cpos._nativeY, cpos._nativeZ )
+          .applyMatrix4( this.transforms.model2scan );
+
+        this.state.contactPositions.mni305
+          .set( cpos._mni305UserX, cpos._mni305UserY, cpos._mni305UserZ )
+          .applyMatrix4( this.transforms.model2mni305Affine );
 
         contactIsSet = true;
       }
@@ -1649,7 +1749,7 @@ class Electrode extends AbstractThreeBrainObject {
       this.state.focusedContact = 0;
       this.state.contactPositions.tkrRAS.setFromMatrixPosition( this.transforms.model2tkr );
       this.state.contactPositions.scanner.setFromMatrixPosition( this.transforms.model2scan );
-      this.state.contactPositions.mni305.setFromMatrixPosition( this.transforms.model2mni305 );
+      this.state.contactPositions.mni305.setFromMatrixPosition( this.transforms.model2mni305Affine );
 
     }
 
@@ -1694,9 +1794,31 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   useMatrix4( m44 ) {
-    super.useMatrix4( m44, { applyScale : this.isElectrodePrototype } );
+
+    // super.useMatrix4( m44, { applyScale : true } );
+    if( this.isElectrodePrototype ) {
+      super.useMatrix4( m44, { applyScale : true } );
+    } else {
+
+      // rigid mapping (same scale)
+      super.useMatrix4( m44, { applyScale : false } );
+
+      // If contactCenter is defined, this is a single-contact (sphere mode)
+      // with fixed mapping points. Make sure the positions are correct
+      if(Array.isArray(this.contactCenter) && this.contactCenter.length > 0) {
+        const fixedModelPosition = this.contactCenter[0];
+        const fixedWorldPosition = this._tmpVec3.copy(fixedModelPosition).applyMatrix4(m44).clone();
+
+        const worldOffset = this.object.localToWorld( this._tmpVec3.copy(fixedModelPosition) ).sub( fixedWorldPosition ).multiplyScalar( -1 );
+        this.object.position.add( worldOffset );
+
+        this.object.updateMatrix();
+      }
+    }
+
     this.updateElectrodeDirection();
     this.matrixNeedsUpdate = true;
+    this._canvas.needsUpdate = true;
   }
 
   _ensureTemplateCache( subjectCode, names = [] ) {
@@ -1743,7 +1865,7 @@ class Electrode extends AbstractThreeBrainObject {
         const targetSubjectData = this._canvas.shared_data.get( subjectCode );
 
         // MNI305 to template tkrRAS
-        maps.model2tkr_Affine.copy( this.transforms.model2mni305 )
+        maps.model2tkr_Affine.copy( this.transforms.model2mni305Affine )
           .premultiply( targetSubjectData.matrices.MNI305_tkrRAS );
 
       }

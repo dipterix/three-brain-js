@@ -87,11 +87,33 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // public
 
   constructor(
-    el, width, height, side_width = 250, shiny_mode=false,
-    debug = false, has_webgl2 = true, fileLoader = undefined
-  ) {
+    viewerApp, width, height, side_width = 250, shiny_mode = false
 
-    super( el );
+  ) {
+    // old arguments
+    // el, width, height, side_width = 250, shiny_mode=false,
+    // debug = false, has_webgl2 = true, fileLoader = undefined
+
+    // old call
+    // this.canvas = new ViewerCanvas(
+    //   viewerApp.$wrapper,
+    //   width ?? this.$wrapper.clientWidth,
+    //   height ?? this.$wrapper.clientHeight,
+    //   250, false, this.debug, webgl2Enabled,
+    //   this.fileLoader );
+
+    // new call
+    // this.canvas = new ViewerCanvas( this, width, height, 250, false );
+    super( viewerApp.$wrapper );
+
+    const el = viewerApp.$wrapper,
+          has_webgl2 = viewerApp.webgl2Enabled,
+          debug = viewerApp.debug,
+          fileLoader = viewerApp.fileLoader;
+
+    width = width ?? el.clientWidth;
+    height = height ?? el.clientHeight;
+
 
     this._tmpVec3 = new Vector3();
     this._tmpVec3A = new Vector3();
@@ -109,6 +131,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         position: new Vector3()
       }
     };
+    this.globalClock = viewerApp.globalClock;
     this.timeChanged = true;
     // Is system supporting WebGL2? some customized shaders might need this feature
     // As of 08-2019, only chrome, firefox, and opera support full implementation of WebGL.
@@ -154,7 +177,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // All mesh/geoms in this store will be calculated when raycasting
     this.clickable = new Map();
-    this.clickable_array = [];
+    this.clickableArray = [];
 
     // Dispatcher of handlers when mouse is clicked on the main canvas
     this._mouse_click_callbacks = {};
@@ -290,10 +313,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.add_to_scene( this.mainCamera, true );
 
     // Add ambient light to make scene soft
-    const ambient_light = new AmbientLight( CONSTANTS.COLOR_AMBIENT_LIGHT, 0.3 );
-    ambient_light.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
-    ambient_light.name = 'main light - ambient';
-    this.add_to_scene( ambient_light, true ); // soft white light
+    const ambientLight = new AmbientLight(
+      CONSTANTS.LIGHTS.AMBIENT.COLOR,
+      CONSTANTS.LIGHTS.AMBIENT.INTENSITY
+    );
+    ambientLight.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
+    ambientLight.name = 'main light - ambient';
+    this.add_to_scene( ambientLight, true ); // soft white light
 
 
     // Set Main renderer, strongly recommend WebGL2
@@ -429,6 +455,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // async, but raycaster is always up to date
     this.raycastClickables()
       .then(( item ) => {
+
         if( !item || !item.object || !item.object.isMesh ) { return; }
 
         // normal left-click
@@ -464,7 +491,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       // Only raycast with visible
       const items = raycaster.intersectObjects(
         // asArray( this.clickable )
-        this.clickable_array.filter((e) => { return( e.visible ) })
+        this.clickableArray.filter((e) => { return( e.visible ) })
       );
 
       if( !items || items.length === 0 ) {
@@ -515,25 +542,26 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   // Make object clickable (mainly electrodes)
   makeClickable( name, obj ){
+    if( !obj ) { return; }
     if( this.clickable.has( name ) ){
-      // remove from this.clickable_array
+      // remove from this.clickableArray
       const sub = this.clickable.get( name ),
-            idx = this.clickable_array.indexOf( sub );
+            idx = this.clickableArray.indexOf( sub );
       if( idx > -1 ){
-        this.clickable_array.splice(idx, 1);
+        this.clickableArray.splice(idx, 1);
       }
     }
     this.clickable.set( name, obj );
-    this.clickable_array.push( obj );
+    this.clickableArray.push( obj );
   }
 
   removeClickable( name ) {
     if( this.clickable.has( name ) ){
-      // remove from this.clickable_array
+      // remove from this.clickableArray
       const sub = this.clickable.get( name ),
-            idx = this.clickable_array.indexOf( sub );
+            idx = this.clickableArray.indexOf( sub );
       if( idx > -1 ){
-        this.clickable_array.splice(idx, 1);
+        this.clickableArray.splice(idx, 1);
       }
     }
   }
@@ -606,6 +634,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
               MNI305_tkrRAS : MNI305_tkrRAS,
               tkrRAS_Scanner: tkrRAS_Scanner
             };
+            subject_data.surfaceSummary = {};
           }
 
         });
@@ -640,6 +669,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           MNI305_tkrRAS : MNI305_tkrRAS,
           tkrRAS_Scanner: tkrRAS_Scanner
         };
+        subject_data.surfaceSummary = {};
         this.shared_data.set(scode, subject_data);
       }
     }
@@ -914,7 +944,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Stop showing information of any selected objects
     this.object_chosen=undefined;
     this.clickable.clear();
-    this.clickable_array.length = 0;
+    this.clickableArray.length = 0;
     this.title = undefined;
 
     this.subject_codes.length = 0;
@@ -1344,7 +1374,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           const radius = intersectPoint.radius ?? 1.0;
           this.highlightTarget.scale.set(radius, radius, radius);
           this.highlightTarget.chanNum = intersectPoint.chanNum;
+
+          this.highlight( this.highlightTarget, false );
+        } else {
+          this.highlight( null, true );
         }
+        /*
         if( inst.contactCenter.length === 1 ) {
           // one contact case
           this.highlight( this.object_chosen, false );
@@ -1354,7 +1389,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
           } else {
             this.highlight( null, true );
           }
-        }
+        }*/
       } else {
         this.highlight( this.object_chosen, false );
       }
@@ -2382,8 +2417,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
 
     }
-    let subject_changed = state.get('target_subject') === target_subject;
+    let subject_changed = state.get('target_subject') !== target_subject;
     state.set( 'target_subject', target_subject );
+
+    if( subject_changed ) {
+      state.set("surfaceUseMorph", false);
+    }
 
     let surface_type = args.surface_type || state.get( 'surface_type' ) || 'pial';
     let atlas_type = args.atlas_type || state.get( 'atlas_type' ) || 'none';
@@ -2428,7 +2467,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const subject_data  = this.shared_data.get( target_subject );
 
     // tkRAS should be tkrRAS, TODO: fix this typo
-    const tkRAS_MNI305 = subject_data.matrices.tkrRAS_MNI305;
+    const tkrRAS_MNI305 = subject_data.matrices.tkrRAS_MNI305;
+    const tkrRAS_Scanner = subject_data.matrices.tkrRAS_Scanner;
     const MNI305_tkRAS = subject_data.matrices.MNI305_tkrRAS;
 
     let scannerCenter = subject_data.scanner_center;
@@ -2465,7 +2505,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     state.set( 'map_type_volume', map_type_volume );
     state.set( 'surface_opacity_left', surface_opacity_left );
     state.set( 'surface_opacity_right', surface_opacity_right );
-    state.set( 'tkRAS_MNI305', tkRAS_MNI305 );
+    state.set( 'tkrRAS_MNI305', tkrRAS_MNI305 );
+    state.set( 'tkrRAS_Scanner', tkrRAS_Scanner );
 
     if( map_template ){
       this.map_electrodes( target_subject, map_type_surface, map_type_volume, map_surface_target );
@@ -2502,20 +2543,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   }
 
-  calculate_mni305(vec, nan_if_trans_not_found = true){
-    if( !vec.isVector3 ){
-      throw('vec must be a Vector3 instance');
-    }
-
-    const tkRAS_MNI305 = this.get_state('tkRAS_MNI305');
-    if( tkRAS_MNI305 && tkRAS_MNI305.isMatrix4 ){
-      // calculate MNI 305 position
-      vec.applyMatrix4(tkRAS_MNI305);
-    } else if( nan_if_trans_not_found ){
-      vec.set(NaN, NaN, NaN);
-    }
-    return(vec);
-  }
 
   /*
   switch_surface( target_subject, surface_type = 'pial', opacity = [1, 1], material_type = ['normal', 'normal'] ){
@@ -2647,6 +2674,42 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return( subjectData.matrices );
   }
 
+  getSurfaceSummary( subjectCode, surfaceType ) {
+    const scode = typeof subjectCode === "string" ? subjectCode : this.get_state("target_subject", "/");
+    const subjectData = this.shared_data.get( scode );
+    if(
+      !subjectData || typeof subjectData !== "object" ||
+      typeof subjectData.matrices !== "object"
+    ) {
+      throw `Cannot obtain surface summary from subject [${scode}] and surface [${surfaceType}]`;
+    }
+
+    const lhSummary = subjectData.surfaceSummary[ `lh.${ surfaceType }` ];
+    if( !lhSummary ) {
+      throw `Cannot obtain left hemisphere surface summary from subject [${scode}, ${surfaceType}]`;
+    }
+
+    const rhSummary = subjectData.surfaceSummary[ `rh.${ surfaceType }` ];
+    if( !rhSummary ) {
+      throw `Cannot obtain right hemisphere surface summary from subject [${scode}, ${surfaceType}]`;
+    }
+
+    return {
+      "left" : lhSummary,
+      "right" : rhSummary,
+    };
+  }
+
+  getSurfaces( subjectCode, surfaceType ) {
+    const scode = typeof subjectCode === "string" ? subjectCode : this.get_state("target_subject", "/");
+    const summary = this.getSurfaceSummary(scode, surfaceType);
+    const surfaceList = this.surfaces.get(scode);
+    return {
+      "left" : surfaceList[ summary.left.name ],
+      "right" : surfaceList[ summary.right.name ],
+    };
+  }
+
   // Map electrodes
   map_electrodes( targetSubject, surface = 'sphere.reg', volume = 'mni305', surfaceType = undefined ){
 
@@ -2763,7 +2826,7 @@ mapped = false,
     // light's direction is defined as the 3-vector (0.0, 0.0, -1.0) and the
     // rotation of the node orients the light accordingly.
     const m44 = new Matrix4();
-    const light = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 0.7 );
+    const light = new DirectionalLight( CONSTANTS.LIGHTS.DIRECTIONAL.COLOR , 0.7 );
     light.position.copy( CONSTANTS.VEC_ANAT_I );
     light.applyMatrix4( m44.set( 1,0,0,0, 0,1,0,0, 0,0,200,0, 0,0,0,1 ) );
     container.add( light );
@@ -2860,9 +2923,45 @@ mapped = false,
 
     this.needsUpdate = true;
   }
-  getSideCanvasCrosshairMNI305( m ) {
-    // MNI 305 position of the intersection
-    return this.calculate_mni305( m.copy( this._crosshairPosition ) );
+
+  getSideCanvasCrosshair( x, { coordSys = "" } = {} ) {
+
+    if( !x.isVector3 ){
+      throw('`x` must be a Vector3 instance');
+    }
+
+    // `x` is tkrRAS
+    x.copy( this._crosshairPosition );
+
+    let transforms = [];
+
+    switch( coordSys ) {
+
+      case "MNI305":
+        // get MNI305
+        transforms.push( this.get_state('tkrRAS_MNI305') );
+        break;
+      case "MNI152":
+        transforms.push( this.get_state('tkrRAS_MNI305') );
+        transforms.push( CONSTANTS.MNI305_to_MNI152 );
+        break;
+      case "Scanner":
+        transforms.push( this.get_state('tkrRAS_Scanner') );
+        break;
+      default:
+        break;
+    };
+
+    for(let i = 0; i < transforms.length; i++) {
+      const transform = transforms[ i ];
+      if( !transform || !transform.isMatrix4 ) {
+        x.set(NaN, NaN, NaN);
+        break;
+      }
+      x.applyMatrix4(transform);
+    }
+
+    return x;
   }
 
 

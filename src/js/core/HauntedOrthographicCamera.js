@@ -34,7 +34,10 @@ class HauntedOrthographicCamera extends OrthographicCamera {
 		this.lookAt( CONSTANTS.VEC_ORIGIN ); // Force camera
 
 		// Main camera light, casting from behind the mainCamera, only light up objects in CONSTANTS.LAYER_SYS_MAIN_CAMERA_8
-		this.backLight = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 1.5 );
+		this.backLight = new DirectionalLight(
+		  CONSTANTS.LIGHTS.DIRECTIONAL.COLOR,
+      CONSTANTS.LIGHTS.DIRECTIONAL.INTENSITY
+		);
     this.backLight.position.copy( CONSTANTS.VEC_ANAT_I );
     this.backLight.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     this.backLight.name = 'main light - directional';

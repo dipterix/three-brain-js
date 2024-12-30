@@ -7,6 +7,7 @@ import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
 import { Lut } from '../jsm/math/Lut2.js'
+import { NamedLut } from '../core/NamedLut.js'
 
 const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
@@ -40,8 +41,12 @@ const PLANE_NORMAL_BASIS = {
 
 
 
-function calculateTrackColor(values, buffer, cmapName, {
-  minValue, maxValue, nSkipValues = 0
+function continuousValueToColor(values, buffer, {
+  // for NamedLut or normal Lut
+  colorLut,
+  // for normal Lut if colorLut is missing
+  minValue, maxValue, cmapName = "rainbow",
+  nSkipValues = 0,
 } = {}) {
 
   const nVals = values.length - nSkipValues;
@@ -54,16 +59,22 @@ function calculateTrackColor(values, buffer, cmapName, {
   // No color to calculate
   if( n <= 0 ) { return; }
 
-  if( minValue === undefined ) { minValue = -1; }
-  if( maxValue === undefined ) { maxValue = 1; }
-
-  const colorLut = new Lut( cmapName , 256 );
-  colorLut.minV = minValue;
-  colorLut.maxV = maxValue;
+  const _tmpColor = new Color();
+  if( colorLut instanceof NamedLut ) {
+    //
+  } else if ( colorLut instanceof Lut ) {
+    //
+  } else {
+    if( minValue === undefined ) { minValue = -1; }
+    if( maxValue === undefined ) { maxValue = 1; }
+    colorLut = new Lut( cmapName , 256 );
+    colorLut.minV = minValue;
+    colorLut.maxV = maxValue;
+  }
 
   let vi = nSkipValues;
   for(let i = 0; i < n; i++, vi++) {
-    const tmpColor = colorLut.getColor( values[ vi ] );
+    const tmpColor = colorLut.getColor( values[ vi ], _tmpColor );
     buffer[ i * 3 ] = tmpColor.r * 255;
     buffer[ i * 3 + 1 ] = tmpColor.g * 255;
     buffer[ i * 3 + 2 ] = tmpColor.b * 255;
@@ -73,207 +84,125 @@ function calculateTrackColor(values, buffer, cmapName, {
 
 class FreeMesh extends AbstractThreeBrainObject {
 
-  _ensureTrackColor(){
-    if( !this._trackInfo ){
-      const trackColor = new Uint8Array( this.__nvertices * 3 ).fill(255);
-      this._trackInfo = {
-        colorArray : trackColor,
-      };
-      this._geometry.setAttribute( 'trackColor', new BufferAttribute( trackColor, 3, true ) );
-    }
-  }
+  setColors( dataArray, {
+    isContinuous = true, overlay = true,
+    // for continuous
+    //    alternatively
+    continuousColorMapName = null, minValue = NaN, maxValue = NaN,
+    // for discontinuous
+    discreteColorSize = 4, discreteColorMax = 255,
+    dataName = ""
+  } = {}) {
 
-  _link_userData(){
-    // register for compatibility
-    this._mesh.userData.dispose = () => { this.dispose(); };
-  }
+    const stateKey = overlay ? "overlay" : "underlay";
+    const bufferArray = overlay ? this.overlayArray : this.underlayArray;
+    const stateDict = overlay ? this.state.overlay : this.state.underlay;
+    const colorAttribute = overlay ? this._geometry.attributes.overlayColor : this._geometry.attributes.underlayColor;
 
-  // internally used
-  _set_track( skip_frame ){
-    // prepare
-    if( skip_frame !== undefined && skip_frame >= 0 ){
-      this.__skip_frame = skip_frame;
-    }
-    const value = this._params.value;
-    if( !value ){ return; }
-
-
-    const skip_items = this.__nvertices * this.__skip_frame;
-    if( skip_items > value.length ){ return; }
-
-    if( !this.__initialized ) {
-      value.forEach((v, ii) => {
-        value[ ii ] = Math.floor( v );
-      });
-    }
-    this._ensureTrackColor();
-
-    // start settings track values
-    const lut = this._canvas.global_data('__global_data__.SurfaceColorLUT'),
-          lutMap = lut.map,
-          tcol = this._trackInfo.colorArray;
-
-    // only set RGB, ignore A
-    let c, jj = skip_items;
-    for( let ii = 0; ii < this.__nvertices; ii++, jj++ ){
-      if( jj >= value.length ){
-        tcol[ ii * 3 ] = 0;
-        tcol[ ii * 3 + 1 ] = 0;
-        tcol[ ii * 3 + 2 ] = 0;
-        // tcol[ ii * 4 + 3 ] = 0;
+    if( !dataArray ) {
+      if( dataName != "[none]" && stateDict.dataName === dataName ) {
+        dataArray = stateDict.dataArray;
       } else {
-        c = lutMap[ value[ jj ] ];
-        if( c ){
-          tcol[ ii * 3 ] = c.R;
-          tcol[ ii * 3 + 1 ] = c.G;
-          tcol[ ii * 3 + 2 ] = c.B;
-          // tcol[ ii * 4 + 3 ] = 255;
-        } else {
-          tcol[ ii * 3 ] = 0;
-          tcol[ ii * 3 + 1 ] = 0;
-          tcol[ ii * 3 + 2 ] = 0;
-          // tcol[ ii * 4 + 3 ] = 0;
+        // reset vertex
+        if( overlay ) {
+          this.overlayArray.set( this.underlayArray );
+          colorAttribute.needsUpdate = true;
         }
-      }
-    }
-    // this._mesh.material.needsUpdate = true;
-    this._geometry.attributes.trackColor.needsUpdate = true;
-
-  }
-
-  setTrackValues({ values, minValue, maxValue, cmapName = "BlueRed" } = {}) {
-    this._ensureTrackColor();
-    if( values && values.length > 0 ) {
-      this._trackInfo.valueArray = values;
-      this._trackInfo.minValue = minValue;
-      this._trackInfo.maxValue = maxValue;
-    } else {
-      values = this._trackInfo.valueArray;
-      if( !values ) { return; }
-      if( minValue === undefined ) {
-        minValue = this._trackInfo.minValue;
-      } else {
-        this._trackInfo.minValue = minValue;
-      }
-      if( maxValue === undefined ) {
-        maxValue = this._trackInfo.maxValue;
-      } else {
-        this._trackInfo.maxValue = maxValue;
-      }
-    }
-
-    calculateTrackColor( values, this._trackInfo.colorArray, cmapName, {
-      minValue : minValue,
-      maxValue : maxValue
-    } );
-    this._geometry.attributes.trackColor.needsUpdate = true;
-    return this._trackInfo;
-  }
-
-  setTrackColors({ colors, colorSize = 4, colorMax = 255 } = {}) {
-    // default is setting colors with RGBA, Uint8Array
-
-    this._ensureTrackColor();
-    const colorScale = 255 / colorMax;
-
-    const buffer = this._trackInfo.colorArray;
-
-    // Color is always RGB, no alpha is used
-    const nBufferItems = buffer.length / 3;
-    const valueItems = colors.length / colorSize;
-
-    const n = nBufferItems > valueItems ? valueItems : nBufferItems;
-
-    if( colorSize < 3 ) {
-      for(let i = 0; i < n; i++) {
-        const rrr = colors[ i * colorSize ] * colorScale;
-        buffer[ i * 3 ] = rrr;
-        buffer[ i * 3 + 1 ] = rrr;
-        buffer[ i * 3 + 2 ] = rrr;
-      }
-    } else {
-      for(let i = 0; i < n; i++) {
-        buffer[ i * 3 ] = colors[ i * colorSize ] * colorScale;
-        buffer[ i * 3 + 1 ] = colors[ i * colorSize + 1 ] * colorScale;
-        buffer[ i * 3 + 2 ] = colors[ i * colorSize + 2 ] * colorScale;
-      }
-    }
-    this._geometry.attributes.trackColor.needsUpdate = true;
-  }
-
-  // Primary color (Curv, sulc...)
-  _set_primary_color( color_name, update_color = false ){
-    if( update_color ) {
-      this.object.geometry.attributes.color.needsUpdate = true
-    }
-
-    let cname = color_name || this._vertex_cname;
-
-    // color data is lazy-loaded
-    const color_data = this._canvas.get_data(cname, this.misc_name, this.misc_group_name);
-    const g = this._params;
-    const nvertices = this._mesh.geometry.attributes.position.count;
-    let valueRange = [-1, 1];
-    let valueData;
-
-    if( (color_data && Array.isArray(color_data.value)) ){
-
-      if( !Array.isArray(color_data.range) || color_data.range.length < 2 ){
-        color_data.range = [-1, 1];
-      } else {
-        valueRange = color_data.range;
-      }
-
-      valueData = color_data.value;
-
-
-    } else {
-
-      // directly set by lh_primary_vertex_color
-      const prefix = this.hemisphere.toLocaleLowerCase()[0];
-      const vertexValues = this._canvas.get_data(`${ prefix }h_primary_vertex_color`, this.name, this.group_name);
-
-      if( vertexValues && vertexValues.isFreeSurferNodeValues ) {
-
-        valueRange = [ vertexValues.min , vertexValues.max ];
-        valueData = vertexValues._frameData;
-
-      } else {
+        stateDict.dataName = "[none]";
         return;
       }
     }
-
-
-    let scale = Math.max(valueRange[1], -valueRange[0]);
-
-    // generate color for each vertices
-    let _transform = ( v ) => { return v };
-    if( cname.endsWith("sulc") ) {
-      _transform = (v) => {
-        // let s = Math.floor( 153.9 / ( 1.0 + Math.exp(b * v)) ) + 100;
-        // return( s / 255 );
-        return 0.7 / ( Math.exp( v * 10.0 / scale ) + 1.0 ) + 0.3;
-      };
+    if( !dataArray || !dataArray.length ) {
+      throw new Error("dataArray must be an array with positive length.");
     }
 
-    valueData.forEach((v, ii) => {
-      if( ii >= nvertices ){ return; }
-      // Make it lighter using sigmoid function
-      let col = _transform(v);
-      this._vertex_color[ ii * 4 ] = col;
-      this._vertex_color[ ii * 4 + 1 ] = col;
-      this._vertex_color[ ii * 4 + 2 ] = col;
-      this._vertex_color[ ii * 4 + 3 ] = 1;
-    });
+
+    if( isContinuous ) {
+
+      let continuousColorMap;
+      if( typeof dataName === "string" ) {
+        if( this._canvas.colorMaps.has(dataName) ) {
+          continuousColorMap = this._canvas.colorMaps.get( dataName );
+        } else {
+          const dataName2 = dataName.replaceAll(/[\/\\ ]+/g, '.');
+          if( this._canvas.colorMaps.has(dataName2) ) {
+            continuousColorMap = this._canvas.colorMaps.get( dataName2 );
+          }
+        }
+      }
+
+      if( continuousColorMap ) {
+        minValue = continuousColorMap.minV;
+        maxValue = continuousColorMap.maxV;
+        continuousColorMapName = dataName;
+      } else {
+        if(isNaN( minValue )) {
+          minValue = this.state[ stateKey ].vmin;
+        }
+        if(isNaN( maxValue )) {
+          maxValue = this.state[ stateKey ].vmax;
+        }
+        if( typeof continuousColorMapName !== "string" ) {
+          continuousColorMapName = this.state.defaultColorMap;
+        }
+      }
+
+      continuousValueToColor(
+        dataArray,
+        bufferArray,
+        {
+          colorLut : continuousColorMap,
+          cmapName : continuousColorMapName,
+          minValue : minValue,
+          maxValue : maxValue,
+        }
+      );
+      stateDict.dataArray = dataArray;
+      stateDict.dataItemSize = 1;
+      stateDict.isContinuous = true;
+      stateDict.colorMapName = continuousColorMapName;
+      stateDict.vmin = minValue;
+      stateDict.vmax = maxValue;
+      stateDict.dataName = dataName;
+
+    } else {
+      // default is setting colors with RGBA, Uint8Array
+      const colorScale = 255 / discreteColorMax;
+
+      // Color is always RGB, no alpha is used
+      const nBufferItems = bufferArray.length / 3;
+      const valueItems = dataArray.length / discreteColorSize;
+
+      const n = nBufferItems > valueItems ? valueItems : nBufferItems;
+
+      if( discreteColorSize < 3 ) {
+        for(let i = 0; i < n; i++) {
+          const rrr = dataArray[ i * discreteColorSize ] * colorScale;
+          bufferArray[ i * 3 ] = rrr;
+          bufferArray[ i * 3 + 1 ] = rrr;
+          bufferArray[ i * 3 + 2 ] = rrr;
+        }
+      } else {
+        for(let i = 0; i < n; i++) {
+          const bufferIndex = i * discreteColorSize;
+          bufferArray[ i * 3 ] = dataArray[ bufferIndex ] * colorScale;
+          bufferArray[ i * 3 + 1 ] = dataArray[ bufferIndex + 1 ] * colorScale;
+          bufferArray[ i * 3 + 2 ] = dataArray[ bufferIndex + 2 ] * colorScale;
+        }
+      }
+
+      stateDict.dataArray = dataArray;
+      stateDict.dataItemSize = discreteColorSize;
+      stateDict.isContinuous = false;
+      stateDict.vmax = discreteColorMax;
+      stateDict.vmin = 0;
+    }
+
+    stateDict.dataName = dataName;
+    colorAttribute.needsUpdate = true;
 
   }
 
-  _check_material( update_canvas = false ){
-    const _mty = this._canvas.get_state('surface_material_type') || this._material_type;
-    if( !this._mesh.material['is' + _mty] ){
-      this.switch_material( _mty, update_canvas );
-    }
-  }
 
   setMappingType( type ) {
     let changed = false;
@@ -341,7 +270,104 @@ class FreeMesh extends AbstractThreeBrainObject {
 
   }
 
-  switch_material( material_type, update_canvas = false ){
+  useMorphTarget( otherSurface, { duration = NaN, targetInfluence = NaN } = {} ) {
+
+    let morphTargetIndex = -1;
+
+    if( otherSurface ) {
+      if( otherSurface.isThreeBrainObject ) {
+        if( !otherSurface.isFreeMesh ) { return; }
+        otherSurface = otherSurface.object;
+      }
+
+      // check if two surfaces have the same number of vertices
+      const sourcePositionAttribute = this.object.geometry.getAttribute('position');
+      if( !sourcePositionAttribute ) {
+        throw new Error("`useMorphTarget`: there is no `position` attribute in source geometry.")
+      }
+
+      const targetPositionAttribute = otherSurface.geometry.getAttribute('position'),
+            targetNormalAttribute = otherSurface.geometry.getAttribute('normal')
+      if( !targetPositionAttribute ) {
+        throw new Error("`useMorphTarget`: there is no `position` attribute in target geometry.")
+      }
+
+      const nVertices = sourcePositionAttribute.count;
+
+      if( nVertices != targetPositionAttribute.count ) {
+        throw new Error("`useMorphTarget`: the number of geometry vertices are not the same.")
+      }
+
+      const morphAttributes = this.object.geometry.morphAttributes;
+      // Set morph target attributes
+      if( !Array.isArray( this.object.morphTargetInfluences ) ) {
+        this.object.morphTargetInfluences = [];
+      }
+      if( !Array.isArray( morphAttributes.position ) ) {
+        morphAttributes.position = [];
+        morphAttributes.normal = [];
+      }
+
+      morphTargetIndex = this.morphState.targets.indexOf( otherSurface.name );
+      if( morphTargetIndex < 0 ) {
+        // this is a new surface. Need to construct morph target
+        morphTargetIndex = this.morphState.targets.length;
+
+        const morphArraySrcPosition = targetPositionAttribute.array,
+              morphArraySrcNormal = targetNormalAttribute.array;
+        const morphArrayDstPosition = new Float32Array( nVertices * 3 ),
+              morphArrayDstNormal = new Float32Array( nVertices * 3 )
+
+        const transformSrcToMorphTarget = this._tmpMat4
+          .copy( this.object.matrixWorld ).invert()
+          .premultiply( otherSurface.matrixWorld );
+        const translateSrcToMorphTarget = this._tmpVec3A
+          .setFromMatrixPosition( transformSrcToMorphTarget );
+        transformSrcToMorphTarget.setPosition( this._tmpVec3.set(0, 0, 0) );
+
+        for( let i = 0; i < nVertices ; i++ ) {
+          this._tmpVec3
+            .fromArray( morphArraySrcPosition, i * 3 )
+            .applyMatrix4( transformSrcToMorphTarget )
+            .add( translateSrcToMorphTarget )
+            .toArray( morphArrayDstPosition, i * 3 );
+
+          this._tmpVec3
+            .fromArray( morphArraySrcNormal, i * 3 )
+            .applyMatrix4( transformSrcToMorphTarget )
+            .toArray( morphArrayDstNormal, i * 3 );
+        }
+
+        this.morphState.targets.push( otherSurface.name );
+        this.object.morphTargetInfluences[ morphTargetIndex ] = 0;
+        morphAttributes.position[ morphTargetIndex ] = new BufferAttribute( morphArrayDstPosition, 3);
+        morphAttributes.normal[ morphTargetIndex ] = new BufferAttribute( morphArrayDstNormal, 3);
+      }
+
+      targetInfluence = isNaN(targetInfluence) ? 1 : targetInfluence;
+
+      this.morphState.exists = true;
+    } else {
+      targetInfluence = 0;
+      morphTargetIndex = -1;
+    }
+
+    for( let ii = 0; ii < this.morphState.targets.length; ii++ ) {
+      this.morphState.endInfluence[ ii ] = ii == morphTargetIndex ? targetInfluence : 0;
+      this.morphState.startInfluence[ ii ] = this.object.morphTargetInfluences[ ii ];
+    }
+
+    if( !isNaN(duration) ) {
+      this.morphState.duration = duration;
+    }
+
+    this.morphState.timeStarted = this._canvas.globalClock.setTimeout( this.morphState.duration );
+    this.morphState.enabled = true;
+    this._canvas.needsUpdate = true;
+
+  }
+
+  useMaterial( material_type, update_canvas = false ){
 
     if( material_type in this._materials ){
       const vertexColors = this.object.material.vertexColors;
@@ -444,8 +470,8 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     this._material_options.shift.value.copy( this._mesh.parent.position );
 
-    this._set_primary_color(this._vertex_cname, true);
-    this._set_track( 0 );
+    // this.setUnderlay(this._vertex_cname, true);
+    // this._set_track( 0 );
 
 
     /*this._canvas.bind( this.name + "_link_electrodes", "canvas.finish_init", () => {
@@ -487,6 +513,45 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     if( target !== CONSTANTS.RENDER_CANVAS.main ) { return; }
 
+    const surfaceMorphGlobalFlag = this._canvas.get_state("surfaceUseMorph", false);
+
+    // morph geometry
+    const morphState = this.morphState;
+    if( morphState.exists && morphState.enabled ) {
+
+      const morphTargetInfluences = this.object.morphTargetInfluences;
+      const morphTargets = morphState.targets;
+      const morphTargetsLength = morphTargets.length;
+
+      if( !surfaceMorphGlobalFlag ) {
+        for( let ii = 0; ii < morphTargetsLength; ii++ ) {
+          morphTargetInfluences[ ii ] = 0;
+        }
+        morphState.enabled = false;
+      } else {
+        const morphElapsed = this._canvas.globalClock.getElapsedTime() - this.morphState.timeStarted;
+        const morphDuration = morphState.duration;
+        const morphStartInfluence = morphState.startInfluence;
+        const morphEndInfluence = morphState.endInfluence;
+
+        if( morphElapsed >= morphDuration ) {
+          for( let ii = 0; ii < morphTargetsLength; ii++ ) {
+            morphTargetInfluences[ ii ] = morphEndInfluence[ ii ];
+          }
+          morphState.enabled = false;
+        } else {
+          const easeInOutFactor = (
+            0.5 - 1 / (1 + Math.exp( ((morphElapsed / morphDuration) - 0.5) * 12 ) )
+          ) * 1.0 + 0.5;
+          for( let ii = 0; ii < morphTargetsLength; ii++ ) {
+            morphTargetInfluences[ ii ] =
+              easeInOutFactor * morphEndInfluence[ ii ] +
+              (1 - easeInOutFactor) * morphStartInfluence[ ii ];
+          }
+        }
+      }
+    }
+
     // If not showing this subject, hide
     const sub = this._canvas.get_state("target_subject", "none");
     if( sub !== this.subject_code ) {
@@ -509,29 +574,40 @@ class FreeMesh extends AbstractThreeBrainObject {
           this.object.visible = true;
           this.object.material.opacity = this._canvas.get_state(`subcortical_opacity_${ this.hemisphere }`, 1.0);
         }
-      } else if( this.surface_type === surfaceType ) {
-        const materialType = this._canvas.get_state(`material_type_${ this.hemisphere }`, null);
-        if( materialType !== "hidden" ) {
-          this.object.visible = true;
-          this.set_display_mode( materialType );
-          // this.set_visibility( materialType !== 'hidden' );
-          this.object.material.wireframe = materialType === 'wireframe';
-          this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
+      } else {
+        if(
+          // use pial to morph
+          ( surfaceMorphGlobalFlag && this.surface_type === "pial" ) ||
+          // use original surface
+          ( !surfaceMorphGlobalFlag && this.surface_type === surfaceType )
+        ) {
+          const materialType = this._canvas.get_state(`material_type_${ this.hemisphere }`, null);
+          if( materialType !== "hidden" ) {
+            this.object.visible = true;
+            this.set_display_mode( materialType );
+            // this.set_visibility( materialType !== 'hidden' );
+            this.object.material.wireframe = materialType === 'wireframe';
+            this.object.material.opacity = this._canvas.get_state(`surface_opacity_${ this.hemisphere }`, 1.0);
 
-          let threshold = 1.0;
-          if( this.hemisphere === "left" ) {
-            threshold = this._canvas.get_state( "surface_mesh_clipping_left", 1.0 );
-          } else if ( this.hemisphere === "right" ) {
-            threshold = this._canvas.get_state( "surface_mesh_clipping_right", 1.0 );
+            let threshold = 1.0;
+            if( this.hemisphere === "left" ) {
+              threshold = this._canvas.get_state( "surface_mesh_clipping_left", 1.0 );
+            } else if ( this.hemisphere === "right" ) {
+              threshold = this._canvas.get_state( "surface_mesh_clipping_right", 1.0 );
+            }
+            this._material_options.mask_threshold.value = threshold;
           }
-          this._material_options.mask_threshold.value = threshold;
         }
       }
 
       if( !this.object.visible ) { return; }
     }
 
-    this._check_material( false );
+    // check material
+    const _mty = this._canvas.get_state('surface_material_type') || this._material_type;
+    if( !this.object.material['is' + _mty] ){
+      this.useMaterial( _mty, false );
+    }
 
     // compute render order
     if( !this.isROI && this.object.material.transparent && this.object.material.opacity < 0.5 ) {
@@ -562,6 +638,39 @@ class FreeMesh extends AbstractThreeBrainObject {
     switch (ctype) {
       case 'vertices':
         col_code = CONSTANTS.VERTEX_COLOR;
+        let annotName = this._canvas.get_state("surfaceAnnotation", "[none]");
+        if( this.state.overlay.dataName !== annotName ) {
+          // get data array
+          let nodeDataObject = this._canvas.get_data(`${ this._hemispherePrefix }h_annotation_${annotName}`,
+                this.name, this.group_name);
+          if(
+            !nodeDataObject || nodeDataObject.isInvalid ||
+            !( nodeDataObject.isFreeSurferAnnot || nodeDataObject.isFreeSurferNodeValues )
+          ) {
+            this.setColors( undefined, {
+              overlay : true,
+              dataName : "[none]",
+            });
+          } else {
+            if( nodeDataObject.isFreeSurferAnnot ) {
+              const itemSize = nodeDataObject.vertexColor.length / nodeDataObject.nVertices;
+              this.setColors( nodeDataObject.vertexColor, {
+                isContinuous : false, overlay : true,
+                discreteColorSize : itemSize, discreteColorMax : 255,
+                dataName : annotName,
+              });
+            } else {
+              const maxV = Math.max( Math.abs(nodeDataObject.max), Math.abs(nodeDataObject.min) );
+              this.setColors( nodeDataObject.vertexData, {
+                isContinuous : true, overlay : true,
+                minValue: -maxV,
+                maxValue: maxV,
+                dataName : annotName,
+              });
+            }
+          }
+        }
+
         break;
 
       case 'sync from voxels':
@@ -582,7 +691,7 @@ class FreeMesh extends AbstractThreeBrainObject {
           if( skip_frame < 0 ){ skip_frame = 0; }
 
           if( this.__skip_frame !== skip_frame){
-            this._set_track( skip_frame );
+            // this._set_track( skip_frame );
           }
         }
         break;
@@ -674,6 +783,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     this._tmpVec3 = new Vector3();
     this._tmpVec3A = new Vector3();
+    this._tmpMat4 = new Matrix4();
 
     // STEP 1: initial settings
     // when subject brain is messing, subject_code will be template subject such as N27,
@@ -693,6 +803,18 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     // STEP 2: data settings
     this._geometry = new BufferGeometry();
+
+    this.morphState = {
+      "exists"          : false,
+      "enabled"         : false,
+      "duration"        : 3,
+
+      // globalClock.getElapsedTime() - timeStarted
+      "timeStarted"     : 0,
+      "startInfluence"  : [],
+      "endInfluence"    : [],
+      "targets"         : [],
+    };
 
     const loaderData = g.meshObject ?? this._canvas.get_data('free_vertices_'+this.name, this.name, this.group_name);
     if( loaderData.isSurfaceMesh ) {
@@ -735,8 +857,38 @@ class FreeMesh extends AbstractThreeBrainObject {
       this._geometry.setAttribute( 'position', new BufferAttribute(vertex_positions, 3) );
     }
 
-    this._vertex_color = new Float32Array( this.__nvertices * 4 ).fill(1);
-    this._geometry.setAttribute( 'color', new BufferAttribute( this._vertex_color, 4, true ) );
+    // for curv or sulc
+    this.baseColorArray = new Uint8Array( this.__nvertices * 4 ).fill(255);
+    this._geometry.setAttribute( 'color', new BufferAttribute( this.baseColorArray, 4, true ) );
+
+    // underlay
+    this.underlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
+    this._geometry.setAttribute( 'underlayColor', new BufferAttribute( this.underlayArray, 3, true ) );
+
+    // overlay
+    this.overlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
+    this._geometry.setAttribute( 'overlayColor', new BufferAttribute( this.overlayArray, 3, true ) );
+
+    this.state = {
+      defaultColorMap : "BlueRed",
+      overlay : {
+        dataName      : "[none]",
+        dataArray     : undefined,
+        dataItemSize  : 1,
+        isContinuous  : false,
+        colorMapName  : "BlueRed",
+        vmin          : -1,
+        vmax          : 1,
+      },
+      underlay : {
+        dataArray     : undefined,
+        dataItemSize  : 1,
+        isContinuous  : false,
+        colorMapName  : "BlueRed",
+        vmin          : -1,
+        vmax          : 1,
+      }
+    };
 
     // gb.setAttribute( 'color', new Float32BufferAttribute( vertex_colors, 3 ) );
     // gb.setAttribute( 'normal', new Float32BufferAttribute( normals, 3 ) );
@@ -826,6 +978,8 @@ class FreeMesh extends AbstractThreeBrainObject {
       'elec_radius'       : { value: 10.0 },
       'elec_decay'        : { value : 0.15 },
       'blend_factor'      : { value : 0.4 },
+
+      // for mesh clipping (rename?)
       'mask_threshold'    : { value : 0.0 },
 
       'clippingNormal'    : { value : new Vector3() },
@@ -892,10 +1046,83 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._mesh.userData.ani_all_names = Object.keys( g.keyframes );
     this._mesh.userData.ani_exists = false;
 
+    /**
+     * Now set the vertex colors: sulc + underlay + overlay
+     * sulc will be assigned to "color" attributes and "underlay" (if no other choices)
+     * underlay will be
+     *
+     */
+    // Set base colors to be sulc
+    const prefix = this.hemisphere.toLocaleLowerCase()[0];
+    let sulcValues = this._canvas.get_data(`${ prefix }h_primary_vertex_color`, this.name, this.group_name);
+    this._hemispherePrefix = prefix;
+    const nvertices = this.__nvertices;
+    if( sulcValues && sulcValues.isFreeSurferNodeValues && sulcValues.nVertices == nvertices ) {
+
+      const sulcRange = [ sulcValues.min , sulcValues.max ];
+      const sulcData = sulcValues._frameData;
+
+      const scale = Math.max(sulcRange[1], -sulcRange[0]);
+
+      // generate color for each vertices
+      const _transform = (v) => {
+        return 0.7 / ( Math.exp( v * 10.0 / scale ) + 1.0 ) + 0.3;
+        // return 1. / ( Math.exp( v * 10.0 / scale ) + 1.0 );
+      };
+
+      const underlayArray = this.underlayArray,
+            overlayArray = this.overlayArray,
+            baseColorArray = this.baseColorArray;
+      sulcData.forEach((v, ii) => {
+
+        if( ii >= nvertices ){ return; }
+        // Make it lighter using sigmoid function
+        const col = Math.floor( _transform(v) * 255 );
+        const ii3 = ii * 3,
+              ii4 = ii * 4;
+        underlayArray[ ii3 ] = col;
+        underlayArray[ ii3 + 1 ] = col;
+        underlayArray[ ii3 + 2 ] = col;
+
+        overlayArray[ ii3 ] = col;
+        overlayArray[ ii3 + 1 ] = col;
+        overlayArray[ ii3 + 2 ] = col;
+
+        baseColorArray[ ii4 ] = col;
+        baseColorArray[ ii4 + 1 ] = col;
+        baseColorArray[ ii4 + 2 ] = col;
+        baseColorArray[ ii4 + 3 ] = 255;
+
+      });
+
+    }
+
+    // get potential overlay list
+    let _annotationList = this._canvas.get_data("annotation_list", this.name, this.group_name);
+    if( typeof _annotationList === "string" ) {
+      _annotationList = [ _annotationList ];
+    }
+    if(Array.isArray(_annotationList) && _annotationList.length > 0) {
+      this._annotationList = [..._annotationList];
+    } else {
+      this._annotationList = [];
+    }
+
+
     // register object
     this.object = this._mesh;
 
-    this._link_userData();
+    const subjectData = this._canvas.shared_data.get( this.subject_code );
+    const summaryKey = `${ this.hemisphere[0].toLowerCase() }h.${ this.surface_type }`;
+
+    subjectData.surfaceSummary[ summaryKey ] = {
+      name  : this.name,
+      type  : this.surface_type,
+      isROI : this.isROI,
+      isSubcortical : this.isSubcortical,
+      hemisphere    : this.hemisphere,
+      nvertices     : this.__nvertices,
+    };
   }
 
 }

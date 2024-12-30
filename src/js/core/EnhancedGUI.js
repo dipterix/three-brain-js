@@ -283,6 +283,16 @@ class EnhancedGUI extends GUI {
       controller.$disable.onblur = () => { controller._isFocused2 = false; }
     }
 
+    if( tooltip && typeof tooltip === "object" ) {
+      if( typeof tooltip.key === "string" ) {
+        controller.domElement.setAttribute('viewer-tooltip', tooltip.key);
+      }
+      if( typeof tooltip.text === "string" ) {
+        controller.domElement.setAttribute('data-toggle', "tooltip");
+        controller.domElement.setAttribute('title', tooltip.text);
+      }
+    }
+
     return controller;
   }
   getController( name, folderName, explicit = false ) {
@@ -350,11 +360,17 @@ class EnhancedGUI extends GUI {
     controller.hide();
   }
 
-  addTooltip( tooltip, controllerName, controllerFolder ){
+  addTooltip( key, controllerName, controllerFolder, text ) {
     const controller = this.getController( controllerName, controllerFolder );
     if( controller.isfake ) { return; }
     try {
-      controller.domElement.setAttribute('viewer-tooltip', tooltip);
+      if( typeof key === "string" ) {
+        controller.domElement.setAttribute('viewer-tooltip', key);
+      }
+      if( typeof text === "string" && text.length > 0 ) {
+        controller.domElement.setAttribute('data-toggle', "tooltip");
+        controller.domElement.setAttribute('title', text);
+      }
     } catch (e) {}
   }
 

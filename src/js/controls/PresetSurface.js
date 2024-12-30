@@ -1,4 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
+import { getThreeBrainInstance } from '../geometry/abstract.js';
 
 // 11. surface type
 // 12. Hemisphere material/transparency
@@ -6,12 +7,6 @@ import { CONSTANTS } from '../core/constants.js';
 
 function registerPresetSurface( ViewerControlCenter ){
 
-
-  ViewerControlCenter.prototype.get_surface_ctype = function(){
-    const _c = this.gui.get_controller( 'Surface Color' );
-    if( _c.isfake ){ return( "none" ); }
-    return( _c.getValue() );
-  };
 
   ViewerControlCenter.prototype.addPreset_surface_type2 = function(){
 
@@ -60,7 +55,44 @@ function registerPresetSurface( ViewerControlCenter ){
                       {args : surfaceTypeChoices, folderName : folderName })
       .onChange((v) => {
         this.canvas.switch_subject( '/', { 'surface_type': v });
-        // this.fire_change({ 'surface_type' : v });
+
+        // check if morph is feasible
+        const subjectCode = this.canvas.get_state("target_subject");
+        let surfaceUseMorph = false;
+
+        let pialSurfaceSummary, targetSurfaceSummary;
+
+        try {
+          const morphDuration = 2;
+          pialSurfaceSummary = this.canvas.getSurfaceSummary( subjectCode, "pial" );
+          targetSurfaceSummary = this.canvas.getSurfaceSummary( subjectCode, v );
+
+          if(
+            // summary exist
+            pialSurfaceSummary && targetSurfaceSummary &&
+
+            // morph is available!
+            pialSurfaceSummary.left.nvertices === targetSurfaceSummary.left.nvertices &&
+            pialSurfaceSummary.right.nvertices === targetSurfaceSummary.right.nvertices
+          ) {
+            const pialSurfaces = this.canvas.getSurfaces( subjectCode, "pial" );
+            let targetSurfaces;
+            if( v === "pial" || v === "pial.T1" ) {
+              targetSurfaces = { "left" : null, "right" : null };
+            } else {
+              targetSurfaces = this.canvas.getSurfaces( subjectCode, v );
+            }
+
+            getThreeBrainInstance( pialSurfaces.left ).useMorphTarget( targetSurfaces.left, { duration : morphDuration } );
+            getThreeBrainInstance( pialSurfaces.right ).useMorphTarget( targetSurfaces.right, { duration : morphDuration } );
+
+            surfaceUseMorph = true;
+          }
+        } catch (e) {
+          console.warn(e);
+        }
+
+        this.canvas.set_state("surfaceUseMorph", surfaceUseMorph);
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
@@ -384,7 +416,7 @@ function registerPresetSurface( ViewerControlCenter ){
             'vertices' : CONSTANTS.VERTEX_COLOR,
             'sync from voxels' : CONSTANTS.VOXEL_COLOR,
             'sync from electrodes' : CONSTANTS.ELECTRODE_COLOR,
-            'none' : CONSTANTS.DEFAULT_COLOR
+            'none' : CONSTANTS.DEFAULT_COLOR,
           },
           options = Object.keys( maps );
 
@@ -395,23 +427,23 @@ function registerPresetSurface( ViewerControlCenter ){
         switch (v) {
           case "sync from voxels":
             this.gui.showControllers(['Sigma', 'Blend Factor'], folderName );
-            this.gui.hideControllers(['Decay', 'Range Limit'], folderName );
+            this.gui.hideControllers(['Decay', 'Range Limit', 'Vertex Data'], folderName );
             break;
 
           case "sync from electrodes":
             this.gui.showControllers(['Decay', 'Range Limit', 'Blend Factor'], folderName );
-            this.gui.hideControllers(['Sigma'], folderName );
+            this.gui.hideControllers(['Sigma', 'Vertex Data'], folderName );
             break;
 
           case "vertices":
-            this.gui.showControllers(['Blend Factor'], folderName );
+            this.gui.showControllers(['Blend Factor', 'Vertex Data'], folderName );
             this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit'], folderName );
             break;
 
           default:
             // none
             v = "none";
-            this.gui.hideControllers(['Blend Factor', 'Sigma', 'Decay', 'Range Limit'], folderName );
+            this.gui.hideControllers(['Blend Factor', 'Sigma', 'Decay', 'Range Limit', 'Vertex Data'], folderName );
         }
 
         this.canvas.set_state( "surface_color_type", v);
@@ -419,27 +451,7 @@ function registerPresetSurface( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( this.canvas.get_state("surface_color_type", 'none') );
-
-    this.bindKeyboard({
-      codes     : CONSTANTS.KEY_CYCLE_SURFACE_COLOR,
-      shiftKey  : false,
-      ctrlKey   : false,
-      altKey    : false,
-      metaKey   : false,
-      tooltip   : {
-        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR,
-        name    : 'Surface Color',
-        folderName : folderName,
-      },
-      callback  : ( event ) => {
-        // options
-        let selectedIndex = (options.indexOf( ctrlSurfaceColorType.getValue() ) + 1) % options.length;
-        if( selectedIndex >= 0 ){
-          ctrlSurfaceColorType.setValue( options[ selectedIndex ] );
-        }
-      }
-    });
+      .setValue( this.canvas.get_state("surface_color_type", 'vertices') );
 
     this.gui
       .addController( "Blend Factor", 1.0, { folderName : folderName } )
@@ -457,7 +469,50 @@ function registerPresetSurface( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       }).setValue( 1.0 );
 
-    // ---------- for voxel-color ---------------
+    // ---------- for node-color -----------------------------------------------
+
+    // get all possible annotations
+    const _annotationCounts = { '[none]' : true };
+    this.canvas.threebrain_instances.forEach(inst => {
+      if(!inst || !inst.isFreeMesh) { return; }
+      if(!Array.isArray(inst._annotationList)) { return; }
+      inst._annotationList.forEach(nm => {
+        _annotationCounts[ nm ] = true;
+      });
+    });
+    const annotationList = Object.keys( _annotationCounts );
+    annotationList.push("[custom]");
+
+    const ctrlVertAnnot = this.gui
+      .addController("Vertex Data", '[none]', {
+        args: annotationList,
+        folderName : folderName })
+      .onChange((v) => {
+        this.canvas.set_state("surfaceAnnotation", v);
+        this.canvas.needsUpdate = true;
+      });
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_SURFACE_COLOR,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR,
+        name    : 'Vertex Data',
+        folderName : folderName,
+      },
+      callback  : ( event ) => {
+        // options
+        let selectedIndex = (annotationList.indexOf( ctrlVertAnnot.getValue() ) + 1) % annotationList.length;
+        if( selectedIndex >= 0 ){
+          ctrlVertAnnot.setValue( annotationList[ selectedIndex ] );
+        }
+      }
+    });
+
+    // ---------- for voxel-color ----------------------------------------------
 
     const map_delta = this.gui
       .addController("Sigma", 1, { folderName : folderName }).min( 0 ).max( 10 )
@@ -470,7 +525,7 @@ function registerPresetSurface( ViewerControlCenter ){
         }
       }).setValue( 1 );
 
-    // ---------- for electrode maps ------------
+    // ---------- for electrode maps -------------------------------------------
     this.gui.addController("Decay", 0.6, { folderName : folderName })
       .min( 0.05 ).max( 1 ).step( 0.05 ).decimals( 2 )
       .onChange((v) => {
@@ -497,7 +552,7 @@ function registerPresetSurface( ViewerControlCenter ){
     // 'blend_factor'      : { value : 0.4 }
 
 
-    this.gui.hideControllers(['Blend Factor', 'Sigma', 'Decay', 'Range Limit'], folderName);
+    this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit'], folderName);
   };
 
   return( ViewerControlCenter );

@@ -1,4 +1,4 @@
-import { Vector3, Matrix4 } from 'three';
+import { Vector3, Matrix4, Quaternion } from 'three';
 // Pure JavaScript SVD algorithm.
 // Input: 2-D list (m by n) with m >= n
 // Output: U,W V so that A = U*W*VT
@@ -871,6 +871,80 @@ function registerRigidPoints( pointSet1 , pointSet2 ) {
 
 }
 
+/**
+ * fixedFrom and fixedTo are Vector3, the fixedFrom will be positioned at fixedTo after mapping
+ * dirFrom, dirTo are Vector3, for DBS electrodes, optional
+ */
+function registerRigidPoints2( fromPoints, toPoints, fixedFrom, fixedTo, dirFrom, dirTo ) {
+  const nPoints = Math.min( pointSet1.length, pointSet2.length );
+  if( nPoints < 2 ) {
+    throw new TypeError("Insufficient number of points to calculate transform.");
+  }
+  let i, j, k, l;
+
+  // mean
+  const mean1 = new Vector3();
+  const mean2 = new Vector3();
+
+  // center fromPoints & toPoints
+  const x = [];
+  const y = [];
+
+  for(i = 0; i < nPoints; i++) {
+    const p1 = fromPoints[i];
+    const p2 = toPoints[i];
+    mean1.add( p1 );
+    mean2.add( p2 );
+    x.push( p1.clone() );
+    y.push( p2.clone() );
+  }
+  mean1.multiplyScalar( 1/ nPoints );
+  mean2.multiplyScalar( 1/ nPoints );
+
+  const dir1 = mean1.clone().sub( fixedFrom ).normalize(),
+        dir2 = mean2.clone().sub( fixedTo ).normalize();
+        probeDirection = dir2.clone();
+
+  const quaternion = new Quaternion();
+
+  const rotationAxis = new Vector3().crossVectors(dir1, dir2);
+  if( rotationAxis.length() > 0.0001 ) {
+
+    const angle = Math.acos( dir1.dot( dir2 ) );
+
+    quaternion.setFromAxisAngle( rotationAxis , angle );
+
+  }
+
+  if( dirFrom && dirTo && dirFrom.lengthSq() > 0 && dirTo.lengthSq() > 0 ) {
+    dir1.copy( dirFrom ).normalize()
+      .applyQuaternion( quaternion )
+      .cross( probeDirection ).cross( probeDirection )
+      .multiplyScalar( -1 ).normalize();
+
+    dir2.copy( dirTo ).normalize()
+      .cross( probeDirection ).cross( probeDirection )
+      .multiplyScalar( -1 ).normalize();
+
+    rotationAxis.crossVectors(dir1, dir2);
+
+    if( rotationAxis.length() > 0.0001 ) {
+
+      const angle = Math.acos( dir1.dot( dir2 ) );
+      quaternion.premultiply(
+        new Quaternion().setFromAxisAngle( rotationAxis , angle )
+      );
+
+    }
+  }
+
+  dir1.set(0, 0, 0).sub( fixedFrom ).applyQuaternion( quaternion ).add( fixedTo );
+  dir2.set(0, 0, 0);
+  const m44 = new Matrix4().compose( dir1, quaternion, dir2 );
+
+  return m44
+}
+
 
 /**
  * Calculates angle sizes for a triangle
@@ -942,4 +1016,4 @@ function pointPositionByDistances( positions, distances ) {
 }
 
 
-export { svd, registerRigidPoints, pointPositionByDistances };
+export { svd, registerRigidPoints, registerRigidPoints2, pointPositionByDistances };

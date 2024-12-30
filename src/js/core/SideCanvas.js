@@ -560,7 +560,10 @@ class SideCanvas {
 		this.camera.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
 
 		// Side light is needed so that side views are visible.
-		this.directionalLight = new DirectionalLight( CONSTANTS.COLOR_MAIN_LIGHT , 1.5 );
+		this.directionalLight = new DirectionalLight(
+		  CONSTANTS.LIGHTS.DIRECTIONAL.COLOR,
+      CONSTANTS.LIGHTS.DIRECTIONAL.INTENSITY
+		);
 
 		switch ( this.type ) {
       case 'coronal':

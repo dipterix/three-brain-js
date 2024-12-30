@@ -223,11 +223,23 @@ function addColorController({ inst, canvas, gui, fileName, parentFolder, control
         inst.useColorLookupTable( lut, v );
         colorSettings.continuous = v;
       } else if ( inst.isFreeMesh ) {
-        const trackInfo = inst.setTrackValues({ cmapName : v });
-        if( trackInfo ) {
+        try {
+          const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom]`];
+          inst.state.defaultColorMap = v;
+          inst.setColors( data.vertexData, {
+            isContinuous : true,
+            overlay : true,
+            continuousColorMapName: v,
+            cmapName: "[custom]",
+            minValue: data.min,
+            maxValue: data.max,
+          });
           inst._materialColor.set( "#FFFFFF" );
           inst.object.material.vertexColors = true;
-        }
+
+          gui.getController("Vertex Data").setValue("[custom]");
+
+        } catch (e) {}
         colorSettings.continuous = v;
       }
 
@@ -460,12 +472,26 @@ function postProcessSurfaceColor({ data, fileName, folderName, app }) {
       const surfaceName = `${ hemi[h][0].toLowerCase() }h.pial`;
       const inst = surface.userData.instance;
       const innerFolderName = `${folderName} > Configure ROI Surfaces > ${surfaceName}`;
-      inst.setTrackValues({
-        values   : data.vertexData,
-        cmapName : "rainbow",
-        minValue : -maxAbsVal,
-        maxValue : maxAbsVal
+
+      // let nodeDataObject = this._canvas.get_data(`${ this._hemispherePrefix }h_annotation_${annotName}`,
+      // be available
+      data.min = -maxAbsVal;
+      data.max = maxAbsVal;
+      inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom]`] = data;
+      if( !inst._annotationList.includes("[custom]") ) {
+        inst._annotationList.push("[custom]");
+      }
+
+      const cmapName = colorMap[`${ inst._hemispherePrefix }h.pial`].continuous;
+      inst.state.defaultColorMap = cmapName;
+      inst.setColors( data.vertexData, {
+        isContinuous : true,
+        overlay : true,
+        minValue: -maxAbsVal,
+        maxValue: maxAbsVal,
+        cmapName: "[custom]",
       });
+
       addColorController({
         inst        : inst,
         canvas      : canvas,
@@ -475,6 +501,8 @@ function postProcessSurfaceColor({ data, fileName, folderName, app }) {
         controlCenter : controlCenter,
         currentColorMode: "continuous"
       });
+
+      gui.getController("Vertex Data").setValue("[custom]");
     }
   }
   canvas.needsUpdate = true;
@@ -633,7 +661,22 @@ function registerDragNDropFile( ViewerControlCenter ){
               if( surface ) {
                 const surfaceName = `${ hemi[h][0].toLowerCase() }h.pial`;
                 const inst = surface.userData.instance;
-                inst.setTrackColors({ colors : data.vertexColor, colorSize : 4, colorMax : 255 });
+
+                inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom]`] = data;
+                if( !inst._annotationList.includes("[custom]") ) {
+                  inst._annotationList.push("[custom]");
+                }
+
+                inst.setColors( data.vertexColor, {
+                  isContinuous  : false,
+                  overlay       : true,
+                  // for discontinuous
+                  discreteColorSize : 4,
+                  discreteColorMax  : 255,
+                  cmapName: "[custom]",
+                });
+
+                this.gui.getController("Vertex Data").setValue("[custom]");
               }
             }
             canvas.needsUpdate = true;

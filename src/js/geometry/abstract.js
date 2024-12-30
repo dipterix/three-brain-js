@@ -283,9 +283,22 @@ function createBuiltinGeometry (type, {
     model : [],
     world : []
   };
-  const contactCenter = [new Vector3()];
   const modelDirection = new Vector3();
   const modelUp = new Vector3();
+
+  const contact = new Vector3();
+  contact.chanNum = 0;
+  contact._nativeX = 0;
+  contact._nativeY = 0;
+  contact._nativeZ = 0;
+  contact._mni305FixTargetX = 0;
+  contact._mni305FixTargetY = 0;
+  contact._mni305FixTargetZ = 0;
+  contact._mni305UserX = 0;
+  contact._mni305UserY = 0;
+  contact._mni305UserZ = 0;
+
+  const contactCenter = [contact];
 
   switch (type) {
     case 'CustomGeometry':
@@ -354,6 +367,23 @@ function createBuiltinGeometry (type, {
 
         for(let i = 0; i < cc.length/3; i++ ) {
           const cPos = new Vector3().fromArray( cc, i * 3 );
+
+          // _nativeXYZ tracks the actual contact positions in model space
+          cPos._nativeX = cPos.x;
+          cPos._nativeY = cPos.y;
+          cPos._nativeZ = cPos.z;
+
+          // _mni305FixTargetXYZ should be the same as _nativeXYZ but offset by a constant vector because
+          // the goal is to make target contact accurate but keep the trajectory
+          cPos._mni305FixTargetX = cPos.x;
+          cPos._mni305FixTargetY = cPos.y;
+          cPos._mni305FixTargetZ = cPos.z;
+
+          // _mni305UserX tracks the user-projected MNI305 positions in model space
+          cPos._mni305UserX = cPos.x;
+          cPos._mni305UserY = cPos.y;
+          cPos._mni305UserZ = cPos.z;
+
           cPos.chanNum = cn[ i ] ?? (i + 1);
           cPos.radius = typeof cs[ i ] === "number" ? cs[ i ] : 0.05;
           contactCenter.push( cPos );
@@ -386,6 +416,7 @@ function createBuiltinGeometry (type, {
       type = "SphereGeometry";
       geom = new SphereGeometry( radius, 10, 6 );
       geom.parameters.size = geom.parameters.radius;
+      contactCenter[0].radius = radius;
       // remove UV
       if( geom.hasAttribute( "uv" ) ) {
         geom.deleteAttribute( "uv" );
@@ -475,7 +506,7 @@ class ElasticGeometry extends BufferGeometry {
 		let morphAvailable = results.parameters.morphAvailable;
 
 		if( morphAvailable ) {
-		  if( !Array.isArray( this.parameters.contactCenter ) || this.parameters.contactCenter.length < 3 ) {
+		  if( !Array.isArray( this.parameters.contactCenter ) || this.parameters.contactCenter.length <= 1 ) {
 		    morphAvailable = false;
 		  } else if ( this.parameters.modelDirection.lengthSq() < 0.5 ) {
 		    morphAvailable = false;
@@ -487,6 +518,8 @@ class ElasticGeometry extends BufferGeometry {
 		    morphAvailable = false;
 		  }
 		}
+
+		this.morphAvailable = morphAvailable;
 
 		if( morphAvailable ) {
 		  // const nContacts = this.parameters.contactCenter.length;
@@ -526,91 +559,132 @@ class ElasticGeometry extends BufferGeometry {
 		  this.setAttribute( 'markerMap', results.markerMap );
 		}
 
-		this.updatePositionsFromTrajectory();
+		this.updatePositions();
 
 	}
 
-	updatePositionsFromTrajectory() {
-	  if( !this.trajectory ) { return; }
-	  const modelDirection = this.modelDirection,
-	        trajectory = this.trajectory,
-	        knots = trajectory.knots,
-	        stepSize = 1.0 / (trajectory.points.length - 1.),
-	        trajectoryLength = trajectory.getLength();
-	  const srcPosition = this._position;
-	  const dstPositionAttr = this.getAttribute( 'position' ),
-	        dstPosition = dstPositionAttr.array,
-	        dstCount = dstPositionAttr.count;
-	  const vPos = new Vector3(),
-	        trajPos = new Vector3(),
-	        tangent = new Vector3(),
-	        q = new Quaternion();
-	  let t, t0, ki, a;
-    for(let i = 0 ; i < dstCount ; i++ ) {
-      // get vertex position
-      vPos.fromArray( srcPosition, i * 3 );
+	updatePositions() {
+	  const contactCenter = this.parameters.contactCenter;
 
-      // calculate t at the curve
-      const dotProd = vPos.dot( modelDirection );
-      for( ki = 0; ki < knots.length - 1; ki++ ) {
-        const prevNode = knots[ ki ],
-              nextNode = knots[ ki + 1 ];
-        if( prevNode <= dotProd && nextNode >= dotProd ) {
-          if( prevNode == nextNode ) {
-            a = 0;
-          } else {
-            a = ( dotProd - prevNode ) / (nextNode - prevNode);
+	  if( !Array.isArray( contactCenter ) || !this.parameters.contactCenter.length ) { return; }
+
+    if( !this.morphAvailable || !this.trajectory ) {
+
+      // only translate positions according to the first contactCenter element
+      const targetPosition = this.parameters.contactCenter[0];
+      const offset = new Vector3();
+
+      // calculate position offset
+      offset.copy( targetPosition );
+      offset.x -= targetPosition._nativeX;
+      offset.y -= targetPosition._nativeY;
+      offset.z -= targetPosition._nativeZ;
+
+      const srcPosition = this._position;
+      const dstPositionAttr = this.getAttribute( 'position' ),
+            dstPosition = dstPositionAttr.array,
+            dstCount = dstPositionAttr.count;
+      const vPos = new Vector3();
+
+      for( let i = 0; i < dstCount; i++ ) {
+
+        vPos.fromArray( srcPosition , i * 3 ).add( offset );
+
+        dstPosition[ i * 3 ] = vPos.x;
+        dstPosition[ i * 3 + 1 ] = vPos.y;
+        dstPosition[ i * 3 + 2 ] = vPos.z;
+      }
+
+      dstPositionAttr.needsUpdate = true;
+
+    } else {
+
+      const trajectory = new CatmullRomCurve3( this.parameters.contactCenter );
+      trajectory.curveType = 'chordal';
+      trajectory.knots = this.trajectory.knots;
+
+      const modelDirection = this.modelDirection,
+            knots = trajectory.knots,
+            stepSize = 1.0 / (trajectory.points.length - 1.),
+            trajectoryLength = trajectory.getLength();
+      const srcPosition = this._position;
+      const dstPositionAttr = this.getAttribute( 'position' ),
+  	        dstPosition = dstPositionAttr.array,
+  	        dstCount = dstPositionAttr.count;
+  	  const vPos = new Vector3(),
+  	        trajPos = new Vector3(),
+  	        tangent = new Vector3(),
+  	        q = new Quaternion();
+  	  let t, t0, ki, a;
+      for(let i = 0 ; i < dstCount ; i++ ) {
+        // get vertex position
+        vPos.fromArray( srcPosition, i * 3 );
+
+        // calculate t at the curve
+        const dotProd = vPos.dot( modelDirection );
+        for( ki = 0; ki < knots.length - 1; ki++ ) {
+          const prevNode = knots[ ki ],
+                nextNode = knots[ ki + 1 ];
+          if( prevNode <= dotProd && nextNode >= dotProd ) {
+            if( prevNode == nextNode ) {
+              a = 0;
+            } else {
+              a = ( dotProd - prevNode ) / (nextNode - prevNode);
+            }
+            t0 = ( ki + a ) * stepSize;
+            break;
+          } else if ( dotProd < prevNode ) {
+            // before the first contact;
+            t0 = (dotProd - prevNode) / trajectoryLength + ki * stepSize;
+            break;
+          } else if ( ki >= knots.length - 2 && dotProd > nextNode ) {
+            t0 = (dotProd - nextNode) / trajectoryLength + 1;
+            break;
           }
-          t0 = ( ki + a ) * stepSize;
-          break;
-        } else if ( dotProd < prevNode ) {
-          // before the first contact;
-          t0 = (dotProd - prevNode) / trajectoryLength + ki * stepSize;
-          break;
-        } else if ( ki >= knots.length - 2 && dotProd > nextNode ) {
-          t0 = (dotProd - nextNode) / trajectoryLength + 1;
-          break;
         }
+
+        if( t0 < 0 ) {
+          t = 0;
+        } else if ( t0 > 1 ) {
+          t = 1;
+        } else {
+          t = t0;
+        }
+
+        // get position on the trajectory
+        trajectory.getPoint( t , trajPos );
+
+        // get tangent at the point
+        trajectory.getTangent( t , tangent );
+
+        // calculate the quaternion (rotation) from model direction to actual tangent direction
+        q.setFromUnitVectors( modelDirection , tangent );
+
+        // extent the trajPos if t0 - t != 0,
+        // this is because `getPointAt` can only input 0 - 1
+        // `tangent` will be polutted
+        if( t != t0 ) {
+          trajPos.add( tangent.multiplyScalar( ( t0 - t ) * trajectoryLength ) );
+        }
+
+        vPos.x -= modelDirection.x * dotProd;
+        vPos.y -= modelDirection.y * dotProd;
+        vPos.z -= modelDirection.z * dotProd;
+        vPos.applyQuaternion( q ).add( trajPos );
+
+        dstPosition[ i * 3 ] = vPos.x;
+        dstPosition[ i * 3 + 1 ] = vPos.y;
+        dstPosition[ i * 3 + 2 ] = vPos.z;
       }
 
-      if( t0 < 0 ) {
-        t = 0;
-      } else if ( t0 > 1 ) {
-        t = 1;
-      } else {
-        t = t0;
-      }
+      dstPositionAttr.needsUpdate = true;
 
-      // get position on the trajectory
-      trajectory.getPoint( t , trajPos );
-
-      // get tangent at the point
-      trajectory.getTangent( t , tangent );
-
-      // calculate the quaternion (rotation) from model direction to actual tangent direction
-      q.setFromUnitVectors( modelDirection , tangent );
-
-      // extent the trajPos if t0 - t != 0,
-      // this is because `getPointAt` can only input 0 - 1
-      // `tangent` will be polutted
-      if( t != t0 ) {
-        trajPos.add( tangent.multiplyScalar( ( t0 - t ) * trajectoryLength ) );
-      }
-
-      vPos.x -= modelDirection.x * dotProd;
-      vPos.y -= modelDirection.y * dotProd;
-      vPos.z -= modelDirection.z * dotProd;
-      vPos.applyQuaternion( q ).add( trajPos );
-
-      dstPosition[ i * 3 ] = vPos.x;
-      dstPosition[ i * 3 + 1 ] = vPos.y;
-      dstPosition[ i * 3 + 2 ] = vPos.z;
     }
-
-    dstPositionAttr.needsUpdate = true;
 
     // Also check if normal needs update, only when normal is set
     try {
+      this.computeBoundingSphere();
+
       if( this.getAttribute("normal") ) {
         this.computeVertexNormals();
       }

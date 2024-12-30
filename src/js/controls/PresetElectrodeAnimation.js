@@ -64,7 +64,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
   ViewerControlCenter.prototype.addPreset_animation = function(){
 
     // Check if animation is needed
-    if( asArray( this.settings.color_maps ).length === 0 ){ return; }
+    // if( asArray( this.settings.color_maps ).length === 0 ){ return; }
 
     const controllerData = this.animParameters.object;
 
@@ -234,6 +234,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
+
     this.gui
       .addController(
         'Threshold Method', '|v| >= T1',
@@ -252,6 +253,26 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         }
       });
     this.canvas.set_state('threshold_method', 2);
+
+    // Add keyboard shortcut
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_SYNC_THRESHOLD,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_SYNC_THRESHOLD,
+        name    : 'Threshold Data',
+        folderName : folderName,
+        title   : `Set threshold for contacts to be colored/visible.`
+      },
+      callback  : () => {
+        const currentThresholdRange = this.ctrlThresholdRange.getValue();
+        this.ctrlDataThreshold.setValue( this.ctrlClipName.getValue() );
+        this.ctrlThresholdRange.setValue( currentThresholdRange );
+      }
+    });
 
 
     this.gui

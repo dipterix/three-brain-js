@@ -52,8 +52,11 @@ import { register_controls_localization } from '../controls/localization.js';
 // 19. ACPC realignment
 import { registerPresetACPCReAlign } from '../controls/PresetACPCReAlign.js';
 
-// 999. QRCode
+// 998. QRCode
 import { registerPresetQRCode } from '../controls/PresetQRCode.js';
+
+// 999. QRCode
+import { registerPresetHiddenFeatures } from '../controls/PresetHiddenFeatures.js';
 
 // const mouseMoveEvent = { type : "viewerApp.mouse.mousemove" };
 const mouseSingleClickEvent = { type : "viewerApp.mouse.singleClick" };
@@ -83,6 +86,7 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas = viewerApp.canvas;
     this.gui = viewerApp.controllerGUI;
     this.settings = viewerApp.settings;
+    this.globalClock = viewerApp.globalClock;
     this.userData = {};
 
     this.electrode_regexp = RegExp('^electrodes-(.+)$');
@@ -341,6 +345,22 @@ class ViewerControlCenter extends EventDispatcher {
       }
     });
 
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_HIDDEN_FEATURES,
+      shiftKey  : true,
+      ctrlKey   : true,
+      altKey    : true,
+      metaKey   : false,
+      tooltip   : null,
+      callback  : ( event ) => {
+        if(!this.hiddenFeaturesEnabled) {
+          this.addPreset_hiddenFeatures();
+          this.hiddenFeaturesEnabled = true;
+        }
+      }
+    });
+
+
     // Installs driver
     this.canvas.$el.addEventListener( "viewerApp.controller.setValue" , this._onDriveController );
     this.canvas.$el.addEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
@@ -383,11 +403,21 @@ class ViewerControlCenter extends EventDispatcher {
       }
     }
     // Calculate MNI305 positions
-    const crosshairMNI = this.canvas.getSideCanvasCrosshairMNI305( tmpVec3 );
-    const displayText = `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}`
 
-    const controller = this.gui.getController( "Intersect MNI305" );
-    controller.setValue( displayText );
+    const ctrlChMNI = this.gui.getController( "Affine MNI152" );
+    if( !ctrlChMNI.isfake && ctrlChMNI.$input ) {
+      const crosshairMNI = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "MNI152" } );
+      ctrlChMNI.$input.value = `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}`;
+    }
+    // this.gui.getController( "Affine MNI152" )
+    //   .setValue( `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}` );
+
+    const ctrlChScan = this.gui.getController( "Crosshair ScanRAS" );
+    if( !ctrlChScan.isfake && ctrlChScan.$input ) {
+      const crosshairScanner = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "Scanner" } );
+      ctrlChScan.$input.value = `${crosshairScanner.x.toFixed(1)}, ${crosshairScanner.y.toFixed(1)}, ${crosshairScanner.z.toFixed(1)}`;
+    }
+
   }
 
   _onSetOpen = ( event ) => {
@@ -571,6 +601,7 @@ class ViewerControlCenter extends EventDispatcher {
     shiftKey, ctrlKey, altKey,
     metaKey, metaIsCtrl = false
   } = {}) {
+    if( codes === null || codes === undefined ) { return; }
     let codeArray;
     if( !Array.isArray( codes ) ) {
       codeArray = [ codes ];
@@ -595,7 +626,8 @@ class ViewerControlCenter extends EventDispatcher {
       this.gui.addTooltip(
         tooltip.key,
         tooltip.name,
-        tooltip.folderName
+        tooltip.folderName,
+        tooltip.title
       );
     }
   }
@@ -766,6 +798,7 @@ class ViewerControlCenter extends EventDispatcher {
     }
     return data;
   }
+
 }
 
 ViewerControlCenter = registerPresetBackground( ViewerControlCenter );
@@ -782,5 +815,6 @@ ViewerControlCenter = registerPresetRaymarchingVoxels( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );
 ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
 ViewerControlCenter = registerPresetQRCode( ViewerControlCenter );
+ViewerControlCenter = registerPresetHiddenFeatures( ViewerControlCenter );
 
 export { ViewerControlCenter };

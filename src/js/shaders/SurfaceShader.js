@@ -48,6 +48,7 @@ const compile_free_material = ( material, options ) => {
     return true;
   };
 
+
   material.setClippingPlaneFromDataCube = ( datacube, normal ) => {
     if( !datacube ) {
       delete material.defines.USE_CLIPPING_SLICE;
@@ -121,10 +122,13 @@ const compile_free_material = ( material, options ) => {
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
+  attribute vec3 underlayColor;
+  varying vec3 vUnderlayColor;
+
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    attribute vec3 trackColor;
-    varying vec3 vTrackColor;
+    attribute vec3 overlayColor;
+    varying vec3 vOverlayColor;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
@@ -162,19 +166,23 @@ const compile_free_material = ( material, options ) => {
 `#include <fog_vertex>
 
 // uniform vec3 cameraPosition; - camera position in world space
-vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
+// vec3 cameraRay = normalize( position.xyz - cameraPosition.xyz );
+vec3 cameraRay = normalize( transformed.xyz - cameraPosition.xyz );
 
 #if defined( USE_CLIPPING_SLICE ) || defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+  // reflectProd = abs( dot( normalize( normal ), cameraRay ) );
+  reflectProd = abs( dot( normalize( objectNormal ), cameraRay ) );
 
 #endif
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
+  vUnderlayColor = underlayColor;
+
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    vTrackColor = trackColor;
+    vOverlayColor = overlayColor;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
@@ -220,11 +228,12 @@ uniform float mask_threshold;
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
+  varying vec3 vUnderlayColor;
   uniform float blend_factor;
 
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    varying vec3 vTrackColor;
+    varying vec3 vOverlayColor;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
@@ -436,13 +445,14 @@ shader.fragmentShader = shader.fragmentShader.replace(
       remove_comments(
 `
 
+
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-	vec4 vColor2 = vec4( vColor.rgb , 1.0 );
+	vec4 vColor2 = vec4( vUnderlayColor.rgb , 1.0 );
 
   #if defined( USE_CUSTOM_MAPPING_0 )
 
-    vColor2.rgb = vTrackColor.rgb;
+    vColor2.rgb = vOverlayColor.rgb;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
@@ -494,6 +504,7 @@ shader.fragmentShader = shader.fragmentShader.replace(
         intensity = ( exp( contrast * intensity * 10.0 ) - 1.0 ) / ( exp( contrast * 10.0 ) - 1.0 );
       }
       intensity *= 1.15 / (1.15 - min( brightness , 1.0 ) );
+
       gl_FragColor.rgb = vec3( intensity );
 
       gl_FragColor.a = 1.0;
@@ -510,7 +521,7 @@ shader.fragmentShader = shader.fragmentShader.replace(
 
     #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-      gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
+      gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
 
     #endif
   }
@@ -518,7 +529,8 @@ shader.fragmentShader = shader.fragmentShader.replace(
 #elif defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
   gl_FragDepth = gl_FragCoord.z;
-  gl_FragColor.rgb = gl_FragColor.rgb / 2.0 + mix( gl_FragColor.rgb, vColor2.rgb, blend_factor ) / 2.0;
+
+  gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
 
   if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
     discard;

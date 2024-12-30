@@ -1,3 +1,4 @@
+import { Clock } from 'three';
 import { ThrottledEventDispatcher } from './ThrottledEventDispatcher.js';
 import { asArray } from '../utility/asArray.js';
 import { EnhancedGUI } from './EnhancedGUI.js';
@@ -47,10 +48,31 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // Flags
     this.debug = debug;
+    this.webgl2Enabled = webgl2Enabled;
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
+
+    // clock used by another other than display data
+    const globalClock = new Clock( false );
+    // automatically stops when globalClock.elapsedTime exceeds maxElapsedSec
+    globalClock.maxElapsedSec = -1;
+    globalClock.setTimeout = ( sec, overwrite = false ) => {
+
+      const timeElapsed = globalClock.running ? globalClock.getElapsedTime() : 0;
+      const expectedElapsed = timeElapsed + sec;
+      if( overwrite || expectedElapsed > globalClock.maxElapsedSec ) {
+        globalClock.maxElapsedSec = expectedElapsed;
+      }
+
+      if( !globalClock.running ) {
+        globalClock.start();
+      }
+      // otherwise getElapsedTime will update oldTime
+      return (globalClock.oldTime - globalClock.startTime) / 1000;
+    };
+    this.globalClock = globalClock;
 
     // data
     this.geoms = [];
@@ -162,12 +184,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$wrapper.appendChild( this.$settingsPanel );
 
     // --- B Canvas container ------------------------------------------------
-    this.canvas = new ViewerCanvas(
-      this.$wrapper,
-      width ?? this.$wrapper.clientWidth,
-      height ?? this.$wrapper.clientHeight,
-      250, false, this.debug, webgl2Enabled,
-      this.fileLoader );
+    this.canvas = new ViewerCanvas( this, width, height, 250, false );
 
     // Add listeners for mouse
     this.mouseKeyboard = new MouseKeyboard( this );
@@ -973,6 +990,18 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Do not render if the canvas is too small
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
+
+    // check if globalClock is running
+    if( this.globalClock.running ) {
+      // update canvas
+      this.canvas.needsUpdate = true;
+
+      // pause rendering (if possible) on the next cycle
+      if( this.globalClock.maxElapsedSec < this.globalClock.getElapsedTime() ) {
+        this.globalClock.stop();
+        this.globalClock.maxElapsedSec = -1;
+      }
+    }
 
     this.updateDemo();
 
