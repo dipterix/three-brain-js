@@ -22,6 +22,7 @@ class AbstractThreeBrainObject extends EventDispatcher {
     this._visible = true;
     this.type = 'AbstractThreeBrainObject';
     this.isThreeBrainObject = true;
+    this.rayCasterEligible = true;
     this.name = g.name;
     if( g.group && typeof g.group === 'object' ){
       this.group_name = g.group.group_name;
@@ -40,14 +41,17 @@ class AbstractThreeBrainObject extends EventDispatcher {
     this.world_position = new Vector3();
   }
 
-  set_layer( addition = [], object = null ){
+  setLayers( addition = [], object = null ){
     let obj = object || this.object;
     if( obj ){
       let layers = asArray( this._params.layer );
       let more_layers = asArray(addition);
       // set clickable layer
       if( this._params.clickable === true ){
-        layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
+        layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
+      }
+      if( this.rayCasterEligible ) {
+        layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
       }
       layers.concat( more_layers );
 
@@ -174,7 +178,7 @@ class AbstractThreeBrainObject extends EventDispatcher {
   finish_init(){
     if( this.object ){
       // console.debug(`Finalizing ${ this.name }`);
-      this.set_layer();
+      this.setLayers();
       this.object.userData.construct_params = this._params;
 
       this._canvas.mesh.set( this.name, this.object );

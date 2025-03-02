@@ -1542,7 +1542,10 @@ function register_controls_localization( ViewerControlCenter ){
 
         this.canvas.needsUpdate = true;
       }
-    },  { folderName: folderName });
+    },  {
+      folderName: folderName,
+      tooltip: "To highlight, double-click on the contact. You will see it becomes red-colored."
+    });
 
     this.gui.addController( 'Reset Highlighted', () => {
       if( refine_electrode &&
@@ -1557,7 +1560,9 @@ function register_controls_localization( ViewerControlCenter ){
 
         this.canvas.needsUpdate = true;
       }
-    },  { folderName: folderName });
+    },  {
+      folderName: folderName
+    });
 
     this.gui.addController( 'Auto-Adjust All', () => {
       electrodes.forEach((el) => {
@@ -1572,7 +1577,10 @@ function register_controls_localization( ViewerControlCenter ){
 
 
       this.canvas.needsUpdate = true;
-    },  { folderName: folderName });
+    },  {
+      folderName: folderName,
+      tooltip: "To manually adjust, use keyboard keys to move contacts in 3D: [right: `1`], [left: `shift+1`], [anterior: `2`], [posterior: `shift+2`], [superior: `3`], [inferior: `shift+3`]"
+    });
 
 
 
@@ -1813,7 +1821,8 @@ function register_controls_localization( ViewerControlCenter ){
       });
     };
     this.gui.addController( 'Register from Crosshair', registerFromCrosshair, {
-      folderName: folderName
+      folderName: folderName,
+      tooltip: "No adjustment will be applied."
     });
 
     this.bindKeyboard({

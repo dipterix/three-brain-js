@@ -1,4 +1,5 @@
 import { EventDispatcher, Vector2, Vector3, Quaternion } from 'three';
+import { CONSTANTS } from './constants.js';
 
 const STATE = {
   NONE: - 1,
@@ -103,7 +104,7 @@ class HauntedArcballControls extends EventDispatcher {
   	// Specialized for threeBrain
   	this.zoomSpeed = 0.02;
   	this.noPan = false;
-  	this.zoomMax = 10;
+  	this.zoomMax = CONSTANTS.MAIN_CAMERA_MAX_ZOOM;
   	this.zoomMin = 0.5;
 
   	// Initial radius is 500

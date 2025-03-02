@@ -3,9 +3,7 @@ import { RAVELogo } from '../core/RAVELogo.js'
 
 function registerPresetQRCode( ViewerControlCenter ) {
   ViewerControlCenter.prototype.addPreset_qrcode = function(){
-    const qrctrl = this.gui.addController(
-      'QR Code', () => {}
-    );
+    const qrctrl = this.gui.addController('QR Code', () => {});
     const $qrWrapper = document.createElement("div");
     $qrWrapper.style.width = "100%";
     const $qrA = document.createElement("a");

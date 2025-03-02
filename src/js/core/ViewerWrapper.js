@@ -150,6 +150,7 @@ class ViewerWrapper {
 
   }
 
+  // 1-op: this function will be executed once and then will always no-op
   createViewer( insertViewer = false ) {
     if( !this.webgl2Enabled ) { return; }
     if( this.initialized ) {

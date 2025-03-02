@@ -19,6 +19,7 @@ import QrCodeWithLogo from "qrcode-with-logos";
 
 // Viewer class
 import { CONSTANTS } from './core/constants.js';
+import { SHARED_SETTINGS } from './core/SharedSettings.js';
 import { ViewerWrapper } from './core/ViewerWrapper.js';
 import { ViewerApp } from './core/ViewerApp.js';
 import { StorageCache } from './core/StorageCache.js';
@@ -60,6 +61,7 @@ const threeBrainJS = {
 */
 
 const Constants = CONSTANTS;
+const SharedSettings = SHARED_SETTINGS;
 const ExternLibs = {
   THREE             : THREE,
   WebGL             : WebGL,
@@ -102,4 +104,4 @@ const Exporters = {
 
 const Workers = workerPool;
 
-export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, Drivers, ExternLibs, Workers, GeometryFactory };
+export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, SharedSettings, Drivers, ExternLibs, Workers, GeometryFactory };

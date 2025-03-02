@@ -24,7 +24,7 @@ class CCanvasRecorder extends CCFrameEncoder{
     // create a recorder fed with our canvas' stream
     this.recorder = new MediaRecorder(this.stream, {
       audioBitsPerSecond: 128000,
-      videoBitsPerSecond: 2500000,
+      videoBitsPerSecond: 10000000,
       mimeType : this.mimeType
     });
 

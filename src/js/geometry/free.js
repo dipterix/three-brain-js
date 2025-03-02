@@ -46,7 +46,8 @@ function continuousValueToColor(values, buffer, {
   colorLut,
   // for normal Lut if colorLut is missing
   minValue, maxValue, cmapName = "rainbow",
-  nSkipValues = 0,
+  cutoffVMin = NaN, cutoffVMax = NaN, dynamicColorRange = false,
+  nSkipValues = 0, backupArray = null
 } = {}) {
 
   const nVals = values.length - nSkipValues;
@@ -59,25 +60,52 @@ function continuousValueToColor(values, buffer, {
   // No color to calculate
   if( n <= 0 ) { return; }
 
+  if( minValue === undefined ) { minValue = -1; }
+  if( maxValue === undefined ) { maxValue = 1; }
+
+  if( isNaN( cutoffVMin ) ) {
+    cutoffVMin = minValue ?? -1;
+  }
+  if( isNaN( cutoffVMax ) ) {
+    cutoffVMax = maxValue ?? 1;
+  }
+
   const _tmpColor = new Color();
+
+  /*
   if( colorLut instanceof NamedLut ) {
     //
   } else if ( colorLut instanceof Lut ) {
     //
   } else {
-    if( minValue === undefined ) { minValue = -1; }
-    if( maxValue === undefined ) { maxValue = 1; }
+
     colorLut = new Lut( cmapName , 256 );
-    colorLut.minV = minValue;
-    colorLut.maxV = maxValue;
-  }
+  }*/
+  colorLut = new Lut( cmapName , 256 );
+  colorLut.minV = dynamicColorRange ? cutoffVMin : minValue;
+  colorLut.maxV = dynamicColorRange ? cutoffVMax : maxValue;
 
   let vi = nSkipValues;
+  const hasBackupArray = backupArray !== null;
   for(let i = 0; i < n; i++, vi++) {
-    const tmpColor = colorLut.getColor( values[ vi ], _tmpColor );
-    buffer[ i * 3 ] = tmpColor.r * 255;
-    buffer[ i * 3 + 1 ] = tmpColor.g * 255;
-    buffer[ i * 3 + 2 ] = tmpColor.b * 255;
+    const value = values[ vi ];
+    const i3 = i * 3
+    if( value == 0.0 || value < cutoffVMin || value > cutoffVMax ) {
+      if( hasBackupArray ) {
+        buffer[ i3 ] = backupArray[ i3 ];
+        buffer[ i3 + 1 ] = backupArray[ i3 + 1 ];
+        buffer[ i3 + 2 ] = backupArray[ i3 + 2 ];
+      } else {
+        buffer[ i3 ] = 255;
+        buffer[ i3 + 1 ] = 255;
+        buffer[ i3 + 2 ] = 255;
+      }
+    } else {
+      const tmpColor = colorLut.getColor( values[ vi ], _tmpColor );
+      buffer[ i3 ] = tmpColor.r * 255;
+      buffer[ i3 + 1 ] = tmpColor.g * 255;
+      buffer[ i3 + 2 ] = tmpColor.b * 255;
+    }
   }
 
 }
@@ -89,6 +117,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     // for continuous
     //    alternatively
     continuousColorMapName = null, minValue = NaN, maxValue = NaN,
+    cutoffVMin = NaN, cutoffVMax = NaN, dynamicColorRange = false,
     // for discontinuous
     discreteColorSize = 4, discreteColorMax = 255,
     dataName = ""
@@ -96,11 +125,12 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     const stateKey = overlay ? "overlay" : "underlay";
     const bufferArray = overlay ? this.overlayArray : this.underlayArray;
+    const underlayArray = this.underlayArray;
     const stateDict = overlay ? this.state.overlay : this.state.underlay;
-    const colorAttribute = overlay ? this._geometry.attributes.overlayColor : this._geometry.attributes.underlayColor;
+    const colorAttribute = overlay ? this._geometry.attributes.overlayColor : this._geometry.attributes.color;
 
     if( !dataArray ) {
-      if( dataName != "[none]" && stateDict.dataName === dataName ) {
+      if( dataName !== "[none]" && stateDict.dataName === dataName ) {
         dataArray = stateDict.dataArray;
       } else {
         // reset vertex
@@ -131,30 +161,56 @@ class FreeMesh extends AbstractThreeBrainObject {
         }
       }
 
+      // make sure minValue and maxValue are valid
+      const minValueIsValid = typeof minValue !== "number" || isNaN(minValue),
+            maxValueIsValid = typeof maxValue !== "number" || isNaN(maxValue);
+
+      if( minValueIsValid || maxValueIsValid ) {
+        let minValue2 = Infinity, maxValue2 = -Infinity;
+        for(let ii = 0; ii < dataArray.length; ii++) {
+          const v = dataArray[ ii ];
+          if( minValue2 > v ) {
+            minValue2 = v;
+          }
+          if( maxValue2 < v ) {
+            maxValue2 = v;
+          }
+        }
+        if( minValueIsValid ) {
+          minValue = minValue2;
+        }
+        if( maxValueIsValid ) {
+          maxValue = maxValue2;
+        }
+      }
+
       if( continuousColorMap ) {
-        minValue = continuousColorMap.minV;
-        maxValue = continuousColorMap.maxV;
+        // minValue = continuousColorMap.minV;
+        // maxValue = continuousColorMap.maxV;
         continuousColorMapName = dataName;
-      } else {
-        if(isNaN( minValue )) {
-          minValue = this.state[ stateKey ].vmin;
-        }
-        if(isNaN( maxValue )) {
-          maxValue = this.state[ stateKey ].vmax;
-        }
-        if( typeof continuousColorMapName !== "string" ) {
-          continuousColorMapName = this.state.defaultColorMap;
-        }
+      } else if( typeof continuousColorMapName !== "string" ) {
+        continuousColorMapName = this.state.defaultColorMap;
+      }
+
+      if ( isNaN(cutoffVMin) ) {
+        cutoffVMin = typeof stateDict.cutoffVMin === "number" ? stateDict.cutoffVMin : minValue;
+      }
+      if ( isNaN(cutoffVMax) ) {
+        cutoffVMax = typeof stateDict.cutoffVMax === "number" ? stateDict.cutoffVMax : maxValue;
       }
 
       continuousValueToColor(
         dataArray,
         bufferArray,
         {
-          colorLut : continuousColorMap,
+          // colorLut : continuousColorMap,
           cmapName : continuousColorMapName,
           minValue : minValue,
           maxValue : maxValue,
+          cutoffVMin: cutoffVMin,
+          cutoffVMax: cutoffVMax,
+          dynamicColorRange: dynamicColorRange,
+          backupArray: underlayArray,
         }
       );
       stateDict.dataArray = dataArray;
@@ -163,6 +219,8 @@ class FreeMesh extends AbstractThreeBrainObject {
       stateDict.colorMapName = continuousColorMapName;
       stateDict.vmin = minValue;
       stateDict.vmax = maxValue;
+      stateDict.cutoffVMin = cutoffVMin;
+      stateDict.cutoffVMax = cutoffVMax;
       stateDict.dataName = dataName;
 
     } else {
@@ -394,6 +452,55 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
   }
 
+  cloneForExporter({
+    target = CONSTANTS.RENDER_CANVAS.main,
+    materialModifier = {}
+  } = {}) {
+
+    if( !this.object || !this.object.isMesh ) { return null; }
+    if( !this.object.visible ) { return null; }
+
+    const geometry = this.object.geometry.clone();
+
+    // Use RGBA for color
+    const blendFactor = this._canvas.get_state("surface_color_blend", 1) * 0.5;
+    const underlayArray = this.underlayArray;
+    const overlayArray = this.overlayArray;
+    const blendArray = new Uint8Array( this.__nvertices * 4 ).fill(255);
+
+    for( let ii = 0 ; ii < this.__nvertices; ii++ ) {
+      // gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
+      blendArray[ ii * 4 ] = underlayArray[ ii * 3 ] * (1 - blendFactor) + overlayArray[ ii * 3 ] * blendFactor;
+      blendArray[ ii * 4 + 1 ] = underlayArray[ ii * 3 + 1 ] * (1 - blendFactor) + overlayArray[ ii * 3 + 1 ] * blendFactor;
+      blendArray[ ii * 4 + 2 ] = underlayArray[ ii * 3 + 2 ] * (1 - blendFactor) + overlayArray[ ii * 3 + 2 ] * blendFactor;
+    }
+    geometry.deleteAttribute("overlayColor");
+    geometry.deleteAttribute("color");
+    geometry.setAttribute( 'color', new BufferAttribute( blendArray, 4, true ) );
+
+    const currentMaterial = Object.assign(this.object.material.clone(), materialModifier);
+
+    const mesh = new Mesh(geometry, currentMaterial);
+
+    mesh.layers.mask = this.object.layers.mask;
+    mesh.applyMatrix4( this.object.matrixWorld );
+
+    // delete morph attributes
+    /**
+    if(Array.isArray(this.object.morphTargetInfluences)) {
+      mesh.morphTargetInfluences = [...this.object.morphTargetInfluences];
+    } else {
+      mesh.morphTargetInfluences = undefined;
+      geometry.morphAttributes = {};
+    }
+     */
+    mesh.morphTargetInfluences = undefined;
+    geometry.morphAttributes = {};
+
+    return mesh;
+
+  }
+
   _link_electrodes(){
 
     if( !Array.isArray( this._linked_electrodes ) ){
@@ -498,6 +605,10 @@ class FreeMesh extends AbstractThreeBrainObject {
     super.dispose();
     try {
       this.object.removeFromParent();
+      const surfaceList = this._canvas.surfaces.get( this.subject_code )
+      if( surfaceList[ this.name ] === this ) {
+        delete surfaceList[ this.name ];
+      }
     } catch (e) {}
 
     try {
@@ -645,18 +756,18 @@ class FreeMesh extends AbstractThreeBrainObject {
                 this.name, this.group_name);
           if(
             !nodeDataObject || nodeDataObject.isInvalid ||
-            !( nodeDataObject.isFreeSurferAnnot || nodeDataObject.isFreeSurferNodeValues )
+            !( nodeDataObject.isSurfaceAnnotation || nodeDataObject.isSurfaceMeasurement )
           ) {
             this.setColors( undefined, {
               overlay : true,
               dataName : "[none]",
             });
           } else {
-            if( nodeDataObject.isFreeSurferAnnot ) {
+            if( nodeDataObject.isSurfaceAnnotation ) {
               const itemSize = nodeDataObject.vertexColor.length / nodeDataObject.nVertices;
               this.setColors( nodeDataObject.vertexColor, {
                 isContinuous : false, overlay : true,
-                discreteColorSize : itemSize, discreteColorMax : 255,
+                discreteColorSize : itemSize,
                 dataName : annotName,
               });
             } else {
@@ -858,12 +969,12 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
 
     // for curv or sulc
-    this.baseColorArray = new Uint8Array( this.__nvertices * 4 ).fill(255);
-    this._geometry.setAttribute( 'color', new BufferAttribute( this.baseColorArray, 4, true ) );
+    // this.baseColorArray = new Uint8Array( this.__nvertices * 4 ).fill(255);
+    // this._geometry.setAttribute( 'color', new BufferAttribute( this.baseColorArray, 4, true ) );
 
     // underlay
     this.underlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
-    this._geometry.setAttribute( 'underlayColor', new BufferAttribute( this.underlayArray, 3, true ) );
+    this._geometry.setAttribute( 'color', new BufferAttribute( this.underlayArray, 3, true ) );
 
     // overlay
     this.overlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
@@ -1057,7 +1168,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     let sulcValues = this._canvas.get_data(`${ prefix }h_primary_vertex_color`, this.name, this.group_name);
     this._hemispherePrefix = prefix;
     const nvertices = this.__nvertices;
-    if( sulcValues && sulcValues.isFreeSurferNodeValues && sulcValues.nVertices == nvertices ) {
+    if( sulcValues && sulcValues.isSurfaceMeasurement && sulcValues.nVertices == nvertices ) {
 
       const sulcRange = [ sulcValues.min , sulcValues.max ];
       const sulcData = sulcValues._frameData;
@@ -1071,8 +1182,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       };
 
       const underlayArray = this.underlayArray,
-            overlayArray = this.overlayArray,
-            baseColorArray = this.baseColorArray;
+            overlayArray = this.overlayArray;
       sulcData.forEach((v, ii) => {
 
         if( ii >= nvertices ){ return; }
@@ -1087,11 +1197,6 @@ class FreeMesh extends AbstractThreeBrainObject {
         overlayArray[ ii3 ] = col;
         overlayArray[ ii3 + 1 ] = col;
         overlayArray[ ii3 + 2 ] = col;
-
-        baseColorArray[ ii4 ] = col;
-        baseColorArray[ ii4 + 1 ] = col;
-        baseColorArray[ ii4 + 2 ] = col;
-        baseColorArray[ ii4 + 3 ] = 255;
 
       });
 

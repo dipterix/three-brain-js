@@ -205,7 +205,7 @@ class EnhancedGUI extends GUI {
   }
 
   // items
-  addController( name, value, options, tooltip) {
+  addController( name, value, options ) {
     if( !options || typeof options !== "object" ) {
       options = {};
     }
@@ -268,6 +268,21 @@ class EnhancedGUI extends GUI {
       this.$disable.blur();
     }
 
+    controller.tooltip = function( text, key ) {
+      if( typeof text !== "string" ) {
+        text = this.domElement.getAttribute('title') || this._name;
+      }
+      if( typeof key === "string" ) {
+        this.domElement.setAttribute('viewer-tooltip', key);
+        text = `${text} [keyboard shortcut: ${key}]`;
+      }
+      if( typeof text === "string" ) {
+        this.domElement.setAttribute('data-toggle', "tooltip");
+        this.domElement.setAttribute('title', text);
+      }
+      return text;
+    }
+
     if( controller._isSelector || controller._isBool || controller._isNumber ) {
       // use function instead of => to alter "this"
       controller.onFinishChange(function(v) {
@@ -283,14 +298,12 @@ class EnhancedGUI extends GUI {
       controller.$disable.onblur = () => { controller._isFocused2 = false; }
     }
 
+    const tooltip = options.tooltip ?? controllerName;
+
     if( tooltip && typeof tooltip === "object" ) {
-      if( typeof tooltip.key === "string" ) {
-        controller.domElement.setAttribute('viewer-tooltip', tooltip.key);
-      }
-      if( typeof tooltip.text === "string" ) {
-        controller.domElement.setAttribute('data-toggle', "tooltip");
-        controller.domElement.setAttribute('title', tooltip.text);
-      }
+      controller.tooltip( tooltip.text, tooltip.key );
+    } else if( typeof tooltip === "string" ) {
+      controller.tooltip( tooltip );
     }
 
     return controller;
@@ -334,9 +347,22 @@ class EnhancedGUI extends GUI {
       onChange : () => {},
       setValue : () => {},
       destroy  : () => {},
+      tooltip  : () => {},
       isfake : true
     });
   }
+
+  getOrAddController( name, value, options ) {
+    let controller = this.getController( name, options.folderName, true );
+    if( controller.isfake ) {
+      controller = this.addController( name, value, options );
+    } else if( options.force ) {
+      controller.destroy();
+      controller = this.addController( name, value, options );
+    }
+    return controller;
+  }
+
   showControllers( names, folderName ) {
     if( Array.isArray( names ) ) {
       names.forEach( v => {
@@ -360,20 +386,6 @@ class EnhancedGUI extends GUI {
     controller.hide();
   }
 
-  addTooltip( key, controllerName, controllerFolder, text ) {
-    const controller = this.getController( controllerName, controllerFolder );
-    if( controller.isfake ) { return; }
-    try {
-      if( typeof key === "string" ) {
-        controller.domElement.setAttribute('viewer-tooltip', key);
-      }
-      if( typeof text === "string" && text.length > 0 ) {
-        controller.domElement.setAttribute('data-toggle', "tooltip");
-        controller.domElement.setAttribute('title', text);
-      }
-    } catch (e) {}
-  }
-
   setFromDictionary( args ){
     const keys = [
       "Background Color", "Camera Position", "Display Coordinates",
@@ -383,7 +395,8 @@ class EnhancedGUI extends GUI {
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
       "Frustum Near", "Frustum Far",
       "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
-      "Voxel Min", "Voxel Max", "Symmetric Color Map",
+      "Voxel Min", "Voxel Max", "Voxel Cmap", "Dynamic Color Map", "Symmetric Color Map",
+      "Component Index",
 
       "Surface Material", "Surface Type", "Clipping Plane",
       "Left Hemisphere", "Right Hemisphere",

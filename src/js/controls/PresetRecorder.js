@@ -46,10 +46,10 @@ function registerPresetRecorder( ViewerControlCenter ){
             // verbose results?
             verbose: true,
             autoSaveTime : 0,
-            main_width: this.canvas.main_renderer.domElement.width,
-            main_height: this.canvas.main_renderer.domElement.height,
+            main_width: this.canvas.domElement.width,
+            main_height: this.canvas.domElement.height,
             sidebar_width: 300,
-            pixel_ratio : this.canvas.main_renderer.domElement.width / this.canvas.main_renderer.domElement.clientWidth
+            pixel_ratio : this.canvas.pixel_ratio[0]
           });
 
           this.canvas.capturer.baseFilename = this.canvas.capturer.filename = new Date().toGMTString();
@@ -74,23 +74,71 @@ function registerPresetRecorder( ViewerControlCenter ){
 
       const _d = new Date().toJSON();
       // const doc = this.canvas.mapToPDF();
-      const results = this.canvas.incrementTime(),
-            _width = this.canvas.domElement.width,
-            _height = this.canvas.domElement.height;
-      const pdf_wrapper = new PDFContext( this.canvas.domElement );
+
+      const glCanvas = this.canvas.main_renderer.domElement,
+            pixelRatio = this.canvas.main_renderer.getPixelRatio();
+      let totalHeight = glCanvas.height,
+          sideWidth = this.canvas.sideCanvasEnabled ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
+          sideHeight = sideWidth - pixelRatio,
+          totalWidth = glCanvas.width + sideWidth,
+          mainWidth = totalWidth - sideWidth;
+      const pdf_wrapper = new PDFContext( totalWidth, totalHeight );
 
       pdf_wrapper.set_font_color( this.canvas.foreground_color );
 
       // Clear the whole canvas
       // copy the main_renderer context
       pdf_wrapper.background_color = this.canvas.background_color;
-      pdf_wrapper.draw_image( this.canvas.main_renderer.domElement, 0, 0, _width, _height );
 
-      // Draw timestamp on the bottom right corner
-      // this.canvas._draw_ani( results, 0, 0, _width, _height, pdf_wrapper );
+      this.canvas.main_renderer.clear();
+      this.canvas.main_renderer.render( this.canvas.scene, this.canvas.mainCamera );
+      pdf_wrapper.draw_image( glCanvas, sideWidth, 0, mainWidth, totalHeight );
 
-      // Draw focused target information on the top right corner
-      // this.canvas._draw_focused_info( results, 0, 0, _width, _height, pdf_wrapper, true );
+      // draw side panels
+      if( this.canvas.sideCanvasEnabled ) {
+        this.canvas.sideCanvasList.axial.render();
+        pdf_wrapper.draw_image(
+          this.canvas.sideCanvasList.axial.renderer.domElement,
+          0, 0, sideWidth, sideWidth
+        );
+
+        this.canvas.sideCanvasList.sagittal.render();
+        pdf_wrapper.draw_image(
+          this.canvas.sideCanvasList.sagittal.renderer.domElement,
+          0, sideHeight, sideWidth, sideWidth
+        );
+
+        this.canvas.sideCanvasList.coronal.render();
+        pdf_wrapper.draw_image(
+          this.canvas.sideCanvasList.coronal.renderer.domElement,
+          0, sideHeight * 2, sideWidth, sideWidth
+        );
+
+        const titleLineHeight = Math.round( 15 * pixelRatio );
+        pdf_wrapper.set_font_color( "#e2e2e2" );
+        pdf_wrapper.set_font( titleLineHeight );
+        pdf_wrapper.fill_text(
+          this.canvas.sideCanvasList.axial._headerText,
+          titleLineHeight, 0 + titleLineHeight
+        );
+        pdf_wrapper.fill_text(
+          this.canvas.sideCanvasList.sagittal._headerText,
+          titleLineHeight, sideHeight + titleLineHeight
+        );
+        pdf_wrapper.fill_text(
+          this.canvas.sideCanvasList.coronal._headerText,
+          titleLineHeight, sideHeight * 2 + titleLineHeight
+        );
+
+
+      }
+
+      // rendering title, legend, ...
+      this.canvas.renderTitle( 0, 0, totalWidth, totalHeight, pdf_wrapper );
+      this.canvas.renderTimestamp( 0, 0, totalWidth, totalHeight, pdf_wrapper );
+      this.canvas.renderLegend( 0, 0, totalWidth, totalHeight, pdf_wrapper );
+      this.canvas.renderSelectedObjectInfo( 0, 0, totalWidth, totalHeight, pdf_wrapper );
+
 
       // Draw legend on the right side
       // this.canvas._draw_legend( results, 0, 0, _width, _height, pdf_wrapper );
@@ -100,7 +148,7 @@ function registerPresetRecorder( ViewerControlCenter ){
       // } catch (e) {}
 
 
-      pdf_wrapper.context.save(`[threeBrain] ${_d}.pdf`);
+      pdf_wrapper.renderTarget.save(`[threeBrain] ${_d}.pdf`);
     }, {folder_name: folder_name });
 
     this.gui.addController('Download GLTF', async () => {

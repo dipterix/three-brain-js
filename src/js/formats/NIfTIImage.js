@@ -170,6 +170,133 @@ class NiftiImage {
     return newImage;
   }
 
+  trimToBoundingBox () {
+
+    const nTimeSlices = Math.floor( this.image.length / this.shape.x / this.shape.y / this.shape.z );
+
+    let minX = this.shape.x, maxX = 0,
+        minY = this.shape.y, maxY = 0,
+        minZ = this.shape.z, maxZ = 0;
+
+    let ii = 0;
+    const image = this.image;
+    for(let t = 0; t < nTimeSlices ; t++) {
+      for( let z = 0; z < this.shape.z; z++ ) {
+        for( let y = 0; y < this.shape.y; y++ ) {
+          for( let x = 0; x < this.shape.x; x++, ii++ ) {
+
+            if( image[ ii ] !== 0 ) {
+
+              if( minX >= x ) {
+                minX = x;
+              }
+              if( maxX <= x ) {
+                maxX = x;
+              }
+
+              if( minY >= y ) {
+                minY = y;
+              }
+              if( maxY <= y ) {
+                maxY = y;
+              }
+
+              if( minZ >= z ) {
+                minZ = z;
+              }
+              if( maxZ <= z ) {
+                maxZ = z;
+              }
+
+            }
+
+          }
+        }
+      }
+    }
+
+    if( minX > maxX ) { minX = maxX; }
+    if( minY > maxY ) { minY = maxY; }
+    if( minZ > maxZ ) { minZ = maxZ; }
+
+    // re-generate image
+    const newShape = new Vector3().set( maxX - minX + 1 , maxY - minY + 1 , maxZ - minZ + 1 );
+    const newLength = newShape.x * newShape.y * newShape.z * nTimeSlices;
+    if( image.length === newLength ) { return(this) }
+
+    let newImage = null;
+    if( this.dataIsInt8 ) {
+      newImage = new Int8Array(newLength);
+    } else if ( this.dataIsInt16 ) {
+      newImage = new Int16Array(newLength);
+    } else if ( this.dataIsInt32 ) {
+      newImage = new Int32Array(newLength);
+    } else if ( this.dataIsFloat32 ) {
+      newImage = new Float32Array(newLength);
+    } else if ( this.dataIsFloat64 ) {
+      newImage = new Float64Array(newLength);
+    } else if ( this.dataIsUInt8 ) {
+      newImage = new Uint8Array(newLength);
+    } else if ( this.dataIsUInt16 ) {
+      newImage = new Uint16Array(newLength);
+    } else if ( this.dataIsUInt32 ) {
+      newImage = new Uint32Array(newLength);
+    } else {
+      console.warn("NiftiImage: Cannot load NIFTI image data: the data type code is unsupported.")
+    }
+
+    let newii = 0;
+    const oldShapeX = this.shape.x,
+          oldShapeY = this.shape.y,
+          oldShapeZ = this.shape.z;
+    const oldNVoxelsAll = oldShapeX * oldShapeY * oldShapeZ,
+          oldNVoxelsXY = oldShapeX * oldShapeY;
+    for(let t = 0, newii = 0, indent = 0; t < nTimeSlices ; t++) {
+      for( let z = minZ; z <= maxZ; z++ ) {
+
+        indent = oldNVoxelsAll * t + oldNVoxelsXY * z;
+
+        for( let y = minY; y <= maxY; y++ ) {
+
+          ii = indent + oldShapeX * y + minX;
+          for( let x = minX; x <= maxX; x++, ii++, newii++ ) {
+
+            newImage[ newii ] = image[ ii ];
+
+          }
+        }
+      }
+    }
+
+    this.image = newImage;
+    this.shape.copy( newShape );
+
+    // calculate new affine
+    this.affine.multiply(
+      new Matrix4().set(
+        1, 0, 0, minX,
+        0, 1, 0, minY,
+        0, 0, 1, minZ,
+        0, 0, 0, 1
+      )
+    );
+
+    // ijkIndexOrder is safe
+
+    this.model2vox.set(
+      1, 0, 0, (this.shape.x - 1) / 2,
+      0, 1, 0, (this.shape.y - 1) / 2 ,
+      0, 0, 1, (this.shape.z - 1) / 2,
+      0, 0, 0, 1
+    );
+
+    // IJK to scanner RAS (of the image)
+    this.model2RAS.copy( this.affine ).multiply( this.model2vox );
+
+    return(this);
+
+  }
+
   dispose () {
     this.header = undefined;
     this.image = undefined;

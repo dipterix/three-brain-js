@@ -500,7 +500,7 @@ class DataCube extends AbstractThreeBrainObject {
     // set layer, add tp group
     this.object.forEach((plane) => {
 
-      this.set_layer( [], plane );
+      this.setLayers( [], plane );
 
       gp.add( plane );
       plane.userData.construct_params = this._params;

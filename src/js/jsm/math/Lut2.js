@@ -1,4 +1,4 @@
-import { Color } from 'three';
+import { Color, LinearSRGBColorSpace } from 'three';
 import { testColorString } from '../../utility/color.js';
 
 const ColorMapKeywords = {};
@@ -78,21 +78,38 @@ class Lut {
 
 		const step = 1.0 / this.n;
 
+    const minColor = new Color();
+		const maxColor = new Color();
+
 		this.lut.length = 0;
 
-		for ( let i = 0; i <= 1; i += step ) {
+		// sample at 0
+
+		this.lut.push( new Color( this.map[ 0 ][ 1 ] ) );
+
+    // sample at 1/n, ..., (n-1)/n
+		for ( let i = 1; i < count; i++ ) {
+
+		  const alpha = i * step;
 
 			for ( let j = 0; j < this.map.length - 1; j ++ ) {
 
-				if ( i >= this.map[ j ][ 0 ] && i < this.map[ j + 1 ][ 0 ] ) {
+				if ( alpha > this.map[ j ][ 0 ] && alpha <= this.map[ j + 1 ][ 0 ] ) {
 
 					const min = this.map[ j ][ 0 ];
 					const max = this.map[ j + 1 ][ 0 ];
 
-					const minColor = new Color( this.map[ j ][ 1 ] );
-					const maxColor = new Color( this.map[ j + 1 ][ 1 ] );
+					minColor.setHex( this.map[ j ][ 1 ], LinearSRGBColorSpace );
+					maxColor.setHex( this.map[ j + 1 ][ 1 ], LinearSRGBColorSpace );
 
-					const color = minColor.lerp( maxColor, ( i - min ) / ( max - min ) );
+					const color = new Color()
+					  .lerpColors( minColor, maxColor, ( alpha - min ) / ( max - min ) )
+					  .convertSRGBToLinear();
+
+					// const minColor = new Color( this.map[ j ][ 1 ] );
+					// const maxColor = new Color( this.map[ j + 1 ][ 1 ] );
+
+					// const color = minColor.lerp( maxColor, ( i - min ) / ( max - min ) );
 
 					this.lut.push( color );
 
@@ -101,6 +118,10 @@ class Lut {
 			}
 
 		}
+
+		// sample at 1
+
+		this.lut.push( new Color( this.map[ this.map.length - 1 ][ 1 ] ) );
 
 		return this;
 
@@ -293,6 +314,21 @@ addColorMapImpl(
     [ 0.7, 0xB2182B ], [ 0.8, 0xD6604D ], [ 0.9, 0xF4A582 ], [ 1.0, 0xFDDBC7 ]
   ]
 );
+
+
+addColorMapImpl(
+  'NipySpectral',
+  [
+    [ 0.0, 0x000000 ], [ 0.05, 0x770088 ], [ 0.1, 0x880099 ], [ 0.15, 0x0000AA ],
+    [ 0.2, 0x0000DD ], [ 0.25, 0x0077DD ], [ 0.3, 0x0099DD ], [ 0.35, 0x00AAAA ],
+    [ 0.4, 0x00AA88 ], [ 0.45, 0x009900 ], [ 0.5, 0x00BB00 ], [ 0.55, 0x00DD00 ],
+    [ 0.6, 0x00FF00 ], [ 0.65, 0xBBFF00 ], [ 0.7, 0xEEEE00 ], [ 0.75, 0xFFCC00 ],
+    [ 0.8, 0xFF9900 ], [ 0.85, 0xFF0000 ], [ 0.9, 0xDD0000 ], [ 0.95, 0xCC0000 ],
+    [ 1, 0xCCCCCC ]
+  ]
+);
+
+
 
 function addToColorMapKeywords( color_name, cmap_keys ) {
   if(ColorMapKeywords[color_name] === undefined){

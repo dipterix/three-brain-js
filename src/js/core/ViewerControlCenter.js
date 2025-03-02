@@ -1,9 +1,13 @@
 import { Vector3, Matrix4, Color, EventDispatcher } from 'three';
 import { CONSTANTS } from './constants.js';
+import { ensureObjectColorSettings } from './SharedSettings.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { copyToClipboard } from '../utility/copyToClipboard.js';
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { asColor } from '../utility/color.js';
+import { ColorMapKeywords, addToColorMapKeywords } from '../jsm/math/Lut2.js';
+import { testColorString } from '../utility/color.js';
+import { normalizeImageName } from '../utility/normalizeImageName.js';
 
 // 1. Background colors
 import { registerPresetBackground } from '../controls/PresetBackground.js';
@@ -61,8 +65,11 @@ import { registerPresetHiddenFeatures } from '../controls/PresetHiddenFeatures.j
 // const mouseMoveEvent = { type : "viewerApp.mouse.mousemove" };
 const mouseSingleClickEvent = { type : "viewerApp.mouse.singleClick" };
 const mouseDoubleClickEvent = { type : "viewerApp.mouse.doubleClick" };
+// const clearAllVolumeEvent = { type : "viewerApp.dragdrop.clearAllVolumes" };
+// const clearAllSurfaceEvent = { type : "viewerApp.dragdrop.clearAllSurfaces" };
 
 const keyDownEvent = { type : "viewerApp.keyboad.keydown" };
+const keyUpEvent = { type : "viewerApp.keyboad.keyup" };
 const animationFrameUpdateEvent = { type : "viewerApp.animationFrame.update" };
 
 const tmpVec3 = new Vector3();
@@ -137,6 +144,7 @@ class ViewerControlCenter extends EventDispatcher {
 
     // keyboard event dispatcher
     this.canvas.$el.addEventListener( "viewerApp.keyboad.keydown" , this._onKeyDown );
+    this.canvas.$el.addEventListener( "viewerApp.keyboad.keyup" , this._onKeyUp );
     this.canvas.$mainCanvas.addEventListener( 'mousemove', this._onMouseMove );
     this.canvas.$el.addEventListener( "viewerApp.mouse.click" , this._onClicked );
     this.canvas.$el.addEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
@@ -322,7 +330,7 @@ class ViewerControlCenter extends EventDispatcher {
         } else {
           zoom /= 1.2; // zoom out
         }
-        if( zoom > 10 ) { zoom = 10; }
+        if( zoom > CONSTANTS.MAIN_CAMERA_MAX_ZOOM ) { zoom = CONSTANTS.MAIN_CAMERA_MAX_ZOOM; }
         if( zoom < 0.5 ) { zoom = 0.5; }
         camera.zoom = zoom;
         camera.updateProjectionMatrix();
@@ -330,7 +338,54 @@ class ViewerControlCenter extends EventDispatcher {
       }
     });
 
+    // `r` to use ruler
+    const rulerRecord = {
+      lastNKnots : 0,
+      lastNAddedKnots: 0,
+      lastTime : Date.now()
+    };
+    this.bindKeyboard({
+      codes     : CONSTANTS.USE_RULER,
+      // shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      metaIsCtrl: false,
+      callback  : [
+        ( event ) => {
 
+          if( event.shiftKey ) {
+
+            // shift key is pressed, reset ruler
+            this.canvas.setRuler( 'reset' );
+            rulerRecord.lastNKnots = 0;
+
+          } else {
+
+            // if user double-pressed R:
+            // last cycle didn't add any knots
+            // and user clicked very quickly
+            if( rulerRecord.lastNAddedKnots === 0 && (Date.now() - rulerRecord.lastTime) < 200 ) {
+              this.canvas.setRuler( 'undo' );
+            }
+
+            // let canvas know to add clicks to the ruler
+            this.canvas.setRuler( 'enable' );
+
+          }
+
+        },
+        ( event ) => {
+          this.canvas.setRuler( 'disable' );
+          rulerRecord.lastTime = Date.now();
+          const nKnots = this.canvas.rulerHelper.knots.length;
+          rulerRecord.lastNAddedKnots = nKnots - rulerRecord.lastNKnots;
+          rulerRecord.lastNKnots = nKnots;
+        }
+      ]
+    });
+
+    // enable debug feature
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_DEBUG,
       shiftKey  : true,
@@ -345,6 +400,7 @@ class ViewerControlCenter extends EventDispatcher {
       }
     });
 
+    // Hidden gems!
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_HIDDEN_FEATURES,
       shiftKey  : true,
@@ -369,14 +425,12 @@ class ViewerControlCenter extends EventDispatcher {
 
   dispose() {
     this.canvas.$el.removeEventListener( "viewerApp.keyboad.keydown" , this._onKeyDown );
+    this.canvas.$el.removeEventListener( "viewerApp.keyboad.keyup" , this._onKeyUp );
     this.canvas.$mainCanvas.removeEventListener( 'mousemove', this._onMouseMove );
     this.canvas.$el.removeEventListener( "viewerApp.mouse.click" , this._onClicked );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setValue" , this._onDriveController );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
     this.canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
-    if( this.upLoadedFiles ) {
-      this.upLoadedFiles.clear();
-    }
     // this.canvas.$el.removeEventListener( "viewerApp.subject.changed", this.updateSelectorOptions );
   }
 
@@ -416,6 +470,12 @@ class ViewerControlCenter extends EventDispatcher {
     if( !ctrlChScan.isfake && ctrlChScan.$input ) {
       const crosshairScanner = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "Scanner" } );
       ctrlChScan.$input.value = `${crosshairScanner.x.toFixed(1)}, ${crosshairScanner.y.toFixed(1)}, ${crosshairScanner.z.toFixed(1)}`;
+    }
+
+    const ctrlChSurf = this.gui.getController( "Crosshair tkrRAS" );
+    if( !ctrlChSurf.isfake && ctrlChSurf.$input ) {
+      const crosshairSurface = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "tkrRAS" } );
+      ctrlChSurf.$input.value = `${crosshairSurface.x.toFixed(1)}, ${crosshairSurface.y.toFixed(1)}, ${crosshairSurface.z.toFixed(1)}`;
     }
 
   }
@@ -596,6 +656,10 @@ class ViewerControlCenter extends EventDispatcher {
 
   }
 
+  _onKeyUp = ( event ) => {
+    this.dispatchEvent( keyUpEvent );
+  }
+
   bindKeyboard({
     codes, callback, tooltip,
     shiftKey, ctrlKey, altKey,
@@ -607,6 +671,12 @@ class ViewerControlCenter extends EventDispatcher {
       codeArray = [ codes ];
     } else {
       codeArray = codes;
+    }
+    let onKeyDownCallback = callback,
+        onKeyUpCallback = null;
+    if(Array.isArray(callback)) {
+      onKeyDownCallback = callback[0];
+      onKeyUpCallback = callback[1];
     }
     this.addEventListener( "viewerApp.keyboad.keydown", ( event ) => {
       if( !codeArray.includes( event.code ) ) { return; }
@@ -620,15 +690,16 @@ class ViewerControlCenter extends EventDispatcher {
         if( ctrlKey !== undefined && ( event.ctrlKey !== ctrlKey ) ) { return; }
         if( metaKey !== undefined && ( event.metaKey !== metaKey ) ) { return; }
       }
-      callback( event );
+      onKeyDownCallback( event );
     });
-    if( typeof tooltip === "object" && tooltip !== null ) {
-      this.gui.addTooltip(
-        tooltip.key,
-        tooltip.name,
-        tooltip.folderName,
-        tooltip.title
-      );
+    if( typeof onKeyUpCallback === "function" ) {
+      this.addEventListener( "viewerApp.keyboad.keyup", ( event ) => {
+        onKeyUpCallback( event );
+      });
+    }
+    if( tooltip && typeof tooltip === "object" ) {
+      const controller = this.gui.getController( tooltip.name, tooltip.folderName );
+      controller.tooltip( tooltip.title, tooltip.key );
     }
   }
 
@@ -768,35 +839,421 @@ class ViewerControlCenter extends EventDispatcher {
     };
 
     // some extra information
-
-    const position = this.canvas.getSideCanvasCrosshairMNI305( new Vector3() );
-    const subject = this.canvas.get_state( "target_subject" );
-    const subjectData = this.canvas.shared_data.get( subject );
+    const position = new Vector3();
 
     // position is in tkrRAS
-    data.sliceCrosshair.tkrRAS = vector3ToString( position );
+    const tkrRAS = this.canvas.getSideCanvasCrosshair( position, { coordSys : "tkrRAS" } );
+    data.sliceCrosshair.tkrRAS = vector3ToString( tkrRAS );
 
     // position is in Scanner
-    position.applyMatrix4( subjectData.matrices.tkrRAS_Scanner );
-    data.sliceCrosshair.scannerRAS = vector3ToString( position );
+    const scanRAS = this.canvas.getSideCanvasCrosshair( position, { coordSys : "Scanner" } );
+    data.sliceCrosshair.scannerRAS = vector3ToString( scanRAS );
 
     // position is in MNI-305
-    position.applyMatrix4( subjectData.matrices.xfm );
-    data.sliceCrosshair.mni305RAS = vector3ToString( position );
+    const mni305 = this.canvas.getSideCanvasCrosshair( position, { coordSys : "MNI305" } );
+    data.sliceCrosshair.mni305RAS = vector3ToString( mni305 );
 
     // position is in MNI-152
-    position.applyMatrix4( new Matrix4().set(
-      0.9975,   -0.0073,  0.0176,   -0.0429,
-      0.0146,   1.0009,   -0.0024,  1.5496,
-      -0.0130,  -0.0093,  0.9971,   1.1840,
-      0,        0,        0,        1
-    ) );
-    data.sliceCrosshair.mni152RAS = vector3ToString( position );
+    const mni152 = this.canvas.getSideCanvasCrosshair( position, { coordSys : "MNI152" } );
+    data.sliceCrosshair.mni152RAS = vector3ToString( mni152 );
 
     if( saveToClipboard ) {
       copyToClipboard( JSON.stringify( data ) );
     }
     return data;
+  }
+
+  // ---- For handling drag & drop behaviors
+  // enables controlling of visibility
+  dragdropAddVisibilityController( inst, fileName ) {
+    const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const normalizedFileName = normalizeImageName( fileName );
+
+    let parentFolder;
+    if( inst.isDataCube2 || inst.isDataCube ) {
+      parentFolder = `${folderName} > Configure ROI Volumes`;
+    } else {
+      parentFolder = `${folderName} > Configure ROI Surfaces`;
+    }
+
+
+    const visibilityName = `Visibility - ${ normalizedFileName }`;
+    const innerFolderName = `${parentFolder} > ${normalizedFileName}`
+    const opts = ["visible", "hidden"];
+
+    // get default values
+    let defaultValue;
+    let defaultCtrl = this.gui.getController( "Visibility (all surfaces)", parentFolder, true );
+    if( defaultCtrl.isfake ) {
+      defaultCtrl = this.gui.getController( "Visibility (all volumes)", parentFolder, true );
+    }
+    if( !defaultCtrl.isfake ) {
+      defaultValue = defaultCtrl.getValue();
+    }
+    if( typeof defaultValue !== "string" || opts.indexOf( defaultValue ) === -1 ) {
+      defaultValue = "visible";
+    }
+
+    let ctrl = this.gui.getController( visibilityName, innerFolderName, true );
+    if( ctrl.isfake ) {
+      ctrl = this.gui.addController(
+        visibilityName, "visible",
+        {
+          args: opts,
+          folderName : innerFolderName
+        }
+      );
+    }
+    ctrl.onChange((v) => {
+      if(!v) { return; }
+      switch ( v ) {
+        case 'visible':
+          inst.forceVisible = true;
+          break;
+        case 'hidden':
+          inst.forceVisible = false;
+          break;
+        default:
+          // code
+      };
+      this.canvas.needsUpdate = true;
+    }).setValue(defaultValue);
+  }
+
+  // enables controlling of opacity
+  dragdropAddOpacityController( inst, fileName ) {
+    const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const normalizedFileName = normalizeImageName( fileName );
+
+    let parentFolder;
+    if( inst.isDataCube2 || inst.isDataCube ) {
+      parentFolder = `${folderName} > Configure ROI Volumes`;
+    } else {
+      parentFolder = `${folderName} > Configure ROI Surfaces`;
+    }
+
+    const innerFolderName = `${parentFolder} > ${normalizedFileName}`
+    const opacityName = `Opacity - ${ normalizedFileName }`;
+
+    // get default values
+    let defaultValue;
+    let defaultCtrl = this.gui.getController( "Opacity (all surfaces)", parentFolder, true );
+    if( defaultCtrl.isfake ) {
+      defaultCtrl = this.gui.getController( "Opacity (all volumes)", parentFolder, true );
+    }
+    if( !defaultCtrl.isfake ) {
+      defaultValue = defaultCtrl.getValue();
+    }
+    if( typeof defaultValue !== "number" ) {
+      defaultValue = 1.0;
+    }
+
+    let ctrl = this.gui.getController( opacityName, innerFolderName, true );
+    if( ctrl.isfake ) {
+      ctrl = this.gui.addController(
+        opacityName, 1,
+        {
+          folderName : innerFolderName
+        }
+      ).min(0).max(1).step(0.1);
+    }
+
+    if( inst.isDataCube2 ) {
+      ctrl.onChange(v => {
+        inst.setOpacity( v );
+        this.canvas.needsUpdate = true;
+      }).setValue( defaultValue );
+    } else {
+      ctrl.onChange(v => {
+        if(!v) { v = 0; }
+        if( v < 0.99 ) {
+          inst.object.material.transparent = true;
+          inst.object.material.opacity = v;
+        } else {
+          inst.object.material.transparent = false;
+        }
+        this.canvas.needsUpdate = true;
+      }).setValue( defaultValue );
+    }
+
+
+  }
+
+  // for continuous data, clipping
+  dragdropAddValueClippingController( inst, fileName ) {
+    // TODO: support these formats
+    // if( !inst.isDataCube2 && !inst.isFreeMesh ) { return; }
+
+    const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const normalizedFileName = normalizeImageName( fileName );
+
+    let parentFolder;
+    if( inst.isDataCube2 || inst.isDataCube ) {
+      parentFolder = `${folderName} > Configure ROI Volumes`;
+    } else {
+      parentFolder = `${folderName} > Configure ROI Surfaces`;
+    }
+
+    const innerFolderName = `${parentFolder} > ${normalizedFileName}`
+
+    if ( inst.isDataCube2 ) {
+
+      // get default values
+      let lb = inst.__dataLB,
+          ub = inst.__dataUB,
+          range = inst._selectedDataValues;
+      let currentLB = typeof range[ 0 ] === 'number' ? range[ 0 ] : lb;
+      let currentUB = typeof range[ 1 ] === 'number' ? range[ 1 ] : ub;
+      let controllerName = `Clipping Min - ${ normalizedFileName }`;
+      let ctrl = this.gui.getController( controllerName, innerFolderName, true );
+      if( ctrl.isfake ) {
+        ctrl = this.gui.addController( controllerName, currentLB, { folderName : innerFolderName } );
+      }
+      ctrl.min(lb).max(ub).step(0.05)
+        .onChange( async (v) => {
+          if( typeof v !== "number" ) { return; }
+          currentLB = v;
+          inst._filterDataContinuous( currentLB, currentUB );
+          this.canvas.needsUpdate = true;
+        });
+
+
+      controllerName = `Clipping Max - ${ normalizedFileName }`;
+      ctrl = this.gui.getController( controllerName, innerFolderName, true );
+      if( ctrl.isfake ) {
+        ctrl = this.gui.addController( controllerName, currentUB, { folderName : innerFolderName } );
+      }
+      ctrl.min(lb).max(ub).step(0.05)
+        .onChange( async (v) => {
+          if( typeof v !== "number" ) { return; }
+          currentUB = v;
+          inst._filterDataContinuous( currentLB, currentUB );
+          this.canvas.needsUpdate = true;
+        });
+
+    } else {
+
+      // Surface
+      let vmin = inst.state.overlay.vmin,
+          vmax = inst.state.overlay.vmax,
+          cutoffVMin = inst.state.overlay.vmin,
+          cutoffVMax = inst.state.overlay.vmax,
+          dynamicColorRange = false;
+
+      const setClippingValues = (args) => {
+        if( args && typeof args === "object" ) {
+          if( typeof args.cutoffVMin === "number" ) {
+            cutoffVMin = args.cutoffVMin;
+          }
+          if( typeof args.cutoffVMax === "number" ) {
+            cutoffVMax = args.cutoffVMax;
+          }
+          if( typeof args.dynamicColorRange === "boolean" ) {
+            dynamicColorRange = args.dynamicColorRange;
+          }
+        }
+        inst.setColors( null, {
+          isContinuous : true,
+          overlay : true,
+          minValue : vmin, maxValue : vmax,
+          cutoffVMin : cutoffVMin,
+          cutoffVMax : cutoffVMax,
+          dynamicColorRange : dynamicColorRange,
+          dataName: "[custom measurement]",
+        });
+        this.canvas.needsUpdate = true;
+      }
+
+      let controllerName = `Clipping Min - ${ normalizedFileName }`;
+      let ctrl = this.gui.getController( controllerName, innerFolderName, true );
+      if( ctrl.isfake ) {
+        ctrl = this.gui.addController( controllerName, cutoffVMin, { folderName : innerFolderName } );
+      }
+      ctrl.max(vmax).step(0.01)
+        .onChange( async (v) => {
+          setClippingValues({ cutoffVMin : v });
+        })
+        .setValue(cutoffVMin);
+
+      controllerName = `Clipping Max - ${ normalizedFileName }`;
+      ctrl = this.gui.getController( controllerName, innerFolderName, true );
+      if( ctrl.isfake ) {
+        ctrl = this.gui.addController( controllerName, cutoffVMax, { folderName : innerFolderName } );
+      }
+      ctrl.min(vmin).step(0.01)
+        .onChange( async (v) => {
+          setClippingValues({ cutoffVMax : v });
+        })
+        .setValue(cutoffVMax);
+
+      controllerName = `Dynamic Color - ${ normalizedFileName }`;
+      ctrl = this.gui.getController( controllerName, innerFolderName, true );
+      if( ctrl.isfake ) {
+        ctrl = this.gui.addController( controllerName, false, { folderName : innerFolderName } );
+      }
+      ctrl.onChange( async (v) => {
+        setClippingValues({ dynamicColorRange : v });
+      })
+      .setValue(dynamicColorRange);
+
+      // setClippingValues();
+
+    }
+
+
+  }
+
+  // For handling single plain color
+  dragdropAddColorController( inst, fileName, currentColorMode ) {
+
+    const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const normalizedFileName = normalizeImageName( fileName );
+
+    let parentFolder;
+    if( inst.isDataCube2 || inst.isDataCube ) {
+      parentFolder = `${folderName} > Configure ROI Volumes`;
+    } else {
+      parentFolder = `${folderName} > Configure ROI Surfaces`;
+    }
+    const innerFolderName = `${parentFolder} > ${normalizedFileName}`
+    const colorSettings = ensureObjectColorSettings( fileName );
+
+    let colorModes;
+
+    if( inst.isDataCube2 ) {
+      colorModes = ["single color", "continuous", "discrete"];
+      if( typeof currentColorMode !== "string" ) {
+        currentColorMode = inst.isDataContinuous ? "continuous" : "discrete";
+      }
+    } else {
+      colorModes = ["single color", "continuous"];
+      if( typeof currentColorMode !== "string" ) {
+        currentColorMode = "single color";
+      }
+    }
+
+    const colorModeCtrl = this.gui
+      .getOrAddController(`Color Mode - ${ normalizedFileName }`, currentColorMode, {
+        args: colorModes,
+        folderName : innerFolderName,
+        force : true
+      });
+
+    // Single color (fileName already normalized)
+    const singleColorCtrl = this.gui
+      .getOrAddController(`Color - ${ normalizedFileName }`, colorSettings.single, {
+        isColor: true,
+        folderName : innerFolderName
+      })
+      .onChange( v => {
+        if( !testColorString(v) ) { return; }
+        if( currentColorMode !== "single color" ) { return; }
+        colorSettings.single = v;
+
+        if( inst.isFreeMesh ) {
+          inst._materialColor.set( v );
+          inst.object.material.vertexColors = false;
+        } else if( inst.isDataCube2 ) {
+          const lut = this.continuousLookUpTables.default;
+          inst.useColorLookupTable( lut, v );
+        }
+
+        this.canvas.needsUpdate = true;
+      })
+      .hide();
+
+    const continuousColorCtrl = this.gui
+      .getOrAddController(`Color Map (Continuous) - ${ normalizedFileName }`, colorSettings.continuous, {
+        args: [...Object.keys( ColorMapKeywords )],
+        folderName : innerFolderName,
+        force : true
+      })
+      .onChange( async (v) => {
+
+        if( currentColorMode !== "continuous" ) { return; }
+        if( !ColorMapKeywords[ v ] ) { return; }
+
+        if( inst.isDataCube2 ) {
+          const lut = this.continuousLookUpTables.default;
+          inst.useColorLookupTable( lut, v );
+          colorSettings.continuous = v;
+        } else if ( inst.isFreeMesh ) {
+          try {
+            const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom measurement]`];
+            inst.state.defaultColorMap = v;
+            inst.setColors( data.vertexData, {
+              isContinuous : true,
+              overlay : true,
+              continuousColorMapName: v,
+              dataName: "[custom measurement]",
+              minValue: data.min,
+              maxValue: data.max,
+            });
+            inst._materialColor.set( "#FFFFFF" );
+            inst.object.material.vertexColors = true;
+
+            this.gui.getController("Vertex Data").setValue("[custom measurement]");
+
+          } catch (e) {}
+          colorSettings.continuous = v;
+        }
+
+        this.canvas.needsUpdate = true;
+
+      }).hide();
+
+    const discreteColorCtrl = this.gui
+      .getOrAddController(`Color Map (Discrete) - ${ normalizedFileName }`, colorSettings.discrete, {
+        args: [...Object.keys( this.discreteLookUpTables )],
+        folderName : innerFolderName,
+        force : true
+      })
+      .onChange( async (v) => {
+
+        if( currentColorMode !== "discrete" ) { return; }
+        const lut = this.discreteLookUpTables[ v ];
+        if( !lut ) { return; }
+
+        if( inst.isDataCube2 ) {
+          inst.useColorLookupTable( lut, v );
+          colorSettings.discrete = v;
+        }
+
+        this.canvas.needsUpdate = true;
+      }).hide();
+
+    colorModeCtrl.onChange(v => {
+      if( typeof v !== "string" ) { return; }
+      if( colorModes.indexOf(v) === -1 ) { return; }
+
+      currentColorMode = v;
+      switch ( v ) {
+        case 'single color':
+          singleColorCtrl.show().setValue( colorSettings.single );
+          continuousColorCtrl.hide();
+          discreteColorCtrl.hide();
+          break;
+
+        case 'continuous':
+          singleColorCtrl.hide();
+          continuousColorCtrl.show().setValue( colorSettings.continuous );
+          discreteColorCtrl.hide();
+          break;
+
+        case 'discrete':
+          singleColorCtrl.hide();
+          continuousColorCtrl.hide();
+          discreteColorCtrl.show().setValue( colorSettings.discrete );
+          break;
+
+        default:
+          // code
+      }
+    });
+
+    // initialize
+    colorModeCtrl.setValue( currentColorMode );
+
   }
 
 }

@@ -182,20 +182,31 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const tmpVec3 = new Vector3();
     const tmpMat4 = new Matrix4();
 
+    const parseRASString = (v) => {
+      const va = v.split(/[, ]+/g);
+      if( va.length != 3 ) { return; }
+      for(let i = 0; i < 3; i++) {
+        const tmp = parseFloat(va[i]);
+        if(isNaN(tmp)) { return; }
+        va[i] = tmp;
+      }
+      return va;
+    };
+
     this.gui
-      .addController( 'Crosshair ScanRAS', "0.00, 0.00, 0.00", { folderName: folderName } )
+      .addController(
+        'Crosshair ScanRAS', "0.00, 0.00, 0.00",
+        {
+          folderName: folderName,
+          tooltip : "Scanner (T1 MRI) RAS coordinate"
+        })
       .onChange(v => {
 
         const worldToScanner = this.canvas.get_state("tkrRAS_Scanner");
         if(!worldToScanner || !worldToScanner.isMatrix4) { return; }
 
-        const va = v.split(/[, ]+/g);
-        if( va.length != 3 ) { return; }
-        for(let i = 0; i < 3; i++) {
-          const tmp = parseFloat(va[i]);
-          if(isNaN(tmp)) { return; }
-          va[i] = tmp;
-        }
+        const va = parseRASString(v);
+        if(!va) { return; }
 
         tmpMat4.copy(worldToScanner).invert();
 
@@ -207,19 +218,38 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
       });
 
     this.gui
-      .addController( 'Affine MNI152', "0.00, 0.00, 0.00", { folderName: folderName } )
+      .addController(
+        'Crosshair tkrRAS', "0.00, 0.00, 0.00",
+        {
+          folderName: folderName,
+          tooltip : "FreeSurfer tk-registered surface RAS coordinate"
+        })
+      .onChange(v => {
+
+        const va = parseRASString(v);
+        if(!va) { return; }
+
+        // set crosshair
+        tmpVec3.fromArray(va);
+
+        tmpVec3.centerCrosshair = true;
+        this.canvas.setSliceCrosshair( tmpVec3 );
+      });
+
+    this.gui
+      .addController(
+        'Affine MNI152', "0.00, 0.00, 0.00",
+        {
+          folderName: folderName,
+          tooltip : "MNI152 coordinate with affine transform (coarse estimate)"
+        })
       .onChange(v => {
 
         const worldToMNI305 = this.canvas.get_state("tkrRAS_MNI305");
         if(!worldToMNI305 || !worldToMNI305.isMatrix4) { return; }
 
-        const va = v.split(/[, ]+/g);
-        if( va.length != 3 ) { return; }
-        for(let i = 0; i < 3; i++) {
-          const tmp = parseFloat(va[i]);
-          if(isNaN(tmp)) { return; }
-          va[i] = tmp;
-        }
+        const va = parseRASString(v);
+        if(!va) { return; }
 
         const MNI152ToWorld = tmpMat4.copy(worldToMNI305)
           .premultiply( CONSTANTS.MNI305_to_MNI152 )

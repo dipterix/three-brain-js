@@ -1,5 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
-
+import { ColorMapKeywords } from '../jsm/math/Lut2.js';
 
 // 17. Voxel color type
 
@@ -54,7 +54,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       const dataCubeInstance = this.getActiveDataCube2();
       if( !dataCubeInstance || !dataCubeInstance.isDataCube2 ) {
         // hide selection controllers
-        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
+        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max', 'Component Index',
+                                  'Voxel Cmap', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
       } else {
 
         // Hold palette so it does not update
@@ -81,7 +82,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             }
           }
 
-          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
+          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'Component Index',
+                                    'Voxel Cmap', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
           this.gui.hideControllers(['Voxel Label'], folderName);
           // update controllers' min, max, steps
           ctrlContinuousThresholdLB.min( lb ).max( ub )
@@ -90,11 +92,12 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
           ctrlContinuousThresholdUB.min( lb ).max( ub )
             .step( (ub - lb) / ( nColorKeys - 1 ) )
             .setValue( voxelUB ).updateDisplay();
+          ctrlContinuousColorMap.setValue("unset");
           delete dataCubeInstance._holdePalette;
           applyContinuousSelection();
         } else {
-          this.gui.showControllers(['Voxel Display', 'Voxel Label'], folderName);
-          this.gui.hideControllers(['Voxel Min', 'Voxel Max', 'Symmetric Color Map'], folderName);
+          this.gui.showControllers(['Voxel Display', 'Voxel Label', 'Component Index'], folderName);
+          this.gui.hideControllers(['Voxel Min', 'Voxel Max', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
           const previousLabel = this._voxelLabelCache[ v ];
 
           if( typeof previousLabel === 'string' ) {
@@ -107,6 +110,10 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             applyDiscreteSelection();
           }
         }
+
+        // set & reset components
+        const maxComponents = dataCubeInstance.getMaxComponents();
+        ctrlComponentIndex.max(maxComponents - 1).step(1).setValue(0);
 
       }
 
@@ -242,6 +249,51 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         ctrlISOSurface.setValue( false );
       });
 
+    const ctrlComponentIndex = this.gui
+      .addController('Component Index', 0, { folderName : folderName })
+      .min(0).max(0).step(1)
+      .onChange(v => {
+        if( typeof v !== "number" || v < 0 ) { return; }
+        const dataCubeInstance = this.getActiveDataCube2();
+        if( !dataCubeInstance ) { return; }
+        dataCubeInstance.componentIndex = v;
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    const continuousColorMaps = ["unset", ...Object.keys(ColorMapKeywords)];
+    const ctrlContinuousColorMap = this.gui
+      .addController('Voxel Cmap', "unset", { args: continuousColorMaps, folderName : folderName })
+      .onChange( async ( v ) => {
+        if( v === "unset" || continuousColorMaps.indexOf(v) < 0 ) { return; }
+        const dataCubeInstance = this.getActiveDataCube2();
+        if( !dataCubeInstance ) { return; }
+        const lut = dataCubeInstance.lut;
+        if( !lut || lut.mapDataType !== "continuous" ) { return; }
+        dataCubeInstance.useColorLookupTable( lut, v );
+        this.canvas.set_state( "surface_color_refresh", Date() );
+
+        ctrlISOSurface.setValue( false );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.gui
+      .addController('Dynamic Color Map', false, { folderName : folderName })
+      .onChange(v => {
+        if( v ) {
+          this.canvas.set_state("dynamicColorDataCube2", true);
+        } else {
+          this.canvas.set_state("dynamicColorDataCube2", false);
+        }
+
+        applyContinuousSelection();
+        ctrlISOSurface.setValue( false );
+
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
     this.gui
       .addController('Symmetric Color Map', false, { folderName : folderName })
       .onChange(v => {
@@ -335,7 +387,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         ctrlISOSurface.setValue( false );
       }
       this.canvas.needsUpdate = true;
-    },{ folderName : folderName });
+    }, { folderName : folderName });
 
     const $ctrlISOWrapper = document.createElement("div");
     $ctrlISOWrapper.classList.add("widget");

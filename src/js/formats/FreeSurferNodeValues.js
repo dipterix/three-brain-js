@@ -38,6 +38,7 @@ class FreeSurferNodeValues {
     this.min = min;
 
     this.isFreeSurferNodeValues = true;
+    this.isSurfaceMeasurement = true;
 
     if( this.nFrames > 0 ) {
       this.setFrame( 0 );
@@ -76,6 +77,7 @@ class FreeSurferNodeValues {
     this.min = el.min;
 
     this.isFreeSurferNodeValues = true;
+    this.isSurfaceMeasurement = true;
     return this;
   }
 

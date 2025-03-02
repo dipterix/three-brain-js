@@ -543,7 +543,7 @@ class CanvasFileLoader2 extends Loader {
   					});
   				break;
   			case 'json':
-  			  p = response.json();
+  			  p = response.text().then(JSON.parse);
   			  break;
   			default:
   			  p = response.text();

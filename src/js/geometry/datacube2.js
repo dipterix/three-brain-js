@@ -31,6 +31,13 @@ class DataCube2 extends AbstractThreeBrainObject {
     this._selectedDataValues[ 0 ] = dataLB;
     this._selectedDataValues[ 1 ] = dataUB;
 
+    let valueCutLB = this.__dataLB,
+        valueCutUB = this.__dataUB;
+    if( this._canvas.get_state("dynamicColorDataCube2", false) ) {
+      valueCutLB = dataLB;
+      valueCutUB = dataUB;
+    }
+
     // calculate voxelData -> colorKey transform
     let data2ColorKeySlope = 1,
         // slope when colorkey is symmetric
@@ -44,13 +51,13 @@ class DataCube2 extends AbstractThreeBrainObject {
       }
       data2ColorKeyIntercept = this.lutMinColorID;
 
-      if( this.__dataUB > symValue ) {
-        data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - symValue);
+      if( valueCutLB > symValue ) {
+        data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (valueCutLB - symValue);
       } else {
         data2ColorKeySlope = 0;
       }
-      if( this.__dataLB < symValue ) {
-        data2ColorKeySlopeNeg = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataLB - symValue);
+      if( valueCutUB < symValue ) {
+        data2ColorKeySlopeNeg = (this.lutMaxColorID - this.lutMinColorID) / (valueCutUB - symValue);
       } else {
         data2ColorKeySlopeNeg = 0;
       }
@@ -63,8 +70,8 @@ class DataCube2 extends AbstractThreeBrainObject {
       }
 
     } else {
-      data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (this.__dataUB - this.__dataLB);
-      data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (this.__dataLB + this.__dataUB)) / 2.0;
+      data2ColorKeySlope = (this.lutMaxColorID - this.lutMinColorID) / (valueCutUB - valueCutLB);
+      data2ColorKeyIntercept = (this.lutMinColorID + this.lutMaxColorID - data2ColorKeySlope * (valueCutUB + valueCutLB)) / 2.0;
 
       voxelValueToKeyIndex = ( voxelValue ) => {
         return Math.round(voxelValue * data2ColorKeySlope + data2ColorKeyIntercept)
@@ -97,8 +104,9 @@ class DataCube2 extends AbstractThreeBrainObject {
           for ( let x = 0; x < this.modelShape.x; x++, voxelIndex++ ) {
             // no need to round up as this has been done in the constructor
             voxelValue = voxelData[ voxelIndex + voxelIndexOffset ];
-            if( voxelValue < dataLB || voxelValue > dataUB) {
-              // hide this voxel as it's beyong threshold
+            if( voxelValue < dataLB || voxelValue > dataUB || voxelValue === 0 ) {
+              // hide this voxel as it's beyond threshold
+              // 0 is treated as invalid as well
               voxelColor[ voxelIndex ] = 0;
             } else {
               voxelColorKey = voxelValueToKeyIndex( voxelValue );
@@ -367,6 +375,29 @@ class DataCube2 extends AbstractThreeBrainObject {
   }
   */
 
+  getMaxComponents() {
+    return (this.voxelData.length / this.nVoxels);
+  }
+
+  get componentIndex() {
+    return this._timeSlice ?? 0;
+  }
+
+  set componentIndex(v) {
+    if( typeof v !== "number" ) {
+      throw "Cannot set (f)MRI component index to be non-number."
+    }
+    const maxComponents = this.getMaxComponents();
+    v = Math.floor(v);
+    if( isNaN(v) || v < 0 ) {
+      v = 0;
+    } else if (v >= maxComponents) {
+      v = maxComponents - 1;
+    }
+    this._timeSlice = v;
+    this.updatePalette( null , v );
+  }
+
   createISOSurface () {
     // const surfaceParams = this._computeISOSurfaceUnnormalized( lowerBound, upperBound );
     const singleChannel = this.colorFormat === RedFormat;
@@ -628,6 +659,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     // this.group_name = this._params.group.group_name;
 
     this.type = 'DataCube2';
+    this.rayCasterEligible = false;
     this.isDataCube2 = true;
     this.isoSurface = null;
     this._display_mode = "hidden";
@@ -658,6 +690,9 @@ class DataCube2 extends AbstractThreeBrainObject {
     // Need to check if this is VolumeCube2
     if( g.isVolumeCube2 ) {
       const niftiData = g.imageObject ?? canvas.get_data("volume_data", g.name, g.group.group_name);
+      if( niftiData.isNiftiImage ) {
+        niftiData.trimToBoundingBox();
+      }
       this.voxelData = niftiData.image;
       // width, height, depth of the model (not in world)
       this.modelShape = new Vector3().copy( niftiData.shape );
@@ -670,7 +705,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
       if( transformSpaceFrom === "model" ) {
         // Ignore this comment
-        // special:: this is MGH data and transfor is embedded
+        // special:: this is MGH data and transform is embedded
         // if niftiData.model2tkrRAS && niftiData.model2tkrRAS.isMatrix4
         // this._transform.copy( niftiData.model2tkrRAS );
 
@@ -750,7 +785,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       // grayscale = ( data - this.__dataLB ) / ( this.__dataUB - this.__dataLB ) * 255
 
       this.__dataLB = ( this._originalData.calMin - this._originalData.intercept ) / this._originalData.slope;
-      this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope + 1;
+      this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope;
 
       this._selectedDataValues.length = 2;
       this._selectedDataValues[ 0 ] = this.__dataLB;
@@ -847,6 +882,10 @@ class DataCube2 extends AbstractThreeBrainObject {
 
         // this._map_data = undefined;
         // this.voxelData = undefined;
+        const dataCube2List = this._canvas.atlases.get( this.subject_code )
+        if( dataCube2List[ this.name ] === this ) {
+          delete dataCube2List[ this.name ];
+        }
       }
     } catch (e) {}
 
@@ -1072,7 +1111,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       lut.mapMaxColorID !== undefined && lut.mapMinColorID !== undefined
     ) {
       const isDataContinuous = lut.mapDataType === "continuous";
-      const nColors = isDataContinuous ? 128 : 1;
+      const nColors = isDataContinuous ? 256 : 1;
       this.lut = lut;
       this.lutMap = this.lut.map;
       this.lutMaxColorID = this.lut.mapMaxColorID;
@@ -1111,7 +1150,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
       if( this.isDataContinuous ) {
         this.__dataLB = ( this._originalData.calMin - this._originalData.intercept ) / this._originalData.slope;
-        this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope + 1;
+        this.__dataUB = ( this._originalData.calMax - this._originalData.intercept ) / this._originalData.slope;
 
         this._selectedDataValues.length = 2;
         this._selectedDataValues[ 0 ] = this.__dataLB;

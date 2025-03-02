@@ -107,6 +107,7 @@ class MouseKeyboard extends ThrottledEventDispatcher {
       "click", this._onMainCanvasClicked );
 
     document.addEventListener( 'keydown', this._onKeydown, { capture : true } );
+    document.addEventListener( 'keyup', this._onKeyup, { capture : true } );
 
   }
 
@@ -130,6 +131,7 @@ class MouseKeyboard extends ThrottledEventDispatcher {
     this._app.canvas.$mainCanvas.removeEventListener( "click", this._onMainCanvasClicked );
 
     document.removeEventListener( 'keydown', this._onKeydown );
+    document.removeEventListener( 'keyup', this._onKeyup );
 
     this.mouseLocation = MouseKeyboard.OFF_VIEWER;
   }
@@ -213,6 +215,16 @@ class MouseKeyboard extends ThrottledEventDispatcher {
     // event.preventDefault();
     this.dispatch({
       type      : "viewerApp.keyboad.keydown",
+      data      : event,
+      immediate : true,
+      muffled   : true
+    });
+  }
+
+  _onKeyup = ( event ) => {
+    // event.preventDefault();
+    this.dispatch({
+      type      : "viewerApp.keyboad.keyup",
       data      : event,
       immediate : true,
       muffled   : true

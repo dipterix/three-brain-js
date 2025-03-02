@@ -152,6 +152,7 @@ class FreeSurferAnnot {
     this.vertexColor = new Uint8Array( rgba32.buffer );
 
     this.isFreeSurferAnnot = true;
+    this.isSurfaceAnnotation = true;
 
     this.isInvalid = false;
 
@@ -169,6 +170,8 @@ class FreeSurferAnnot {
     this.vertexColor = el.vertexColor;
 
     this.isFreeSurferAnnot = true;
+    this.isSurfaceAnnotation = true;
+
     return this;
   }
 

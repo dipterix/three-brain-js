@@ -481,7 +481,8 @@ function registerPresetSurface( ViewerControlCenter ){
       });
     });
     const annotationList = Object.keys( _annotationCounts );
-    annotationList.push("[custom]");
+    annotationList.push("[custom measurement]");
+    annotationList.push("[custom annotation]");
 
     const ctrlVertAnnot = this.gui
       .addController("Vertex Data", '[none]', {

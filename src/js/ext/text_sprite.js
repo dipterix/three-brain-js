@@ -119,6 +119,11 @@ class Sprite2 extends Sprite {
     }
 
   }
+
+
+  updateScale( v ) {
+    this.material.map.updateScale( v );
+	}
 }
 
 class TextTexture extends Texture {
@@ -129,14 +134,21 @@ class TextTexture extends Texture {
   } = {} ) {
 
     const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    text = text ?? " ";
+    canvas.width = Math.ceil( context.measureText(text).width );
+    canvas.height = size;
     super( canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy );
 
     // this._text = text || " ";
     this._size = Math.ceil( size );
     this._canvas = canvas;
+
+    // const textLength = (text || " ").length;
     // this._canvas.height = this._size;
-    // this._canvas.width = Math.ceil( this._text.length * this._size * 0.6 );
-    this._context = this._canvas.getContext("2d");
+    // this._canvas.width = Math.ceil( textLength * this._size * 0.6 );
+    this._context = context;
+    this._asp = 1;
     // this._context.font = `${this._size}px ${font}`;
     // this._context.fillText( this._text, 0, this._size * 26 / 32);
     this._font = font;
@@ -157,7 +169,7 @@ class TextTexture extends Texture {
         this.object.scale.z = v;
       }
       const base_scale = this.object.scale.z;
-      this.object.scale.x = this._text.length * 0.6 * this.object.scale.z;
+      this.object.scale.x = this._asp * this.object.scale.z;
       this.object.scale.y = 1 * this.object.scale.z;
     }
 	}
@@ -202,7 +214,10 @@ class TextTexture extends Texture {
     }
 	  this._text = this.text;
 
-    this._canvas.width = Math.ceil( this._text.length * this._size * 0.6 );
+	  const maxWidth = Math.ceil( this._context.measureText(this._text).width );
+	  this._asp = maxWidth / this._size;
+
+    this._canvas.width = maxWidth
     this._canvas.height = this._size;
     // this._context.clearRect( 0 , 0 , this._canvas.width , this._canvas.height );
     this._context.fillStyle = 'rgba( 0, 0, 0, 0 )';
@@ -211,7 +226,7 @@ class TextTexture extends Texture {
     this._context.fillStyle = this._color;
     this._context.shadowBlur = this._shadow_blur || 0;
     this._context.shadowColor = this._shadow_color;
-    this._context.fillText(this._text, 0, this._size * 26 / 32);
+    this._context.fillText(this._text, 0, this._size * 26 / 32, maxWidth);
     this.needsUpdate = true;
 
     this.updateScale();

@@ -344,7 +344,7 @@ function getVoxelBlobCenter({
 
   if( totalWeights > 0 ) {
     ijk3.multiplyScalar( 1 / totalWeights );
-    console.log([ ijk3.x, ijk3.y, ijk3.z ]);
+    // console.log([ ijk3.x, ijk3.y, ijk3.z ]);
 
     ijk.add( ijk3 );
   }

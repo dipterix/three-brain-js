@@ -474,7 +474,7 @@ const OrthographicTrackballControls = function ( object, domElement ) {
 
       let axis = 0;
       if( event.shiftKey ) {
-        console.log([event.altKey, event.ctrlKey, event.metaKey]);
+        // console.log([event.altKey, event.ctrlKey, event.metaKey]);
         if( event.altKey ) {
           axis = 2;
         } else {
@@ -516,7 +516,7 @@ const OrthographicTrackballControls = function ( object, domElement ) {
 
 		  let axis = 0;
       if( event.shiftKey ) {
-        console.log([event.altKey, event.ctrlKey, event.metaKey]);
+        // console.log([event.altKey, event.ctrlKey, event.metaKey]);
         if( event.altKey ) {
           axis = 2;
         } else {

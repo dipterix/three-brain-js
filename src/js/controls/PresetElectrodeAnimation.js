@@ -103,8 +103,10 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     this.ctrlClipName = this.gui
       .addController(
         'Display Data', initial,
-        { folderName : folderName, args : names , object : this.animParameters.object },
-        CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION)
+        {
+          folderName : folderName, args : names ,
+          object : this.animParameters.object,
+        })
       .onChange((v) => {
         if( !this.animClipNames.includes(v) ) { return; }
         this.changeAnimClip( v );
@@ -308,8 +310,10 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     this.ctrlAnimPlay = this.gui
       .addController(
         'Play/Pause', false,
-        { folderName : folderName, object : this.animParameters.object },
-        CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION )
+        {
+          folderName : folderName,
+          object : this.animParameters.object,
+        })
       .onChange(v => {
         if(v){
           this.canvas._renderFlag = this.canvas._renderFlag | CanvasState.Animate;

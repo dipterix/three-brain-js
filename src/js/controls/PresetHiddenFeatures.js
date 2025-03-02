@@ -12,12 +12,12 @@ function registerPresetHiddenFeatures( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'hidden-features' ];
 
     const ctrlMorphTarget = this.gui
-      .addController('Underlay Threshold', 0.5,
-                      { folderName : folderName },
-                      {
-                        // tooltip
-                        text : "Credit: this feature was requested by Dr. Yvonne Y. Chen."
-                      })
+      .addController(
+        'Underlay Threshold', 0.5,
+        {
+          folderName : folderName,
+          tooltip : "Credit: this feature was requested by Dr. Yvonne Y. Chen."
+        })
       .min( 0.0 ).max( 1.0 ).step( 0.01 )
       .onChange((v) => {
 
@@ -30,25 +30,29 @@ function registerPresetHiddenFeatures( ViewerControlCenter ){
 
       for(let hemi in pialSurfaces) {
         const geometry = pialSurfaces[ hemi ].geometry;
-        const primaryColor = geometry.getAttribute("color"),
-              underlayColor = geometry.getAttribute("underlayColor");
-        const primaryArray = primaryColor.array,
-              underlayArray = underlayColor.array;
+        const overlayColor = geometry.getAttribute("overlayColor"),
+              underlayColor = geometry.getAttribute("color");
+        const underlayArray = underlayColor.array,
+              underlayItemSize = underlayColor.itemSize,
+              overlayArray = overlayColor.array,
+              overlayItemSize = overlayColor.itemSize;
+
 
         for(let i = 0; i < underlayColor.count; i++) {
-          const c = underlayArray[ i * 3 ];
+          const c = underlayArray[ i * underlayItemSize ];
+          const oi = i * overlayItemSize;
           if( c < v ) {
-            primaryArray[ i * 4 ] = g;
-            primaryArray[ i * 4 + 1 ] = g;
-            primaryArray[ i * 4 + 2 ] = g;
+            overlayArray[ oi ] = g;
+            overlayArray[ oi + 1 ] = g;
+            overlayArray[ oi + 2 ] = g;
           } else {
-            primaryArray[ i * 4 ] = c;
-            primaryArray[ i * 4 + 1 ] = c;
-            primaryArray[ i * 4 + 2 ] = c;
+            overlayArray[ oi ] = c;
+            overlayArray[ oi + 1 ] = c;
+            overlayArray[ oi + 2 ] = c;
           }
         }
 
-        primaryColor.needsUpdate = true;
+        overlayColor.needsUpdate = true;
       }
 
       this.broadcast();

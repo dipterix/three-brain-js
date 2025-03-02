@@ -228,10 +228,11 @@ class NamedLut extends Lut {
 
     if( map.length ) {
       if( this.isContinuous ) {
-        this.setColorMap( map, map.length );
+        this.setColorMap( map, map.length - 1 );
       } else {
+        // then the colors at keys will be exactly the map colors
+        this.setColorMap( map, this.keys.length );
         if( map.length > this.keys.length ) {
-          // then the colors at keys will be exactly the map colors
           this.setColorMap( map, map.length - 1 );
         } else {
           this.setColorMap( map, this.keys.length );
@@ -260,7 +261,7 @@ class NamedLut extends Lut {
 
   getColor( v, c ) {
     if( !c.isColor ) {
-      throw 'c must be a THREE.Color instance';
+      throw 'NamedLut.getColor: `c` must be a THREE.Color instance';
     }
     if( v === undefined || v === null ) {
       c.setHex( 0xffffff );
@@ -271,6 +272,10 @@ class NamedLut extends Lut {
       return c;
     }
     if( this.isContinuous ) {
+      if( isNaN(v) || !isFinite(v) ) {
+        c.setHex( 0xffffff );
+        return c;
+      }
       if( this.lut.length == 1 ) {
         c.copy( this.lut[0] );
         return c;
@@ -302,12 +307,12 @@ class NamedLut extends Lut {
     // discrete
     // const idx = this.keys.indexOf( v );
     const idx = this._keyMap[ v ];
-    if( typeof idx !== "number" || !this.lut[ idx ] ) {
+    if( typeof idx === "number" && this.lut[ idx ] ) {
+      c.copy( this.lut[ idx ] );
+    } else {
       c.setHex( 0xffffff );
-      return c;
     }
 
-    c.copy( this.lut[ idx ] );
     return c;
 
   }

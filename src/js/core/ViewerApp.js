@@ -8,10 +8,12 @@ import { MouseKeyboard } from './MouseKeyboard.js';
 import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
 import { CanvasFileLoader2 } from './DataLoaders.js';
+import { FileDataHandlerFactory } from '../formats/FileDataHandlerFactory.js';
 
 // Misc
 import { RAVELogo } from './RAVELogo.js'
 import { DemoStage } from '../ext/DemoStage.js'
+import { StageTransition } from './StageTransition.js'
 
 const _updateDataStartEvent = {
   type      : "viewerApp.updateData.start",
@@ -78,6 +80,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.geoms = [];
     this.settings = {};
     this.demoStage = new DemoStage( this );
+    this.transitions = [];
 
     this.fileLoader = new CanvasFileLoader2({
       logger: this.debugVerbose
@@ -194,9 +197,11 @@ class ViewerApp extends ThrottledEventDispatcher {
 
   get mouseLocation () { return this.mouseKeyboard.mouseLocation; }
 
+  // Do we ever dispose a viewer? probably rare...
   dispose() {
     this._disposed = true;
     super.dispose();
+    this.transitions.length = 0;
     this.mouseKeyboard.dispose();
     if( this.controllerGUI ) {
       try { this.controllerGUI.dispose(); } catch (e) {}
@@ -386,6 +391,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     if( _isObsolete( "Updating viewer data" ) ) { return; }
 
     this.debug = data.settings.debug || false;
+    this.transitions.length = 0;
 
     // clear canvas
     this.canvas.needsUpdate = false;
@@ -649,50 +655,131 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // parse and guess data types:
     const keyframes = {};
+    // used to store the colormap parameters
     const colorMapParams = {};
+    // used to store if the colormap should be continuous
+    const dataDiscrete = {};
 
     const RESERVED_HEADER = ["Electrode", "Time", "Subject"];
+
+    data.forEach(sample => {
+      for(let name in sample) {
+        const value = sample[ name ];
+        let dataType = dataDiscrete[ name ];
+        if( dataType === true ) { return; }
+        switch( value ) {
+          case "NaN":
+          case "":
+          case "Inf":
+          case "Infinity":
+          case "NA":
+          case "n/a":
+            return;
+          default:
+          {
+            try {
+              if( isNaN( parseFloat( value ) ) ) {
+                dataDiscrete[ name ] = true;
+              }
+            } catch (e) {}
+          }
+        }
+      }
+    });
+
     const ensureData = ( name, electrode, subject ) => {
       if( keyframes[ subject ] === undefined ) { keyframes[ subject ] = {}; }
       const subjectKeyframes = keyframes[ subject ];
 
-      let isContinuous = false;
-      const value = sample[ name ];
-      if( colorMapParams[ name ] ) {
-        isContinuous = colorMapParams[ name ].isContinuous;
-      } else {
-        try {
-          if( !isNaN( parseFloat( value ) ) ) {
-            isContinuous = true;
-          }
-        } catch (e) {}
+      // get data type
+      let existingColorMap = this.canvas.colorMaps.get( name );
+      let existingParams = colorMapParams[ name ];
+      let overrideParams = false,
+          overrideColorMap = false;
 
-        // get control colors
-        let controlColors;
-        try {
-          controlColors = palettes[ name ];
-          if( !Array.isArray(controlColors) || controlColors.length === 0 ) {
-            controlColors = undefined;
-          }
-        } catch (e) {}
-        if( !Array.isArray(controlColors) ) {
-          if( isContinuous ) {
-            controlColors = ['0x053061','0x09386C','0x0D4178','0x124984','0x165290','0x1B5A9C','0x1F63A8','0x246BAE','0x2A72B2','0x2F79B5','0x3480B9','0x3A87BD','0x3F8EC0','0x4896C4','0x549EC9','0x61A6CD','0x6DADD1','0x7AB5D5','0x86BDDA','0x92C5DE','0x9CCAE1','0xA6CFE3','0xB0D4E6','0xBAD9E9','0xC4DEEC','0xCEE3EF','0xD6E8F1','0xDEECF4','0xE5F0F6','0xECF4F9','0xF4F8FB','0xFBFCFD','0xFEFCFA','0xFEF6F1','0xFEF0E8','0xFDEBDF','0xFDE5D7','0xFDDFCE','0xFCD9C4','0xFBD0B9','0xF9C8AE','0xF8BFA3','0xF7B799','0xF5AE8E','0xF4A583','0xEF9B7A','0xEA9072','0xE68569','0xE17A61','0xDC6F58','0xD76450','0xD25949','0xCC4D44','0xC7423E','0xC13639','0xBB2B34','0xB6202E','0xAE162A','0xA21328','0x960F26','0x8A0B24','0x7E0722','0x720320','0x67001F'];
+      let isDiscrete = dataDiscrete[ name ] === true;
+      if ( !isDiscrete && existingColorMap ) {
+        isDiscrete = !existingColorMap.isContinuous;
+      }
+      if ( !isDiscrete && existingParams ) {
+        isDiscrete = !colorMapParams[ name ].isContinuous;
+      }
+
+      if( existingColorMap && existingColorMap.isContinuous && isDiscrete ) {
+        overrideColorMap = true;
+      }
+      if( existingParams && existingParams.isContinuous && isDiscrete ) {
+        overrideParams = true;
+      }
+
+
+      const value = sample[ name ];
+
+
+      // create parameters for colormaps
+      if( overrideParams || !existingParams ) {
+
+        if( !overrideColorMap && existingColorMap ) {
+
+          // using existing colormap to construct parameters
+          const cmapParam = {
+            "dataName"      : name,
+            "displayName"   : name,
+            "isContinuous"  : !isDiscrete,
+            "controlColors" : [],
+            "valueRange"    : [
+              existingColorMap.minV ?? existingColorMap._defaultMinV,
+              existingColorMap.maxV ?? existingColorMap._defaultMaxV
+            ],
+            "hardRange"     : [existingColorMap._minV, existingColorMap._maxV],
+            "valueKeyCount" : isDiscrete ? {} : null, // This one will be used to calculate `valueKeys`
+          };
+          if ( isDiscrete ) {
+            const discreteControlColors = ['0xFFA500','0x1874CD','0x006400','0xFF4500','0xA52A2A','0x7D26CD','0x5A5156','0xE4E1E3','0xF6222E','0xFE00FA','0x16FF32','0x3283FE','0xFEAF16','0xB00068','0x1CFFCE','0x90AD1C','0x2ED9FF','0xDEA0FD','0xAA0DFE','0xF8A19F','0x325A9B','0xC4451C','0x1C8356','0x85660D','0xB10DA1','0xFBE426','0x1CBE4F','0xFA0087','0xFC1CBF','0xF7E1A0','0xC075A6','0x782AB6','0xAAF400','0xBDCDFF','0x822E1C','0xB5EFB5','0x7ED7D1','0x1C7F93','0xD85FF7','0x683B79','0x66B0FF','0x3B00FB'];
+            existingColorMap.keys.forEach((key, ki) => {
+              cmapParam.valueKeyCount[ key ] = 1;
+              if( ki < existingColorMap.map.length ) {
+                cmapParam.controlColors.push( existingColorMap.map[ ki ][1] );
+              } else {
+                cmapParam.controlColors.push( discreteControlColors[ ki % discreteControlColors.length ] );
+              }
+            });
           } else {
-            controlColors = ['0xFFA500','0x1874CD','0x006400','0xFF4500','0xA52A2A','0x7D26CD','0x5A5156','0xE4E1E3','0xF6222E','0xFE00FA','0x16FF32','0x3283FE','0xFEAF16','0xB00068','0x1CFFCE','0x90AD1C','0x2ED9FF','0xDEA0FD','0xAA0DFE','0xF8A19F','0x325A9B','0xC4451C','0x1C8356','0x85660D','0xB10DA1','0xFBE426','0x1CBE4F','0xFA0087','0xFC1CBF','0xF7E1A0','0xC075A6','0x782AB6','0xAAF400','0xBDCDFF','0x822E1C','0xB5EFB5','0x7ED7D1','0x1C7F93','0xD85FF7','0x683B79','0x66B0FF','0x3B00FB'];
+            existingColorMap.map.forEach(keyColor => {
+              cmapParam.controlColors.push( keyColor[1] );
+            });
           }
+          colorMapParams[ name ] = cmapParam;
+        } else {
+          // get control colors
+          let controlColors;
+          try {
+            controlColors = palettes[ name ];
+            if( !Array.isArray(controlColors) || controlColors.length === 0 ) {
+              controlColors = undefined;
+            }
+          } catch (e) {}
+          if( !Array.isArray(controlColors) ) {
+            if( isDiscrete ) {
+              controlColors = ['0xFFA500','0x1874CD','0x006400','0xFF4500','0xA52A2A','0x7D26CD','0x5A5156','0xE4E1E3','0xF6222E','0xFE00FA','0x16FF32','0x3283FE','0xFEAF16','0xB00068','0x1CFFCE','0x90AD1C','0x2ED9FF','0xDEA0FD','0xAA0DFE','0xF8A19F','0x325A9B','0xC4451C','0x1C8356','0x85660D','0xB10DA1','0xFBE426','0x1CBE4F','0xFA0087','0xFC1CBF','0xF7E1A0','0xC075A6','0x782AB6','0xAAF400','0xBDCDFF','0x822E1C','0xB5EFB5','0x7ED7D1','0x1C7F93','0xD85FF7','0x683B79','0x66B0FF','0x3B00FB'];
+            } else {
+              controlColors = ['0x053061','0x09386C','0x0D4178','0x124984','0x165290','0x1B5A9C','0x1F63A8','0x246BAE','0x2A72B2','0x2F79B5','0x3480B9','0x3A87BD','0x3F8EC0','0x4896C4','0x549EC9','0x61A6CD','0x6DADD1','0x7AB5D5','0x86BDDA','0x92C5DE','0x9CCAE1','0xA6CFE3','0xB0D4E6','0xBAD9E9','0xC4DEEC','0xCEE3EF','0xD6E8F1','0xDEECF4','0xE5F0F6','0xECF4F9','0xF4F8FB','0xFBFCFD','0xFEFCFA','0xFEF6F1','0xFEF0E8','0xFDEBDF','0xFDE5D7','0xFDDFCE','0xFCD9C4','0xFBD0B9','0xF9C8AE','0xF8BFA3','0xF7B799','0xF5AE8E','0xF4A583','0xEF9B7A','0xEA9072','0xE68569','0xE17A61','0xDC6F58','0xD76450','0xD25949','0xCC4D44','0xC7423E','0xC13639','0xBB2B34','0xB6202E','0xAE162A','0xA21328','0x960F26','0x8A0B24','0x7E0722','0x720320','0x67001F'];
+            }
+          }
+
+          colorMapParams[ name ] = {
+            "dataName"      : name,
+            "displayName"   : name,
+            "controlColors" : controlColors,      // array of colors (key colors) or color name
+            "isContinuous"  : !isDiscrete,
+            "timeRange"     : hasTime ? [sample.Time, sample.Time] : null,   // time range where the color map is valid
+            "valueRange"    : isDiscrete ? [-1, 1] : [0, 0],
+            "hardRange"     : null,
+            "valueKeyCount" : isDiscrete ? {} : null, // This one will be used to calculate `valueKeys`
+          };
+
         }
 
-        colorMapParams[ name ] = {
-          "dataName"      : name,
-          "displayName"   : name,
-          "controlColors" : controlColors,      // array of colors (key colors) or color name
-          "isContinuous"  : isContinuous,
-          "timeRange"     : hasTime ? [sample.Time, sample.Time] : null,   // time range where the color map is valid
-          "valueRange"    : isContinuous ? [0, 0] : [-1, 1],
-          "hardRange"     : null,
-          "valueKeyCount" : isContinuous ? null : {}, // This one will be used to calculate `valueKeys`
-        };
       }
 
       if( !subjectKeyframes[ name ] ) {
@@ -702,7 +789,7 @@ class ViewerApp extends ThrottledEventDispatcher {
         subjectKeyframes[ name ][ electrode ] = {
           "name" : name,
           "timeValues": [],
-          "data_type": isContinuous ? "continuous" : "discrete",
+          "data_type": isDiscrete ? "discrete" : "continuous",
         };
       }
     }
@@ -714,7 +801,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       const time = hasTime ? parseFloat( row.Time ) : 0.;
       if( isNaN( time ) ) { return; }
 
-      const subject = row.Subject ?? row.SubjectCode ?? defaultSubject;
+      const subject = row.Subject ?? defaultSubject;
 
       for( let name in row ) {
         if( RESERVED_HEADER.includes(name) ) { continue; }
@@ -725,8 +812,27 @@ class ViewerApp extends ThrottledEventDispatcher {
         let value = row[ name ];
 
         if( cmapParam.isContinuous ) {
-          value = parseFloat( value );
-          if( !isNaN( value ) ) {
+          switch( value ) {
+            case "Inf":
+            case "inf":
+            case "Infinite":
+            case "infinite":
+            case "Infinity":
+            case "infinity":
+              value = Infinity;
+              break;
+            case "-Inf":
+            case "-inf":
+            case "-Infinite":
+            case "-infinite":
+            case "-infinity":
+            case "-Infinity":
+              value = -Infinity;
+              break;
+            default:
+              value = parseFloat( value );
+          }
+          if( isFinite( value ) ) {
             if( value < cmapParam.valueRange[0] ) {
               cmapParam.valueRange[0] = value;
             } else if ( value > cmapParam.valueRange[1] ) {
@@ -926,6 +1032,10 @@ class ViewerApp extends ThrottledEventDispatcher {
     // ---- QR Code ----------
     this.controlCenter.addPreset_qrcode();
 
+    if( enabledPresets.includes( "hiddenFeatures" )) {
+      this.controlCenter.addPreset_hiddenFeatures();
+    }
+
     // Update inputs that require selectors since the options might vary
     this.controlCenter.updateSelectorOptions();
 
@@ -991,6 +1101,12 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
 
+    if( this.transitions.length > 0 ) {
+      this.transitions.forEach( transition => {
+        transition.update();
+      });
+    }
+
     // check if globalClock is running
     if( this.globalClock.running ) {
       // update canvas
@@ -1001,6 +1117,7 @@ class ViewerApp extends ThrottledEventDispatcher {
         this.globalClock.stop();
         this.globalClock.maxElapsedSec = -1;
       }
+
     }
 
     this.updateDemo();
@@ -1046,6 +1163,49 @@ class ViewerApp extends ThrottledEventDispatcher {
 
   resumeDemo = () => {
     this.demoStage._paused = false;
+  }
+
+  addTransitions( transitionData = [], parameters = {} ) {
+    // TODO: clean transitionData
+
+    if( transitionData.length > 0 ) {
+      const transition = new StageTransition( this, transitionData, parameters);
+      this.transitions.push( transition );
+      return transition;
+    }
+    return null;
+  }
+
+  async handleFileData ( data, filename, options = {} ) {
+    const handlerNames = [];
+    for(let handlerName in FileDataHandlerFactory ) {
+      const clsDef = FileDataHandlerFactory[handlerName];
+      const handler = new clsDef();
+
+      try {
+
+        if( !handler.testData( data, filename ) ) {
+          continue;
+        }
+        this.debugVerbose(`Attempting handler [${handlerName}] for file: ${filename}`);
+        handler.handleData( data, this, filename, options );
+        handlerNames.push( handlerName );
+
+        if( handler.isFinal ) {
+          this.debugVerbose(`Successfully using handler [${handlerName}]. This handler is final, hence skipping other handlers.`);
+          break;
+        } else {
+          this.debugVerbose(`Successfully using handler [${handlerName}]. Trying next.`);
+        }
+      } catch (e) {
+        if( this.debug ) {
+          this.debugVerbose(e);
+        } else {
+          console.warn(e)
+        }
+      }
+    }
+    return handlerNames;
   }
 
 }

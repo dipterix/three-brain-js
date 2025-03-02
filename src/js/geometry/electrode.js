@@ -402,6 +402,7 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   updateElectrodeData = ( event ) => {
+
     const keyframes = event.detail;
     if( !keyframes || typeof keyframes !== "object" ) { return; }
 
@@ -433,6 +434,8 @@ class Electrode extends AbstractThreeBrainObject {
       });
       if( keyframe2.length ) {
         this.animationKeyFrames[ name ] = keyframe2;
+      } else if ( this.animationKeyFrames[ name ] ){
+        delete this.animationKeyFrames[ name ];
       }
     }
 
@@ -663,7 +666,8 @@ class Electrode extends AbstractThreeBrainObject {
       const instancedObjects = new InstancedMesh( instancedGeometry, instancedMaterial, nContacts );
       instancedObjects.renderOrder = CONSTANTS.RENDER_ORDER.InstancedElectrode;
       instancedObjects.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
-      instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
+      instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
+      instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
       instancedObjects.userData.instance = this;
       this.instancedObjects = instancedObjects;
 

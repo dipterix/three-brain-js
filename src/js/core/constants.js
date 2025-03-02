@@ -30,11 +30,19 @@ CONSTANTS.LAYER_USER_ALL_SIDE_CAMERAS_4 = 4;      // User use, all side cameras
 CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 = 7;            // System reserved, all cameras
 CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 = 8;            // System reserved, main cameras only
 CONSTANTS.LAYER_SYS_CORONAL_9 = 9;                // System reserved, coronal camera only
-CONSTANTS.LAYER_SYS_AXIAL_10 = 10;                 // System reserved, axial camera only
-CONSTANTS.LAYER_SYS_SAGITTAL_11 = 11;              // System reserved, sagittal camera only
-CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 = 13;      // System reserved, all side cameras visible
-CONSTANTS.LAYER_SYS_RAYCASTER_14 = 14;               // System reserved, raycaster use
-CONSTANTS.LAYER_INVISIBLE_31 = 31;                   // invisible layer, but keep rendered
+CONSTANTS.LAYER_SYS_AXIAL_10 = 10;                // System reserved, axial camera only
+CONSTANTS.LAYER_SYS_SAGITTAL_11 = 11;             // System reserved, sagittal camera only
+CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 = 13;     // System reserved, all side cameras visible
+CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 = 14;            // System reserved, raycaster use for all "clickables"
+CONSTANTS.LAYER_SYS_RAYCASTER_15 = 15;            // System reserved, raycaster use for all raycaster-ables
+CONSTANTS.LAYER_INVISIBLE_31 = 31;                // invisible layer, but keep rendered
+
+
+/* ------------------------------------ Camera constants ------------------------------------ */
+
+CONSTANTS.MAIN_CAMERA_MAX_ZOOM = 40;
+CONSTANTS.SIDE_CAMERA_MAX_ZOOM = 40;
+
 /* ------------------------------------ Global constants ------------------------------------
 */
 
@@ -64,6 +72,7 @@ CONSTANTS.ZINDEX_BASE = 1;
 // You can only change which key is pressed. However, you cannot change shift & ctrl or alt
 // To do that you must go into the code
 CONSTANTS.KEY_DEBUG                   = "KeyD";         // `cmd+opt+shift+D` - Debug
+CONSTANTS.USE_RULER                   = "KeyR";         // `r` - Ruler
 CONSTANTS.KEY_HIDDEN_FEATURES         = "KeyH";         // `cmd+opt+shift+H` - Hidden gems
 CONSTANTS.KEY_SIDE_PANEL              = "KeyP";         // `p` - toggle side panel
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
@@ -269,3 +278,4 @@ CONSTANTS.EVENTS.onDataCube2ColorUpdated = "datacube2.useColorLookupTable";
 
 
 export { CONSTANTS };
+

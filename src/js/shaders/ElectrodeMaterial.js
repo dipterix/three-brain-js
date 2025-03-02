@@ -273,6 +273,19 @@ float fDepth = gl_FragCoord.z;
     #endif
   }
 
+#else
+
+  #if defined ( ALWAYS_DEPTH )
+
+    fDepth = gl_DepthRange.near;
+
+  #else
+
+    fDepth = gl_FragCoord.z;
+
+  #endif
+
+
 #endif
 
 if( diffuseColor.a <= 0.0001 ) {

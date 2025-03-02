@@ -3,16 +3,24 @@ import jsPDF from 'jspdf';
 // window.jsPDF = jsPDF;
 
 class PDFContext {
-  constructor( base_canvas ){
-    this._width = base_canvas.width,
-    this._height = base_canvas.height;
+  constructor( width, height ){
+    this.width = width,
+    this.height = height;
 
-    this.context = new jsPDF('landscape', 'pt', [this._width, this._height], true, false);
+    this.renderTarget = new jsPDF({
+      orientation : "landscape",
+      unit : "pt",
+      compress : true,
+      hotfixes: ["px_scaling"],
+      format: [this.width, this.height]
+    });
+
+    // 'landscape', 'pt', [this.width, this.height], true, false);
 
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.width;
     this.canvas.height = this.height;
-    this._domContext = this.canvas.getContext('2d');
+    this.context = this.canvas.getContext('2d');
     this._video_canvas = document.createElement('canvas');
     this._video_context = this._video_canvas.getContext('2d');
 
@@ -28,33 +36,32 @@ class PDFContext {
   set_font( size, type, bold = false ){
     // TODO: check font
     // this.font_type = type || this.font_type;
-    this.context.setFontSize( size );
-    // this.context.setFont( this.font_type );
+    this.renderTarget.setFontSize( size );
+    // this.renderTarget.setFont( this.font_type );
     const font_weight = bold ? "bold" : "normal";
-    this.context.setFont("courier", font_weight)
+    this.renderTarget.setFont("courier", font_weight)
   }
 
   set_font_color( color ){
     this.foreground_color = color;
-    this.context.setTextColor( this.foreground_color );
+    this.renderTarget.setTextColor( this.foreground_color );
   }
 
   fill_text( ss, x, y ){
-    this.context.text( ss, x, y );
+    this.renderTarget.text( ss, x, y );
   }
 
   fill_rect( color, x, y, w, h ){
-    this.context.setFillColor( color );
-    this.context.rect( x, y, w, h, 'F' );
+    this.renderTarget.setFillColor( color );
+    this.renderTarget.rect( x, y, w, h, 'F' );
   }
 
   draw_image( el, x, y, w, h ){
     this.canvas.width = w;
     this.canvas.height = h;
-    this._domContext.fillStyle = this.background_color;
-    this._domContext.fillRect(0, 0, w, h);
-    this._domContext.drawImage( el, 0, 0, w, h);
-    this.context.addImage( this.canvas, 'PNG', x, y, w, h );
+    this.context.clearRect(0, 0, w, h);
+    this.context.drawImage( el, 0, 0, w, h);
+    this.renderTarget.addImage( this.canvas, 'PNG', x, y, w, h );
   }
 
   draw_video( el, x, y, w, h ){
@@ -64,14 +71,14 @@ class PDFContext {
     this._video_canvas.height = h;
     this._video_context.drawImage( el, 0, 0, w, h );
 
-    this.context.addImage( this._video_canvas, 'PNG', x, y, w, h );
+    this.renderTarget.addImage( this._video_canvas, 'PNG', x, y, w, h );
   }
 
   fill_gradient(  grd, x, y, w, h ){
     this.canvas.width = x + w;
     this.canvas.height = y + h;
-    this._domContext.fillStyle = grd;
-    this._domContext.fillRect( x, y, w, h );
+    this.context.fillStyle = grd;
+    this.context.fillRect( x, y, w, h );
 
     const newCanvas = document.createElement('canvas');
     // set its dimensions
@@ -82,21 +89,21 @@ class PDFContext {
       .drawImage(this.canvas, x, y, w, h, 0, 0, w, h);
 
 
-    this.context.addImage( newCanvas, 'PNG', x, y, w, h );
+    this.renderTarget.addImage( newCanvas, 'PNG', x, y, w, h );
   }
 
   start_draw_line(){
-    // this.context.beginPath();
+    // this.renderTarget.beginPath();
   }
 
   stroke_line(){
-    // this.context.stroke();
+    // this.renderTarget.stroke();
   }
 
   draw_line( paths ){
-    this.context.setDrawColor( this.foreground_color );
+    this.renderTarget.setDrawColor( this.foreground_color );
     for(let ii = 0; ii < paths.length - 1; ii++ ){
-      this.context.lines(
+      this.renderTarget.lines(
         [[
           paths[ii+1][0] - paths[ii][0],
           paths[ii+1][1] - paths[ii][1]

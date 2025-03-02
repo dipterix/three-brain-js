@@ -82,7 +82,7 @@ class SideCanvas {
     if( level ) {
       this.zoomLevel = level;
     }
-    if( this.zoomLevel > 10 ) { this.zoomLevel = 10; }
+    if( this.zoomLevel > CONSTANTS.SIDE_CAMERA_MAX_ZOOM ) { this.zoomLevel = CONSTANTS.SIDE_CAMERA_MAX_ZOOM; }
     if( this.zoomLevel < 1.05 ) { this.zoomLevel = 1; }
 
     view.width = view.fullWidth / this.zoomLevel;
@@ -163,7 +163,7 @@ class SideCanvas {
     if( zoomLevel === true ) {
       this.zoom( 1 );
     } else if( typeof zoomLevel === "number" ) {
-      if( zoomLevel > 10 ) { zoomLevel = 10; }
+      if( zoomLevel > CONSTANTS.SIDE_CAMERA_MAX_ZOOM ) { zoomLevel = CONSTANTS.SIDE_CAMERA_MAX_ZOOM; }
       if( zoomLevel < 1 ) { zoomLevel = 1; }
       this.zoom( zoomLevel );
     }
@@ -312,6 +312,8 @@ class SideCanvas {
     this.renderer.dispose();
   }
 
+  // currently does nothing but setting to black background. No point to
+  // display other colors (?)
   setBackground( color ) {
     color = "#000000";
     this._backgroundColor = color;
@@ -454,6 +456,7 @@ class SideCanvas {
     this.$el.style.display = 'none';
     this.$el.className = 'THREEBRAIN-SIDE resizable';
     this.$el.style.zIndex = this.order;
+    this.$el.style.backgroundColor = '#000000';
     this.$el.style.top = ( this.order * this.mainCanvas.side_width ) + 'px';
 
     // Make header

@@ -122,7 +122,6 @@ const compile_free_material = ( material, options ) => {
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  attribute vec3 underlayColor;
   varying vec3 vUnderlayColor;
 
   #if defined( USE_CUSTOM_MAPPING_0 )
@@ -178,7 +177,7 @@ vec3 cameraRay = normalize( transformed.xyz - cameraPosition.xyz );
 
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
 
-  vUnderlayColor = underlayColor;
+  vUnderlayColor = color;
 
   #if defined( USE_CUSTOM_MAPPING_0 )
 

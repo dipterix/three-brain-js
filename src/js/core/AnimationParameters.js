@@ -148,7 +148,8 @@ class AnimationParameters extends EventDispatcher {
   }
 
   updateFocusedInstance ( inst ) {
-    if( !inst ) {
+    // If the target object is not something we can use, unfocus and return nothing
+    if( !inst || !inst.object || inst.object.isMesh || typeof inst.object.getWorldPosition !== "function" ) {
       this.hasObjectFocused = false;
       return;
     }

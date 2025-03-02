@@ -1,5 +1,5 @@
 import {
-  Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4,
+  Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4, Layers,
   // OrthographicCamera,
   WebGLRenderer, WebGL1Renderer,
   DirectionalLight, AmbientLight,
@@ -10,7 +10,7 @@ import {
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
 } from 'three';
-import Stats from 'three/addons/libs/stats.module.js';
+import Stats from 'stats-gl';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
 
@@ -29,6 +29,7 @@ import { CONSTANTS } from './constants.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
+import { RulerHelper } from '../geometry/RulerHelper.js';
 
 // Utility
 import { asArray } from '../utility/asArray.js';
@@ -61,6 +62,14 @@ const _colorMapChanged = {
 
 const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
+const BLACK_COLOR = new Color().set(0, 0, 0);
+
+
+const MAIN_CAMERA_VISIBLE_LAYERS = new Layers();
+MAIN_CAMERA_VISIBLE_LAYERS.set( CONSTANTS.LAYER_USER_MAIN_CAMERA_0 );
+MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_USER_ALL_CAMERA_1 );
+MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
+MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
 
 /* ------------------------------------ Layer setups ------------------------------------
   Defines for each camera which layers are visible.
@@ -215,6 +224,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.domContextWrapper = new CanvasContext2D( this.domElement, this.pixel_ratio[0] );
     this.domContext = this.domContextWrapper.context;
     this.background_color = '#ffffff'; // white background
+    this._backgroundObject = new Color();
     this.foreground_color = '#000000';
     this.domContext.fillStyle = this.background_color;
 
@@ -294,6 +304,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.scene.add( this.crossArrowHelper );
     this._crosshairPosition = new Vector3();
 
+    // For rulers
+    this.rulerHelper = new RulerHelper( 0xff0000 );
+    this.rulerHelper.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
+    this.rulerHelper.visible = false;
+    this.scene.add( this.rulerHelper );
+
     /* Main camera
         Main camera is initialized at 500,0,0. The distance is stayed at 500 away from
         origin (stay at right &look at left)
@@ -338,7 +354,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   	this.main_renderer.setSize( width, height );
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
   	this.main_renderer.localClippingEnabled=true; // Enable clipping
-  	this.main_renderer.setClearColor( this.background_color );
+  	// transparent background if the bg is white
+  	this.main_renderer.setClearColor( this.background_color, 0.0 );
 
     this.main_canvas.appendChild( this.domElement );
     this.main_canvas.appendChild( this.main_renderer.domElement );
@@ -451,58 +468,103 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
   */
-  _onMouseDown = ( event ) => {
+  _onMouseDown = async ( event ) => {
     // async, but raycaster is always up to date
-    this.raycastClickables()
-      .then(( item ) => {
+    const item = this.raycastObjects();
+    if( !item || !item.object || !item.object.isMesh ) { return; }
 
-        if( !item || !item.object || !item.object.isMesh ) { return; }
+    const rulerEnabled = this.get_state( "ruler_activated" );
 
-        // normal left-click
-        const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
+    // set ruler
+    if( rulerEnabled ) {
 
-        // right-click, or the slice mode is snap-to-electrode
-        if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
-          // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
+      let knotPosition = item.point;
 
-          crosshairPosition.centerCrosshair = true;
-          this.setSliceCrosshair( crosshairPosition );
-        }
-      })
-      .catch(() => {});
-  }
-
-  raycastClickables() {
-
-    const raycaster = this.updateRaycast();
-    if( !raycaster ) { return; }
-    // where clickable objects stay
-    raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
-
-    return new Promise((resolve) => {
-
-      if( !raycaster ) {
-        resolve();
-        return;
+      const maybeElectrode = getThreeBrainInstance( item.object );
+      if( maybeElectrode.isElectrode ) {
+        knotPosition = this.focusObject( item.object, { intersectPoint: item.point } );
       }
 
-      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_14 );
+      this.rulerHelper.addKnot( knotPosition );
 
+    } else {
+
+      // normal left-click
+      const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
+
+      // right-click, or the slice mode is snap-to-electrode
+      if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
+        // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
+
+        crosshairPosition.centerCrosshair = true;
+        this.setSliceCrosshair( crosshairPosition );
+      }
+    }
+
+    this.needsUpdate = true;
+  }
+
+  setRuler( state ) {
+
+    switch ( state ) {
+
+      case 'enable' :
+        this.set_state( "ruler_activated", true );
+        break;
+
+      case 'reset':
+        // reset ruler
+        this.rulerHelper.clearKnots();
+        this.needsUpdate = true;
+        break;
+
+      case 'undo':
+        this.rulerHelper.removeKnot();
+        this.needsUpdate = true;
+        break;
+
+      default:
+
+        // do not activate ruler
+        this.set_state( "ruler_activated", false );
+
+    }
+  }
+
+  raycastObjects() {
+    const raycaster = this.updateRaycast();
+    if( !raycaster ) { return; }
+
+    let items;
+
+    if( this.get_state( "ruler_activated" ) ) {
+      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
+
+      const visibleObjects = this.mesh.values().filter((mesh) => {
+        return mesh.visible && mesh.layers.test( MAIN_CAMERA_VISIBLE_LAYERS );
+      })
+      items = raycaster.intersectObjects( [...visibleObjects] );
+    } else {
+      // where clickable objects stay
+      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
       // Only raycast with visible
-      const items = raycaster.intersectObjects(
+      items = raycaster.intersectObjects(
         // asArray( this.clickable )
         this.clickableArray.filter((e) => { return( e.visible ) })
       );
+    }
 
-      if( !items || items.length === 0 ) {
-        resolve();
-        return;
-      }
+    /*
+    const items = raycaster.intersectObjects(
+      // asArray( this.clickable )
+      this.clickableArray.filter((e) => { return( e.visible ) })
+    );
+    */
+    if( !items || items.length === 0 ) {
+      return;
+    }
 
-      resolve( items[0] );
-
-    });
-
+    return items[0];
   }
 
   /*---- Add objects --------------------------------------------*/
@@ -838,11 +900,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   addNerdStats(){
     // if debug, add stats information
     if( this.__nerdStatsEnabled ) { return; }
-    this.nerdStats = new Stats();
+    this.nerdStats = new Stats({
+      trackGPU: true,
+      trackHz: true,
+      trackCPT: true,
+      logsPerSecond: 4,
+      graphsPerSecond: 30,
+      samplesLog: 40,
+      samplesGraph: 10,
+      precision: 1,
+      horizontal: true,
+      minimal: false,
+      mode: 0
+    });
     this.nerdStats.dom.style.display = 'block';
     this.nerdStats.dom.style.position = 'absolute';
     this.nerdStats.dom.style.top = '0';
     this.nerdStats.dom.style.left = '0';
+    // this.nerdStats.init( this.main_renderer );
     this.$el.appendChild( this.nerdStats.dom );
     this.__nerdStatsEnabled = true;
   }
@@ -990,6 +1065,53 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // set default values
     this._crosshairPosition.set( 0, 0, 0 );
+
+  }
+
+  clearElectrodes( subjectCode ) {
+    if(typeof subjectCode !== "string" ) {
+      subjectCode = this.get_state("target_subject");
+    }
+    this.object_chosen=undefined;
+
+    const deleteElectrode = (obj) => {
+      if(!obj) { return; }
+      const inst = getThreeBrainInstance( obj );
+      if(!inst) { return; }
+      this.clickable.delete( inst.name );
+      const idx = this.clickableArray.indexOf( inst.object );
+      if( idx >= 0 ) {
+        this.clickableArray.splice( idx, 1 );
+      }
+      this.mesh.delete( inst.name );
+      this.threebrain_instances.delete( inst.name );
+
+      this.remove_object( inst.object );
+      inst.dispose();
+
+    };
+
+    const electrodeList = this.electrodes.get(subjectCode);
+    if( electrodeList && typeof electrodeList === "object" ) {
+      for(let k in electrodeList) {
+        const inst = getThreeBrainInstance( electrodeList[ k ] );
+        try {
+          deleteElectrode( electrodeList[ k ] );
+        } catch (e) {}
+        delete electrodeList[ k ];
+      }
+    }
+
+    const prototypeList = this.electrodePrototypes.get(subjectCode);
+    if( prototypeList && typeof prototypeList === "object" ) {
+      for(let k in prototypeList) {
+        const inst = getThreeBrainInstance( prototypeList[ k ] );
+        try {
+          deleteElectrode( prototypeList[ k ] );
+        } catch (e) {}
+        delete prototypeList[ k ];
+      }
+    }
 
   }
 
@@ -1649,6 +1771,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.compass.update();
 
+    this.rulerHelper.setTextScale( 1. / this.mainCamera.zoom );
+
     // check if time has timeChanged
     this.threebrain_instances.forEach((inst) => {
       inst.update();
@@ -1668,7 +1792,28 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.domContext.clearRect( 0, 0, _width, _height );
 
     // copy the main_renderer context
-    // this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
+    if( this.capturer_recording ) {
+      this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
+
+      if( this.sideCanvasEnabled ){
+        const sideWidth = this.side_width * this.pixel_ratio[0],
+              sideHeight = sideWidth - this.pixel_ratio[0];
+
+        this.domContext.drawImage(
+          this.sideCanvasList.axial.renderer.domElement,
+          0, 0, sideWidth, sideWidth
+        );
+        this.domContext.drawImage(
+          this.sideCanvasList.sagittal.renderer.domElement,
+          0, sideHeight, sideWidth, sideWidth
+        );
+        this.domContext.drawImage(
+          this.sideCanvasList.coronal.renderer.domElement,
+          0, sideHeight * 2, sideWidth, sideWidth
+        );
+
+      }
+    }
 
   }
 
@@ -1677,7 +1822,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     if( this._renderFlag == CanvasState.NoRender ) { return; }
 
-    if( this.__nerdStatsEnabled ) { this.nerdStats.update(); }
+    if( this.__nerdStatsEnabled ) {
+      this.nerdStats.begin();
+    }
 
     const _width = this.domElement.width;
     const _height = this.domElement.height;
@@ -1687,7 +1834,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if(_width <= 10 || _height <= 10) { return; }
 
     // double-buffer to make sure depth renderings
-    //this.main_renderer.setClearColor( renderer_colors[0] );
+    //this.main_renderer.setClearColor( renderer_colors[0], 0.0 );
     this.main_renderer.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
@@ -1748,6 +1895,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     });
 
+    // this.main_renderer.clear();
     this.main_renderer.render( this.scene, this.mainCamera );
 
     if(this.sideCanvasEnabled){
@@ -1770,7 +1918,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.sideCanvasList.coronal.render();
       this.sideCanvasList.axial.render();
       this.sideCanvasList.sagittal.render();
-
 
     }
 
@@ -1800,6 +1947,28 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // check if capturer is working
     if( this.capturer_recording && this.capturer ){
+
+      if( this.sideCanvasEnabled ){
+        const sideHeight = (this.side_width - 1) * this.pixel_ratio[0];
+
+        const sideCanvasTitleSize = this._lineHeight_small;
+        this.domContext.fillStyle = "#e2e2e2";
+        this.domContext.font = `${ sideCanvasTitleSize }px ${ this._fontType }`;
+
+        this.context.fillText(
+          this.canvas.sideCanvasList.axial._headerText,
+          sideCanvasTitleSize, 0 + sideCanvasTitleSize
+        );
+        this.context.fillText(
+          this.canvas.sideCanvasList.sagittal._headerText,
+          sideCanvasTitleSize, sideHeight + sideCanvasTitleSize
+        );
+        this.context.fillText(
+          this.canvas.sideCanvasList.coronal._headerText,
+          sideCanvasTitleSize, sideHeight * 2 + sideCanvasTitleSize
+        );
+      }
+
       this.capturer.add();
     }
 
@@ -1808,6 +1977,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // reset render flag
     this._renderFlag = this._renderFlag & 0b110;
     this.needsUpdate = undefined;
+
+    if( this.__nerdStatsEnabled ) {
+      this.nerdStats.end();
+      this.nerdStats.update();
+    }
 
   }
 
@@ -1970,24 +2144,29 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
 
-  renderTitle( x = 10, y = 10, w = 100, h = 100 ){
+  renderTitle( x = 10, y = 10, w = 100, h = 100, contextWrapper = undefined ){
 
     if( typeof this.title !== "string" ) { return; }
 
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
+    }
     const pixelRatio = this.pixel_ratio[0];
 
     this._fontType = 'Courier New, monospace';
     this._lineHeight_title = this._lineHeight_title || Math.round( 25 * pixelRatio );
     this._fontSize_title = this._fontSize_title || Math.round( 20 * pixelRatio );
 
-
-    this.domContext.fillStyle = this.foreground_color;
-    this.domContext.font = `${ this._fontSize_title }px ${ this._fontType }`;
+    // this.domContext.fillStyle = this.foreground_color;
+    // this.domContext.font = `${ this._fontSize_title }px ${ this._fontType }`;
+    contextWrapper.set_font_color( this.foreground_color );
+    contextWrapper.set_font( this._fontSize_title, this._fontType );
 
     if( this.sideCanvasEnabled ) {
       x += this.side_width;
     }
     x += 10; // padding left
+
     x *= pixelRatio;
 
     // Add title
@@ -1995,8 +2174,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     ( this.title || '' )
       .split('\\n')
       .forEach( (ss, ii) => {
-        this.domContext.fillText( ss , x , y + this._lineHeight_title * (ii + 1) );
+        contextWrapper.fill_text( ss, x, y + this._lineHeight_title * (ii + 1) );
+        // this.domContext.fillText( ss , x , y + this._lineHeight_title * (ii + 1) );
       });
+
   }
 
   _draw_ani_old( x = 10, y = 10, w = 100, h = 100  ){
@@ -2887,16 +3068,15 @@ mapped = false,
     this.foreground_color = `#${ c.getHexString() }`;
 
     // set scenes
-    if( !this.scene.background ) {
-      this.scene.background = new Color();
-    }
-
-    if( this.scene.background && this.scene.background.isColor ) {
-      this.scene.background.set( this.background_color );
+    if( this.background_color === "#ffffff" || this.background_color === "#FFFFFF" ) {
+      // transparent
+      this.scene.background = undefined;
+    } else {
+      this.scene.background = this._backgroundObject.set( this.background_color );
     }
 
     // Set renderer background to be v
-    this.main_renderer.setClearColor( this.background_color );
+    this.main_renderer.setClearColor( this.background_color, 0.0 );
     this.$el.style.backgroundColor = this.background_color;
 
     if( backgroundLuma < 0.4 ) {
@@ -2905,11 +3085,14 @@ mapped = false,
       this.$el.classList.remove( 'dark-viewer' );
     }
 
+    /*
     try {
       this.sideCanvasList.coronal.setBackground( this.background_color );
       this.sideCanvasList.axial.setBackground( this.background_color );
       this.sideCanvasList.sagittal.setBackground( this.background_color );
     } catch (e) {}
+     */
+
 
     // force re-render
     this.needsUpdate = true;
