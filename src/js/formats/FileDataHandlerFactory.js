@@ -4,6 +4,8 @@ import { SurfaceHandler } from './SurfaceHandler.js';
 import { SurfaceMeasurementHandler } from './SurfaceMeasurementHandler.js';
 import { SurfaceAnnotationHandler } from './SurfaceAnnotationHandler.js';
 
+import { StreamlineHandler } from './StreamlineHandler.js';
+
 import { ElectrodeCoordinateHandler } from './ElectrodeCoordinateHandler.js';
 import { ElectrodeValueHandler } from './ElectrodeValueHandler.js';
 import { ElectrodeColorMapHandler } from './ElectrodeColorMapHandler.js';
@@ -19,6 +21,8 @@ const FileDataHandlerFactory = {
   SurfaceHandler              : SurfaceHandler,
   SurfaceMeasurementHandler   : SurfaceMeasurementHandler,
   SurfaceAnnotationHandler    : SurfaceAnnotationHandler,
+
+  StreamlineHandler           : StreamlineHandler,
 
   ElectrodeCoordinateHandler  : ElectrodeCoordinateHandler,
   ElectrodeValueHandler       : ElectrodeValueHandler,

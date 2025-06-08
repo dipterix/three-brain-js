@@ -50,10 +50,13 @@ import { registerPresetElectrodeAnimation } from '../controls/PresetElectrodeAni
 // 17. Voxel color type
 import { registerPresetRaymarchingVoxels } from '../controls/PresetRaymarchingVoxels.js';
 
-// 18. Electrode localization
+// 18. tractography
+import { registerPresetTractography } from '../controls/PresetTractography.js';
+
+// 19. Electrode localization
 import { register_controls_localization } from '../controls/localization.js';
 
-// 19. ACPC realignment
+// 20. ACPC realignment
 import { registerPresetACPCReAlign } from '../controls/PresetACPCReAlign.js';
 
 // 998. QRCode
@@ -864,6 +867,18 @@ class ViewerControlCenter extends EventDispatcher {
   }
 
   // ---- For handling drag & drop behaviors
+  getDragDropFolderPath( fileName, parentName ) {
+    const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
+    const normalizedFileName = normalizeImageName( fileName );
+
+    let parentFolder = folderName;
+    if( parentName ) {
+      parentFolder = `${folderName} > ${parentName}`;
+    }
+    const innerFolderName = `${parentFolder} > ${normalizedFileName}`
+    return innerFolderName;
+  }
+
   // enables controlling of visibility
   dragdropAddVisibilityController( inst, fileName ) {
     const folderName = CONSTANTS.FOLDERS[ 'dragdrop' ];
@@ -1269,6 +1284,7 @@ ViewerControlCenter = registerPresetElectrodes( ViewerControlCenter );
 ViewerControlCenter = registerDragNDropFile( ViewerControlCenter );
 ViewerControlCenter = registerPresetElectrodeAnimation( ViewerControlCenter );
 ViewerControlCenter = registerPresetRaymarchingVoxels( ViewerControlCenter );
+ViewerControlCenter = registerPresetTractography( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );
 ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
 ViewerControlCenter = registerPresetQRCode( ViewerControlCenter );

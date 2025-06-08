@@ -109,6 +109,8 @@ class RulerHelper extends Object3D {
       depthTest : false,
       depthWrite : false,
     } ) );
+    this.dashedLine.renderOrder = CONSTANTS.RENDER_ORDER.RulerHelper;
+
     // this.dashedLine.computeLineDistances();
     this.dashedLine.matrixAutoUpdate = false;
     this.add( this.solidLine );
@@ -146,6 +148,7 @@ class RulerHelper extends Object3D {
       depthWrite : false,
       color: 0xffffff
     }));
+    this.text.renderOrder = CONSTANTS.RENDER_ORDER.RulerHelper;
     this.text.updateScale( 5 );
     this.add( this.text );
 
@@ -175,6 +178,7 @@ class RulerHelper extends Object3D {
             depthWrite : false,
             color: 0xffffff
           }));
+          subText.renderOrder = CONSTANTS.RENDER_ORDER.RulerHelper;
           subText.updateScale( 2.5 );
           this.add( subText );
           this.subTexts[ ii ] = subText;
@@ -220,6 +224,7 @@ class RulerHelper extends Object3D {
         depthWrite : false,
         color: 0xffffff
       }));
+      subText.renderOrder = CONSTANTS.RENDER_ORDER.RulerHelper;
       subText.updateScale( 2.5 );
       this.add( subText );
       this.subTexts[ index ] = subText;

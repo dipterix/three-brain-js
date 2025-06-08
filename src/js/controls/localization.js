@@ -1655,79 +1655,88 @@ function register_controls_localization( ViewerControlCenter ){
       };
     }
 
+    const interpolateContacts = (autoRefine) => {
+
+      // check the number of interpolation, return if none
+      let v = parseInterpolationSize();
+      if( !v ){ return; }
+
+      // must be edit mode that creates contacts from CT or MRI
+      const mode = edit_mode.getValue();
+      const scode = this.canvas.get_state("target_subject");
+      if( !mode || mode == "disabled" ||
+          mode == "refine" ||
+          !scode || scode === ""
+      ){ return; }
+
+      // for less than 2 existing contacts
+      if( electrodes.length < 2 ){
+        alert("Please localize at least 2 electrodes first.");
+        return;
+      }
+
+      let res;
+
+      if( mode == "CT/volume" ){
+        const inst = this.getActiveDataCube2();
+        res = interpolate_electrode_from_ct(
+          inst, this.canvas, electrodes, v,
+          this.localizationData.electrodePrototype
+        );
+      } else {
+        res = interpolate_electrode_from_slice( this.canvas, electrodes, v );
+      }
+
+      if( res.positions.length ){
+        const last_elec = electrodes.pop();
+        res.direction.normalize();
+        // res.positions.push(new Vector3().fromArray(
+        //   last_elec.instance._params.position
+        // ));
+        last_elec.dispose();
+        // let autoRefine = auto_refine.getValue();
+        let autoRefineRadius = autoRefine;
+        if( autoRefine && res.strictSpacing &&
+            typeof res.distanceRatio === "number" ) {
+          autoRefineRadius = this.localizationData.getContactRadiusFromPrototype( electrodes.length );
+          if( autoRefineRadius === 1.0 ) {
+            autoRefineRadius = res.averageOffset;
+          }
+          console.log(autoRefineRadius);
+        }
+
+        res.positions.forEach((pos) => {
+          const el = new LocElectrode(
+            scode, electrodes.length + 1, pos, this.canvas, autoRefineRadius,
+            elec_size.getValue());
+          el.set_mode( mode );
+          el.__interpolate_direction = res.direction.clone().normalize();
+          electrodes.push( el );
+        });
+
+        refine_electrode = electrodes[ electrodes.length - 1 ];
+
+        this.canvas.switch_subject();
+      }
+
+      this.broadcast({
+        data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
+      });
+
+    }
+
     this.gui.addController(
       'Interpolate',
       () => {
-        let v = parseInterpolationSize();
-        if( !v ){ return; }
-        const mode = edit_mode.getValue();
-        const scode = this.canvas.get_state("target_subject");
-        if( !mode || mode == "disabled" ||
-            mode == "refine" ||
-            !scode || scode === ""
-        ){ return; }
+        interpolateContacts(auto_refine.getValue());
+      },
+      { folderName: folderName }
+    );
 
-        if( electrodes.length < 2 ){
-          alert("Please localize at least 2 electrodes first.");
-          return;
-        }
-
-        let res;
-
-        if( mode == "CT/volume" ){
-          const inst = this.getActiveDataCube2();
-          res = interpolate_electrode_from_ct(
-            inst, this.canvas, electrodes, v,
-            this.localizationData.electrodePrototype
-          );
-        } else {
-          res = interpolate_electrode_from_slice( this.canvas, electrodes, v );
-        }
-        // return({
-        //   positions : re,
-        //   direction : direction,
-        //   strictSpacing : settings.strictSpacing,
-        //   distanceRatio : distanceRatio,
-        //   expectedSpacing : settings.distance,
-        //   averageOffset : Math.abs(1 - distanceRatio) * settings.distance / ( n + 2 )
-        // });
-
-        if( res.positions.length ){
-          const last_elec = electrodes.pop();
-          res.direction.normalize();
-          // res.positions.push(new Vector3().fromArray(
-          //   last_elec.instance._params.position
-          // ));
-          last_elec.dispose();
-          let autoRefine = auto_refine.getValue();
-          if( autoRefine && res.strictSpacing &&
-              typeof res.distanceRatio === "number" ) {
-            autoRefine = this.localizationData.getContactRadiusFromPrototype( electrodes.length );
-            if( autoRefine === 1.0 ) {
-              autoRefine = res.averageOffset;
-            }
-            console.log(autoRefine);
-          }
-
-          res.positions.forEach((pos) => {
-            const el = new LocElectrode(
-              scode, electrodes.length + 1, pos, this.canvas, autoRefine,
-              elec_size.getValue());
-            el.set_mode( mode );
-            el.__interpolate_direction = res.direction.clone().normalize();
-            electrodes.push( el );
-          });
-
-          refine_electrode = electrodes[ electrodes.length - 1 ];
-
-          this.canvas.switch_subject();
-        }
-
-        this.broadcast({
-          data : { "localization_table" : JSON.stringify( this.canvas.electrodes_info() ) }
-        });
-
-
+    this.gui.addController(
+      'Interpolate (no refine)',
+      () => {
+        interpolateContacts(false);
       },
       { folderName: folderName }
     );

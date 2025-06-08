@@ -1,4 +1,5 @@
-import * as fflate from 'fflate';
+// import * as fflate from 'fflate';
+import { decompressSync } from 'fflate';
 import { mat3, mat4, vec3, vec4 } from "gl-matrix"; //for trk
 
 function readMatV4(buffer) {
@@ -10,7 +11,7 @@ function readMatV4(buffer) {
   let _buffer = buffer
   if (magic === 35615 || magic === 8075) {
     // gzip signature 0x1F8B in little and big endian
-    const raw = fflate.decompressSync(new Uint8Array(buffer))
+    const raw = decompressSync(new Uint8Array(buffer))
     reader = new DataView(raw.buffer)
     magic = reader.getUint16(0, true)
     _buffer = raw.buffer
@@ -158,5 +159,177 @@ function readTT(buffer) {
   }
 } // readTT()
 
+// read trackvis trk format streamlines
+// http://trackvis.org/docs/?subsect=fileformat
+function readTRK(buffer) {
+  // little endian
+  let reader = new DataView(buffer)
+  let magic = reader.getUint32(0, true) // 'TRAC'
+  if (magic !== 1128354388) {
+    // e.g. TRK.gz
+    let raw
+    if (magic === 4247762216) {
+      // e.g. TRK.zstd
+      // raw = fzstd.decompress(new Uint8Array(buffer));
+      // raw = new Uint8Array(raw);
+      throw new Error('zstd TRK decompression is not supported')
+    } else {
+      raw = decompressSync(new Uint8Array(buffer))
+    }
+    buffer = raw.buffer
+    reader = new DataView(buffer)
+    magic = reader.getUint32(0, true) // 'TRAC'
+  }
+  const vers = reader.getUint32(992, true) // 2
+  const hdr_sz = reader.getUint32(996, true) // 1000
+  if (vers > 2 || hdr_sz !== 1000 || magic !== 1128354388) {
+    throw new Error('Not a valid TRK file')
+  }
+  const n_scalars = reader.getInt16(36, true)
+  const dpv = []
+  let str;
+  // data_per_vertex
+  for (let i = 0; i < n_scalars; i++) {
+    const arr = new Uint8Array(buffer.slice(38 + i * 20, 58 + i * 20));
+    let str = new TextDecoder().decode(arr).split('\0').shift();
+    if( typeof str === "string" ) {
+      str = str.trim();
+    } else {
+      str = `id_${i}`;
+    }
+    dpv.push({
+      id: str, // TODO can we guarantee this?
+      vals: []
+    });
+  }
+  const voxel_sizeX = reader.getFloat32(12, true);
+  const voxel_sizeY = reader.getFloat32(16, true);
+  const voxel_sizeZ = reader.getFloat32(20, true);
+  const zoomMat = mat4.fromValues(
+    1 / voxel_sizeX, 0, 0, -0.5,
+    0, 1 / voxel_sizeY, 0, -0.5,
+    0, 0, 1 / voxel_sizeZ, -0.5,
+    0, 0, 0, 1
+  );
+  const n_properties = reader.getInt16(238, true);
+  const dps = [];
+  // data_per_streamline
+  for (let i = 0; i < n_properties; i++) {
+    const arr = new Uint8Array(buffer.slice(240 + i * 20, 260 + i * 20));
+    let str = new TextDecoder().decode(arr).split('\0').shift();
+    if( typeof str === "string" ) {
+      str = str.trim();
+    } else {
+      str = `id_${i}`;
+    }
+    dps.push({
+      id: str, // TODO can we guarantee this?
+      vals: []
+    });
+  }
+  const mat = mat4.create();
+  for (let i = 0; i < 16; i++) {
+    mat[i] = reader.getFloat32(440 + i * 4, true);
+  }
+  if (mat[15] === 0.0) {
+    // vox_to_ras[3][3] is 0, it means the matrix is not recorded
+    console.warn('TRK vox_to_ras not set... using identity matrix');
+    mat4.identity(mat);
+  }
+  const vox2mmMat = mat4.create();
+  mat4.mul(vox2mmMat, zoomMat, mat);
+  let i32 = null;
+  let f32 = null;
+  i32 = new Int32Array(buffer.slice(hdr_sz));
+  f32 = new Float32Array(i32.buffer);
+  const ntracks = i32.length;
+  if (ntracks < 1) {
+    throw new Error('Empty TRK file.');
+  }
+  // read and transform vertex positions
+  let i = 0
+  let npt = 0
+  // pre-allocate and over-provision offset array
+  let offsetPt0 = new Uint32Array(i32.length / 4)
+  // pre-allocate and over-provision streamline length array
+  let lps32 = new Float32Array(i32.length / 4)
+  let noffset = 0
+  // pre-allocate and over-provision vertex positions array
+  let pts = new Float32Array(i32.length)
+  let npt3 = 0
+  // temporary variables to store transformed vertex positions
+  let vtx, vty, vtz, vtx2, vty2, vtz2, slen;
+  while (i < ntracks) {
+    const n_pts = i32[i]
+    i = i + 1 // read 1 32-bit integer for number of points in this streamline
+    slen = 0;
+    for (let j = 0; j < n_pts; j++) {
+      const ptx = f32[i + 0]
+      const pty = f32[i + 1]
+      const ptz = f32[i + 2]
+      i += 3 // read 3 32-bit floats for XYZ position
+      vtx = ptx * vox2mmMat[0] + pty * vox2mmMat[1] + ptz * vox2mmMat[2] + vox2mmMat[3]
+      vty = ptx * vox2mmMat[4] + pty * vox2mmMat[5] + ptz * vox2mmMat[6] + vox2mmMat[7]
+      vtz = ptx * vox2mmMat[8] + pty * vox2mmMat[9] + ptz * vox2mmMat[10] + vox2mmMat[11]
 
-export { readTT };
+      pts[npt3++] = vtx;
+      pts[npt3++] = vty;
+      pts[npt3++] = vtz;
+      if (n_scalars > 0) {
+        for (let s = 0; s < n_scalars; s++) {
+          dpv[s].vals.push(f32[i])
+          i++
+        }
+      }
+      if (j > 0) {
+        slen += Math.sqrt(
+          (vtx - vtx2) * (vtx - vtx2) +
+          (vty - vty2) * (vty - vty2) +
+          (vtz - vtz2) * (vtz - vtz2)
+        )
+      }
+      vtx2 = vtx;
+      vty2 = vty;
+      vtz2 = vtz;
+      npt++
+    } // for j: each point in streamline
+    if (n_properties > 0) {
+      for (let j = 0; j < n_properties; j++, i++) {
+        dps[j].vals.push(f32[i]);
+      }
+    }
+    lps32[noffset] = slen;
+    offsetPt0[noffset++] = npt;
+  } // for each streamline: while i < n_count
+  // output uses static float32 not dynamic number[]
+  const dps32 = []
+  // data_per_streamline
+  for (let i = 0; i < dps.length; i++) {
+    dps32.push({
+      id: dps[i].id,
+      vals: Float32Array.from(dps[i].vals)
+    })
+  }
+  const dpv32 = []
+  for (let i = 0; i < dpv.length; i++) {
+    dpv32.push({
+      id: dpv[i].id,
+      vals: Float32Array.from(dpv[i].vals)
+    })
+  }
+  // add 'first index' as if one more line was added (fence post problem)
+  offsetPt0[noffset++] = npt;
+  // resize offset/vertex arrays that were initially over-provisioned
+  pts = pts.slice(0, npt3);
+  offsetPt0 = offsetPt0.slice(0, noffset);
+  lps32 = lps32.slice(0, noffset - 1);
+  return {
+    pts,
+    offsetPt0,
+    lps: lps32,
+    dps: dps32,
+    dpv: dpv32
+  }
+} // readTRK()
+
+export { readTT, readTRK };

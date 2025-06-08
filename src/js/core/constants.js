@@ -42,6 +42,7 @@ CONSTANTS.LAYER_INVISIBLE_31 = 31;                // invisible layer, but keep r
 
 CONSTANTS.MAIN_CAMERA_MAX_ZOOM = 40;
 CONSTANTS.SIDE_CAMERA_MAX_ZOOM = 40;
+CONSTANTS.SIDE_CAMERA_ZOOM_SPEED = 1.5;
 
 /* ------------------------------------ Global constants ------------------------------------
 */
@@ -194,6 +195,7 @@ CONSTANTS.FOLDERS = {
   'subject-selector'      : 'Electrode Settings',
   'surface-selector'      : 'Surface Settings',
   'hemisphere-material'   : 'Surface Settings',
+  'tractography'          : 'Tractography Settings',
   'electrode-style'       : 'Electrode Settings',
   'electrode-mapping'     : 'Electrode Settings',
   'dragdrop'              : 'Custom Geometry Settings',
@@ -233,6 +235,7 @@ CONSTANTS.RENDER_ORDER = {
   'DataCube'  : CONSTANTS.MAX_RENDER_ORDER - 1,
   "Electrode" : -500,
   "InstancedElectrode": -501,
+  "RulerHelper" : 502,
 };
 
 

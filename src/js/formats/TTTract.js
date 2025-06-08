@@ -5,7 +5,7 @@ import { readTT } from './streamlineIO.js';
 class TTTract {
   constructor ( data ) {
     this.isInvalid = true;
-    this.isTractography = true;
+    this.isStreamline = true;
     this.isTTTract = true;
 
     if(!data) { return; }
@@ -40,7 +40,7 @@ class TTTract {
     this.cutoff = el.cutoff;
     this.color = new Color().copy( el.color );
 
-    this.isFiberTract = true;
+    this.isStreamline = true;
     this.isTTTract = true;
 
     return this;

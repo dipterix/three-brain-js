@@ -11,7 +11,7 @@ import { STLMesh } from '../formats/STLMesh.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
 import { FreeSurferAnnot } from '../formats/FreeSurferAnnot.js';
-import { TTTract } from '../formats/TTTract.js';
+import { TrkTract } from '../formats/TrkTract.js';
 
 
 const debugManager = new LoadingManager();
@@ -359,10 +359,10 @@ class STLLoader2 extends TypedLoader {
   classType = STLMesh;
 }
 
-class TTLoader extends TypedLoader {
+class TrkLoader extends TypedLoader {
   responseType = "arraybuffer";
-  loaderName = "TTLoader";
-  classType = TTTract;
+  loaderName = "TrkLoader";
+  classType = TrkTract;
 }
 
 class MGHLoader extends TypedLoader {
@@ -406,7 +406,7 @@ const loaderClasses = {
   "FreeSurferMeshLoader": FreeSurferMeshLoader,
   "FreeSurferNodeLoader": FreeSurferNodeLoader,
   "FreeSurferAnnotLoader": FreeSurferAnnotLoader,
-  "TTLoader"    : TTLoader,
+  "TrkLoader"    : TrkLoader,
 }
 
 for(let loaderType in loaderClasses) {
@@ -441,8 +441,8 @@ function guessLoaderType( url ) {
     loaderType = "CSVLoader";
   } else if ( urlLowerCase.endsWith("stl") ) {
     loaderType = "STLLoader2";
-  } else if ( urlLowerCase.endsWith("tt") || urlLowerCase.endsWith("tt.gz") ) {
-    loaderType = "TTLoader";
+  } else if ( urlLowerCase.endsWith("trk") || urlLowerCase.endsWith("trk.gz") ) {
+    loaderType = "TrkLoader";
   } else {
     loaderType = "FreeSurferMeshLoader";
   }

@@ -130,24 +130,36 @@ class MGHImage {
     const imageDataBuf = raw.slice(this.header.vox_offset, this.header.vox_offset + nBytes);
 
     const dataReader = new DataView( imageDataBuf );
+
+    let vmin = Infinity, vmax = -Infinity;
+
     if (this.header.datatypeCode === nifti.NIFTI1.TYPE_INT16) {
       this.image = new Int16Array( nElements );
       for( let ii = 0 ; ii < nElements ; ii++ ) {
-        this.image[ ii ] = dataReader.getInt16(ii * 2, isLittleEndian);
+        const v = dataReader.getInt16(ii * 2, isLittleEndian);
+        if( v > vmax ) { vmax = v; }
+        if( v < vmin ) { vmin = v; }
+        this.image[ ii ] = v;
       }
       this.imageDataType = ShortType;
       this.dataIsInt16 = true;
     } else if (this.header.datatypeCode === nifti.NIFTI1.TYPE_INT32) {
       this.image = new Int32Array( nElements );
       for( let ii = 0 ; ii < nElements ; ii++ ) {
-        this.image[ ii ] = dataReader.getInt32(ii * 4, isLittleEndian);
+        const v = dataReader.getInt32(ii * 4, isLittleEndian);
+        if( v > vmax ) { vmax = v; }
+        if( v < vmin ) { vmin = v; }
+        this.image[ ii ] = v;
       }
       this.imageDataType = IntType;
       this.dataIsInt32 = true;
     } else if (this.header.datatypeCode === nifti.NIFTI1.TYPE_FLOAT32) {
       this.image = new Float32Array( nElements );
       for( let ii = 0 ; ii < nElements ; ii++ ) {
-        this.image[ ii ] = dataReader.getFloat32(ii * 4, isLittleEndian);
+        const v = dataReader.getFloat32(ii * 4, isLittleEndian);
+        if( v > vmax ) { vmax = v; }
+        if( v < vmin ) { vmin = v; }
+        this.image[ ii ] = v;
       }
       this.imageDataType = FloatType;
       this.dataIsFloat32 = true;
@@ -155,23 +167,16 @@ class MGHImage {
       this.image = new Uint8Array( imageDataBuf );
       this.imageDataType = UnsignedByteType;
       this.dataIsUInt8 = true;
+      // FIXME: Should we get min and max in this case?
+      vmin = 0;
+      vmax = 255;
     }
 
-    let maxV = 1, minV = 0;
-    if( this.image.length > 0 ) {
-      maxV = this.image[0];
-      minV = this.image[0];
-      this.image.forEach( ( v ) => {
-        if( v > maxV ) {
-          maxV = v;
-        } else if ( v < minV ) {
-          minV = v;
-        }
-      });
-    }
-    this.calMin = this.header.cal_min = minV * this.slope + this.intercept;
-    this.calMax = this.header.cal_max = maxV * this.slope + this.intercept;
+    this.calMin = this.header.cal_min = vmin * this.slope + this.intercept;
+    this.calMax = this.header.cal_max = vmax * this.slope + this.intercept;
 
+    this.dataMin = vmin * this.slope + this.intercept;
+    this.dataMax = vmax * this.slope + this.intercept;
 
     this.shape = new Vector3(
       this.header.dims[1],
@@ -202,19 +207,29 @@ class MGHImage {
   }
 
   getNormalizedImage () {
+    // normalize the image to 0-1
 
     const slope = this.slope || 1;
     const intercept = this.intercept;
-    const calMin = this.calMin;
-    const calMax = this.calMax;
-    const calSpread = calMax == calMin ? 1 : (calMax - calMin);
-    const calInterc = ( intercept - calMin ) / calSpread;
-    const calSlope = slope / calSpread;
+    const dataMin = this.dataMin;
+    const dataMax = this.dataMax;
+    const dataSpread = dataMax == dataMin ? 1 : (dataMax - dataMin);
+    const dataInterc = ( intercept - dataMin ) / dataSpread;
+    const dataSlope = slope / dataSpread;
 
-    const newImage = Float32Array.from( this.image, (x) => {
-      // return ( slope * x + intercept - calMin ) / calSpread;
-      return calSlope * x + calInterc;
-    });
+    // Float32Array.from will create arrays that are fragmented
+    // Chrome will kill the tab, resulting in crash
+    //
+    // const newImage = Float32Array.from( this.image, (x) => {
+    //   // return ( slope * x + intercept - dataMin ) / dataSpread;
+    //   return dataSlope * x + dataInterc;
+    // });
+
+    const n = this.image.length;
+    const newImage = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      newImage[i] = dataSlope * this.image[i] + dataInterc;
+    }
 
     return newImage;
   }
@@ -244,6 +259,8 @@ class MGHImage {
     this.intercept = el.intercept;
     this.calMin = el.calMin;
     this.calMax = el.calMax;
+    this.dataMin = el.dataMin;
+    this.dataMax = el.dataMax;
 
     this.ijk2tkrRAS = new Matrix4().copy( el.ijk2tkrRAS );
     this.affine = new Matrix4().copy( el.affine );

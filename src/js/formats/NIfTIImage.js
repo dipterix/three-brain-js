@@ -57,23 +57,22 @@ class NiftiImage {
       console.warn("NiftiImage: Cannot load NIFTI image data: the data type code is unsupported.")
     }
 
-    if( this.calMax === 0 ) {
-      let maxV = 1, minV = 0;
-      if( this.image.length > 0 ) {
-        maxV = this.image[0];
-        minV = this.image[0];
+    // find the min & max of the data
+    let maxV = 1, minV = 0;
+    if( this.image.length > 0 ) {
+      maxV = this.image[0];
+      minV = this.image[0];
 
-        this.image.forEach( ( v ) => {
-          if( v > maxV ) {
-            maxV = v;
-          } else if ( v < minV ) {
-            minV = v;
-          }
-        });
-      }
-      this.calMin = minV * this.slope + this.intercept;
-      this.calMax = maxV * this.slope + this.intercept;
+      this.image.forEach( ( v ) => {
+        if( v > maxV ) {
+          maxV = v;
+        } else if ( v < minV ) {
+          minV = v;
+        }
+      });
     }
+    this.dataMin = minV * this.slope + this.intercept;
+    this.dataMax = maxV * this.slope + this.intercept;
 
     this.isNiftiImage = true;
 
@@ -156,16 +155,25 @@ class NiftiImage {
 
     const slope = this.slope || 1;
     const intercept = this.intercept;
-    const calMin = this.calMin;
-    const calMax = this.calMax;
-    const calSpread = calMax == calMin ? 1 : (calMax - calMin);
-    const calInterc = ( intercept - calMin ) / calSpread;
-    const calSlope = slope / calSpread;
+    const dataMin = this.dataMin;
+    const dataMax = this.dataMax;
+    const dataSpread = dataMax == dataMin ? 1 : (dataMax - dataMin);
+    const dataInterc = ( intercept - dataMin ) / dataSpread;
+    const dataSlope = slope / dataSpread;
 
-    const newImage = Float32Array.from( this.image, (x) => {
-      // return ( slope * x + intercept - calMin ) / calSpread;
-      return calSlope * x + calInterc;
-    });
+    const n = this.image.length;
+    const newImage = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      newImage[i] = dataSlope * this.image[i] + dataInterc;
+    }
+
+    // Float32Array.from will create arrays that are fragmented
+    // Chrome will kill the tab, resulting in crash
+    //
+    // const newImage = Float32Array.from( this.image, (x) => {
+    //   // return ( slope * x + intercept - dataMin ) / dataSpread;
+    //   return dataSlope * x + dataInterc;
+    // });
 
     return newImage;
   }
@@ -337,6 +345,9 @@ class NiftiImage {
     this.intercept = el.intercept;
     this.calMin = el.calMin;
     this.calMax = el.calMax;
+
+    this.dataMin = el.dataMin;
+    this.dataMax = el.dataMax;
 
     this.isNiftiImage = true;
 

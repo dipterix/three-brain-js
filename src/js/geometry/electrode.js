@@ -1888,14 +1888,26 @@ class Electrode extends AbstractThreeBrainObject {
       return false;
     }
 
+    let hemisphere;
     const origSubject = this.subject_code,
           g = this._params;
-    if( typeof g.hemisphere != "string" ) { return false; }
-    let hemisphere = g.hemisphere.toLowerCase();
-    if( hemisphere[0] === "l" ) {
-      hemisphere = "Left";
+    if( typeof g.hemisphere != "string" ) {
+      const mni152 = this.state.contactPositions.mni152;
+      if( mni152.lengthSq() === 0 || mni152.x === 0 ) {
+        return false;
+      }
+      if( mni152.x > 0 ) {
+        hemisphere = "Right";
+      } else {
+        hemisphere = "Left";
+      }
     } else {
-      hemisphere = "Right";
+      hemisphere = g.hemisphere.toLowerCase();
+      if( hemisphere[0] === "l" ) {
+        hemisphere = "Left";
+      } else {
+        hemisphere = "Right";
+      }
     }
 
     if( typeof subjectCode !== "string" || subjectCode === "" || subjectCode === "/" ) {

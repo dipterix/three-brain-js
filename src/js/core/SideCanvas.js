@@ -732,12 +732,12 @@ class SideCanvas {
   }
 
   _onZoomOutClicked = () => {
-    let newZoomLevel = this.zoomLevel / 1.2;
+    let newZoomLevel = this.zoomLevel / CONSTANTS.SIDE_CAMERA_ZOOM_SPEED;
 	  this.zoom( newZoomLevel );
   }
 
   _onZoomInClicked = () => {
-    let newZoomLevel = this.zoomLevel * 1.2;
+    let newZoomLevel = this.zoomLevel * CONSTANTS.SIDE_CAMERA_ZOOM_SPEED;
 	  this.zoom( newZoomLevel );
   }
   _onDoubleClick = () => {

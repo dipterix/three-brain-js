@@ -100,6 +100,7 @@ class DataCube extends AbstractThreeBrainObject {
     this.dataTexture.unpackAlignment = 1;
     this.dataTexture.needsUpdate = true;
 
+
     // Generate shader
     this._uniforms.map.value = this.dataTexture;
     this._uniforms.mapShape.value.copy( this.cubeShape );

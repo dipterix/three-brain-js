@@ -22,13 +22,27 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS['atlas'] || 'Volume Settings';
           // _atype = this.canvas.get_state( 'atlas_type' ) || 'none';  //_s
     // Add controllers for continuous lut
-    let voxelLB = -100000, voxelUB = 100000;
+    let voxelLB = -100000, voxelUB = 100000,
+        voxelPaletteLB = -100000, voxelPaletteUB = 100000;
     const applyContinuousSelection = () => {
       const dataCubeInstance = this.getActiveDataCube2();
       if( !dataCubeInstance ) { return; }
       const lut = dataCubeInstance.lut;
       if( !lut || lut.mapDataType !== "continuous" ) { return; }
-      dataCubeInstance._filterDataContinuous( voxelLB, voxelUB );
+
+      if( ctrlDynamicColorMap.getValue() ) {
+        // the colormap syncs with the threshold range
+        dataCubeInstance._filterDataContinuous( voxelLB, voxelUB, voxelLB, voxelUB );
+      } else {
+        dataCubeInstance._filterDataContinuous( voxelLB, voxelUB, voxelPaletteLB, voxelPaletteUB );
+      }
+
+
+
+      const generateISOSurface = ctrlISOSurface.getValue() || false;
+      if( generateISOSurface ) {
+        dataCubeInstance.createISOSurface();
+      }
       this.canvas.set_state( "surface_color_refresh", Date() );
       this.canvas.needsUpdate = true;
     }
@@ -41,6 +55,11 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       const lut = dataCubeInstance.lut;
       if( !lut || lut.mapDataType !== "discrete" ) { return; }
       dataCubeInstance._filterDataDiscrete( selectedLabels );
+
+      const generateISOSurface = ctrlISOSurface.getValue() || false;
+      if( generateISOSurface ) {
+        dataCubeInstance.createISOSurface();
+      }
       this.canvas.set_state( "surface_color_refresh", Date() );
       this.canvas.needsUpdate = true;
     }
@@ -54,7 +73,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       const dataCubeInstance = this.getActiveDataCube2();
       if( !dataCubeInstance || !dataCubeInstance.isDataCube2 ) {
         // hide selection controllers
-        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max', 'Component Index',
+        this.gui.hideControllers(['Voxel Display', 'Voxel Label', 'Voxel Min', 'Voxel Max', 'ColorMap Min', 'ColorMap Max', 'Component Index',
                                   'Voxel Cmap', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
       } else {
 
@@ -72,6 +91,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
                 ub = Math.ceil( dataCubeInstance.__dataUB );
           voxelLB = Math.max( voxelLB, lb );
           voxelUB = Math.min( voxelUB, ub );
+          voxelPaletteLB = dataCubeInstance.__paletteLB;
+          voxelPaletteUB = dataCubeInstance.__paletteUB;
 
           if( Array.isArray( selectedDataValues ) && selectedDataValues.length >= 2 ) {
             if( typeof selectedDataValues[0] === "number" ) {
@@ -82,22 +103,34 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
             }
           }
 
-          this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'Component Index',
+          if( ctrlDynamicColorMap.getValue() ) {
+            this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'Component Index',
                                     'Voxel Cmap', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
-          this.gui.hideControllers(['Voxel Label'], folderName);
+            this.gui.hideControllers(['ColorMap Min', 'ColorMap Max', 'Voxel Label'], folderName);
+          } else {
+            this.gui.showControllers(['Voxel Display', 'Voxel Min', 'Voxel Max', 'ColorMap Min', 'ColorMap Max', 'Component Index',
+                                    'Voxel Cmap', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
+            this.gui.hideControllers(['Voxel Label'], folderName);
+          }
+
           // update controllers' min, max, steps
+          const stepSize = (ub - lb) / ( nColorKeys - 1 );
           ctrlContinuousThresholdLB.min( lb ).max( ub )
-            .step( (ub - lb) / ( nColorKeys - 1 ) )
+            .step( stepSize )
             .setValue( voxelLB ).updateDisplay();
           ctrlContinuousThresholdUB.min( lb ).max( ub )
-            .step( (ub - lb) / ( nColorKeys - 1 ) )
+            .step( stepSize )
             .setValue( voxelUB ).updateDisplay();
+
+          ctrlContinuousColorLB.setValue(voxelPaletteLB).step(stepSize).updateDisplay();
+          ctrlContinuousColorUB.setValue(voxelPaletteUB).step(stepSize).updateDisplay();
+
           ctrlContinuousColorMap.setValue("unset");
           delete dataCubeInstance._holdePalette;
           applyContinuousSelection();
         } else {
           this.gui.showControllers(['Voxel Display', 'Voxel Label', 'Component Index'], folderName);
-          this.gui.hideControllers(['Voxel Min', 'Voxel Max', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
+          this.gui.hideControllers(['Voxel Min', 'Voxel Max', 'ColorMap Min', 'ColorMap Max', 'Dynamic Color Map', 'Symmetric Color Map'], folderName);
           const previousLabel = this._voxelLabelCache[ v ];
 
           if( typeof previousLabel === 'string' ) {
@@ -237,7 +270,6 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         voxelLB = v;
 
         applyContinuousSelection();
-        ctrlISOSurface.setValue( false );
       });
     const ctrlContinuousThresholdUB = this.gui
       .addController('Voxel Max', 100000, { folderName : folderName })
@@ -246,7 +278,6 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         voxelUB = v;
 
         applyContinuousSelection();
-        ctrlISOSurface.setValue( false );
       });
 
     const ctrlComponentIndex = this.gui
@@ -271,27 +302,43 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         const lut = dataCubeInstance.lut;
         if( !lut || lut.mapDataType !== "continuous" ) { return; }
         dataCubeInstance.useColorLookupTable( lut, v );
-        this.canvas.set_state( "surface_color_refresh", Date() );
 
-        ctrlISOSurface.setValue( false );
+        const generateISOSurface = ctrlISOSurface.getValue() || false;
+        if( generateISOSurface ) {
+          dataCubeInstance.createISOSurface();
+        }
+
+        this.canvas.set_state( "surface_color_refresh", Date() );
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
 
-    this.gui
+    const ctrlDynamicColorMap = this.gui
       .addController('Dynamic Color Map', false, { folderName : folderName })
       .onChange(v => {
         if( v ) {
-          this.canvas.set_state("dynamicColorDataCube2", true);
+          this.gui.hideControllers(['ColorMap Min', 'ColorMap Max'], folderName);
         } else {
-          this.canvas.set_state("dynamicColorDataCube2", false);
+          this.gui.showControllers(['ColorMap Min', 'ColorMap Max'], folderName);
         }
-
         applyContinuousSelection();
-        ctrlISOSurface.setValue( false );
-
         this.broadcast();
         this.canvas.needsUpdate = true;
+      });
+
+    const ctrlContinuousColorLB = this.gui
+      .addController('ColorMap Min', -100000, { folderName : folderName })
+      .onChange( async ( v ) => {
+        voxelPaletteLB = v;
+
+        applyContinuousSelection();
+      });
+    const ctrlContinuousColorUB = this.gui
+      .addController('ColorMap Max', 100000, { folderName : folderName })
+      .onChange( async ( v ) => {
+        voxelPaletteUB = v;
+
+        applyContinuousSelection();
       });
 
     this.gui
@@ -306,7 +353,6 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         }
 
         applyContinuousSelection();
-        ctrlISOSurface.setValue( false );
 
         this.broadcast();
         this.canvas.needsUpdate = true;
@@ -319,7 +365,6 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         this.canvas.set_state("symmetricValueDataCube2", v);
 
         applyContinuousSelection();
-        ctrlISOSurface.setValue( false );
 
         this.broadcast();
         this.canvas.needsUpdate = true;
@@ -359,7 +404,6 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
         });
 
         applyDiscreteSelection();
-        ctrlISOSurface.setValue( false );
       });
 
     const ctrlISOSurface = this.gui.addController('ISO Surface', false, { folderName : folderName })

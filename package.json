@@ -14,7 +14,7 @@
     "gifti-reader-js": "^0.4.6",
     "gl-matrix": "^3.4.3",
     "json-2-csv": "^3.14.1",
-    "jspdf": "^2.5.2",
+    "jspdf": "^3.0.0",
     "lil-gui": "^0.18.2",
     "nifti-reader-js": "^0.5.4",
     "papaparse": "^5.4.1",

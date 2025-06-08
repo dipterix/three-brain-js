@@ -973,6 +973,7 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     this.controllerGUI.addFolder( "Volume Settings" );
     this.controllerGUI.addFolder( "Surface Settings" );
+    this.controllerGUI.addFolder( "Tractography Settings" );
     this.controllerGUI.addFolder( "Electrode Settings" );
 
     // ---- Add Presets --------------------------------------------------------
@@ -1011,6 +1012,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.controlCenter.addPreset_map_template();
     this.controlCenter.addPreset_electrodes();
     this.controlCenter.addPreset_voxel();
+    this.controlCenter.addPreset_tractography();
 
     // ---- Localization -------------------------------------------------------
     if( enabledPresets.includes( "localization" )) {

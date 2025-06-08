@@ -170,6 +170,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.slices = new Map();
     this.ct_scan = new Map();
     this.atlases = new Map();
+    this.tracts = new Map();
     this.singletons = new Map();
     this._show_ct = false;
     this.surfaces = new Map();
@@ -481,7 +482,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       let knotPosition = item.point;
 
       const maybeElectrode = getThreeBrainInstance( item.object );
-      if( maybeElectrode.isElectrode ) {
+      if( maybeElectrode && maybeElectrode.isElectrode ) {
         knotPosition = this.focusObject( item.object, { intersectPoint: item.point } );
       }
 
@@ -540,10 +541,19 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( this.get_state( "ruler_activated" ) ) {
       raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
 
-      const visibleObjects = this.mesh.values().filter((mesh) => {
+      const visibleObjectGenerator = this.mesh.values().filter((mesh) => {
         return mesh.visible && mesh.layers.test( MAIN_CAMERA_VISIBLE_LAYERS );
       })
-      items = raycaster.intersectObjects( [...visibleObjects] );
+      const visibleObjects = [...visibleObjectGenerator];
+      // check if datacube2 has isoSurface
+      const instance = this.get_state( "activeDataCube2Instance" );
+      if( instance && instance.isDataCube2 ) {
+        if( instance.useISOSurface && instance.isoSurface && !instance.isoSurface.isInvalid ) {
+          visibleObjects.push( instance.isoSurface );
+        }
+      }
+
+      items = raycaster.intersectObjects( visibleObjects );
     } else {
       // where clickable objects stay
       raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
@@ -554,12 +564,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       );
     }
 
-    /*
-    const items = raycaster.intersectObjects(
-      // asArray( this.clickable )
-      this.clickableArray.filter((e) => { return( e.visible ) })
-    );
-    */
     if( !items || items.length === 0 ) {
       return;
     }
@@ -911,12 +915,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       precision: 1,
       horizontal: true,
       minimal: false,
-      mode: 0
+      mode: 2
     });
     this.nerdStats.dom.style.display = 'block';
     this.nerdStats.dom.style.position = 'absolute';
     this.nerdStats.dom.style.top = '0';
     this.nerdStats.dom.style.left = '0';
+    this.nerdStats.init( this.main_renderer );
     // this.nerdStats.init( this.main_renderer );
     this.$el.appendChild( this.nerdStats.dom );
     this.__nerdStatsEnabled = true;
@@ -1029,6 +1034,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.ct_scan.clear();
     this.surfaces.clear();
     this.atlases.clear();
+    this.tracts.clear();
 
     this.state_data.clear();
     this.shared_data.clear();
@@ -1823,7 +1829,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( this._renderFlag == CanvasState.NoRender ) { return; }
 
     if( this.__nerdStatsEnabled ) {
-      this.nerdStats.begin();
+      // this.nerdStats.begin();
     }
 
     const _width = this.domElement.width;
@@ -1979,7 +1985,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.needsUpdate = undefined;
 
     if( this.__nerdStatsEnabled ) {
-      this.nerdStats.end();
+      // this.nerdStats.end();
       this.nerdStats.update();
     }
 
@@ -2238,7 +2244,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // correspoding value
     let hideInfoFocused = true;
     let currentValue;
-    if( this.animParameters.hasObjectFocused && !this.get_state( 'info_text_disabled') ) {
+    if( this.animParameters.hasObjectFocused && !this.get_state( 'info_text_disabled' ) ) {
       hideInfoFocused = false;
       currentValue = this.animParameters.objectFocused.currentDataValue;
     }
@@ -2480,6 +2486,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.ct_scan.set( subject_code, {} );
       this.surfaces.set(subject_code, {} );
       this.atlases.set( subject_code, {} );
+      this.tracts.set( subject_code, {} );
+
+      // get subject transforms
+      const subjectData = this.shared_data.get(subject_code)
+      const subjectMatrices = subjectData.matrices;
+      const scan2tkr = new Matrix4()
+        .copy( subjectMatrices.Norig )
+        .invert()
+        .premultiply( subjectMatrices.Torig );
+      const scan2tkrElement = scan2tkr.elements;
+
 
       this._addBasicGroup({
         cache_name: `${ subject_code }/mri`,
@@ -2505,6 +2522,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         position: [0, 0, 0],
         subject_code: subject_code,
         trans_mat: null,
+      });
+
+      this._addBasicGroup({
+        cache_name: `${ subject_code }/track`,
+        cached_items: [],
+        disable_trans_mat: false,
+        group_data: {},
+        layer: 0,
+        name: `Streamline - Custom (${ subject_code })`,
+        parent_group: null,
+        position: [0, 0, 0],
+        subject_code: subject_code,
+        trans_mat: [
+          scan2tkrElement[0], scan2tkrElement[4], scan2tkrElement[8], scan2tkrElement[12],
+          scan2tkrElement[1], scan2tkrElement[5], scan2tkrElement[9], scan2tkrElement[13],
+          scan2tkrElement[2], scan2tkrElement[6], scan2tkrElement[10], scan2tkrElement[14],
+          scan2tkrElement[3], scan2tkrElement[7], scan2tkrElement[11], scan2tkrElement[15]
+        ],
       });
 
       // group_data: Object { template_subject: "cvs_avg35_inMNI152", surface_type: "pial", subject_code: "mni152_c", … }
