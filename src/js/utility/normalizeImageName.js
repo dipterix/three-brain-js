@@ -14,10 +14,10 @@ function getColorFromFilename( filename ) {
     filename = normalizeImageName( filename );
     if( filename.length >= 6 ) {
       const s = "#" + filename.substring(filename.length - 6);
-      return testColorString( s, true );
+      return testColorString( s, filename );
     }
   }
-  return randomColor();
+  return randomColor( filename );
 }
 
 export { normalizeImageName, getColorFromFilename }
