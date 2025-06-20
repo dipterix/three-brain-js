@@ -1,4 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
+import { extractFilesFromDropEvent } from '../utility/extractFiles.js'
 
 // 13. electrode visibility, highlight, groups
 // 14. electrode mapping
@@ -6,6 +7,7 @@ import { CONSTANTS } from '../core/constants.js';
 
 const clearAllVolumeEvent = { type : "viewerApp.dragdrop.clearAllVolumes" };
 const clearAllSurfaceEvent = { type : "viewerApp.dragdrop.clearAllSurfaces" };
+const clearAllTractEvent = { type : "viewerApp.dragdrop.clearAllTracts" };
 
 function registerDragNDropFile( ViewerControlCenter ){
 
@@ -46,32 +48,18 @@ function registerDragNDropFile( ViewerControlCenter ){
     $dragdropWrapper.ondrop = async (ev) => {
       ev.preventDefault();
       resetStyle();
-
-      const files = [];
-
-      const queueFile = ( item ) => {
-        // default is [...ev.dataTransfer.files].forEach( ... );
-        let file = item;
-        if ( item.kind === "file" ) {
-          // item is not file, and needs to unwrap
-          // [...ev.dataTransfer.items].forEach(...)
-          file = item.getAsFile();
-        }
-        if( file.name.match(/(json|csv|tsv|txt)$/gi) ) {
-          files.push( file );
-        } else {
-          files.unshift( file );
-        }
-      };
-
-      [...( ev.dataTransfer.items || ev.dataTransfer.files)].forEach( queueFile );
-
+      const files = await extractFilesFromDropEvent(ev);
       while( files.length > 0 ) {
         const file = files.pop();
-        const data = await this.canvas.fileLoader.loadFromResponse( file );
-        await this.app.handleFileData ( data, file.name, {} );
+        try {
+          console.debug(`Loading file ${ file.name }`);
+          const data = await this.canvas.fileLoader.loadFromResponse( file );
+          await this.app.handleFileData( data, file.name, {} );
+        } catch (e) {
+          // catches loadFromResponse errors
+          console.error(e);
+        }
       }
-
     };
 
     $dragdropWrapper.ondragover = (evt) => {
@@ -163,6 +151,30 @@ function registerDragNDropFile( ViewerControlCenter ){
           value : v
         });
       });
+
+
+    const tractFolderName = `${folderName} > Configure Streamlines`;
+    this.gui.addController(
+      "Clear Uploaded Streamlines",
+      () => {
+        this.dispatchEvent( clearAllTractEvent );
+        this.canvas.needsUpdate = true;
+      },
+      { folderName : tractFolderName }
+    );
+
+    this.gui
+      .addController(
+        "Visibility (all streamlines)",
+        "visible", { args: ["visible", "hidden"], folderName : tractFolderName } )
+      .onChange(v => {
+        if( typeof v !== "string" || !(v === "visible" || v === "hidden") ) { return; }
+        this.dispatchEvent({
+          type  : "viewerApp.dragdrop.setVisibleAllTracts",
+          value : v
+        });
+      });
+
 
   };
 
