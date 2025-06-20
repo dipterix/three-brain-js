@@ -60,6 +60,11 @@ const _colorMapChanged = {
   immediate: true
 };
 
+const _newObjectFocusedEvent = {
+  type : "viewerApp.canvas.newObjectFocused",
+  immediate: false
+};
+
 const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
 const BLACK_COLOR = new Color().set(0, 0, 0);
@@ -402,6 +407,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.compass = new Compass( this.mainCamera, this.trackball );
     // Hide the anchor first
     this.add_to_scene( this.compass.container, true );
+    this.add_to_scene( this.compass.rulerContainer, true );
 
 
     // Mouse helpers
@@ -1143,6 +1149,29 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
   }
 
+  setStreamlineHighlight({ mode, radius, immediate = true } = {}) {
+    let defaultConfig = this.get_state('streamline_highlight');
+    if( !defaultConfig || typeof defaultConfig !== 'object' ) {
+      defaultConfig = {};
+      this.set_state('streamline_highlight', defaultConfig);
+    }
+    if( typeof mode !== 'string' ) {
+      mode = defaultConfig.mode ?? 'none';
+    }
+    if( typeof radius !== 'number' ) {
+      radius = defaultConfig.radius ?? 1;
+    }
+    if( radius < 0 ) { radius = 0; }
+    defaultConfig.mode = mode;
+    defaultConfig.radius = radius;
+
+    this.dispatch({
+      type : "viewerApp.canvas.setStreamlineHighlight",
+      data : defaultConfig,
+      immediate : immediate
+    });
+  }
+
   setSliceCrosshair({x, y, z, immediate = true, centerCrosshair = false} = {}) {
 
     // set sagittal
@@ -1537,6 +1566,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.needsUpdate = true;
 
+    this.dispatch( _newObjectFocusedEvent );
     return intersectPoint;
   }
 
@@ -3119,6 +3149,8 @@ mapped = false,
     } else {
       this.$el.classList.remove( 'dark-viewer' );
     }
+
+    this.compass.setRulerColor( this.foreground_color );
 
     /*
     try {

@@ -41,18 +41,53 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController("Streamline Retention", 1.0, {folderName: folderName})
-      .min(0.05).max(1).step(0.01)
+    this.gui.addController("Streamline Retention", 0.0, {folderName: folderName})
+      .min(0.0).max(1).step(0.01)
       .onChange(v => {
-        if( typeof v !== "number" || v >= 1 ) {
+        if( typeof v !== "number" || v < 0.01 ) {
+          v = 0.0;
+        } else if ( v > 1.0 ) {
           v = 1.0;
-        } else if ( v < 0.05 ) {
-          v = 0.05;
         }
         this.canvas.set_state('streamline_retention', v);
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
+
+    const highlightStreamlineConfig = {
+      mode   : 'none',
+      radius : 1,
+    };
+    this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
+
+    this.gui.addController("Highlight Streamlines", 'none', {args: ['none', 'electrode', 'crosshair'], folderName: folderName})
+      .onChange(v => {
+        if( typeof v !== 'string' ) { return; }
+        highlightStreamlineConfig.mode = v;
+
+        this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
+        this.broadcast();
+        // this.canvas.needsUpdate = true;
+        this.canvas.setStreamlineHighlight();
+      });
+
+    this.gui.addController("Highlight Radius", 1, {folderName: folderName})
+      .min(0.1).max(15).step(0.1)
+      .onChange(v => {
+        if( typeof v !== 'number' ) { return; }
+        if( v <= 0.1 ) {
+          v = 0.1;
+        } else if( v >= 15 ) {
+          v = Infinity;
+        }
+        highlightStreamlineConfig.radius = v;
+        this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
+        this.broadcast();
+        // this.canvas.needsUpdate = true;
+        this.canvas.setStreamlineHighlight();
+      });
+
+
 
 
   };

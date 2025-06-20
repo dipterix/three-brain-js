@@ -30,6 +30,10 @@ class FileDataHandler {
 
       gui.getController( `Color - ${ fname }.gii` ).setValue( color );
       gui.getController( `Color - ${ fname }.stl` ).setValue( color );
+      gui.getController( `Color - ${ fname }.trk` ).setValue( color );
+      gui.getController( `Color - ${ fname }.trk.gz` ).setValue( color );
+      gui.getController( `Color - ${ fname }.tt` ).setValue( color );
+      gui.getController( `Color - ${ fname }.tt.gz` ).setValue( color );
       gui.getController( `Color - ${ fname }` ).setValue( color );
     }
   }

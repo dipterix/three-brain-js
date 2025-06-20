@@ -32,6 +32,7 @@ import { NiftiImage } from './formats/NIfTIImage.js';
 import { FreeSurferMesh } from './formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from './formats/FreeSurferNodeValues.js';
 import { TrkTract } from './formats/TrkTract.js';
+import { TTTract } from './formats/TTTract.js';
 import { debugManager, loaderClasses, resolveURL, Cache } from './core/DataLoaders.js';
 
 import { GLTFExporter } from './jsm/exporters/GLTFExporter.js';
