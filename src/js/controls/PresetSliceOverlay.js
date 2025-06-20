@@ -406,14 +406,20 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     const folderName = CONSTANTS.FOLDERS[ 'side-electrode-dist' ];
 
     const renderDistances = {
-      near: 10,
-      far: 10
+      near: 1,
+      far: 1
     };
 
     // show electrodes trimmed
-    this.gui.addController('Frustum Near', 5, { folderName : folderName })
-      .min(0.1).max(222).step(0.1)
+    this.gui.addController('Frustum Near', 1, { folderName : folderName })
+      .min(0.1).max(15).step(0.1)
       .onChange((v) => {
+        if( typeof v !== 'number' ) { return; }
+        if( v >= 15 ) {
+          v = 250;
+        } else if (v < 0.1) {
+          v = 0.1;
+        }
         renderDistances.near = v;
         this.canvas.setVoxelRenderDistance({
           distance : renderDistances
@@ -425,10 +431,17 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
+      .setValue( 1 );
 
-    this.gui.addController('Frustum Far', 5, { folderName : folderName })
-      .min(0.1).max(222).step(0.1)
+    this.gui.addController('Frustum Far', 1, { folderName : folderName })
+      .min(0.1).max(15).step(0.1)
       .onChange((v) => {
+        if( typeof v !== 'number' ) { return; }
+        if( v >= 15 ) {
+          v = 250;
+        } else if (v < 0.1) {
+          v = 0.1;
+        }
         renderDistances.far = v;
         this.canvas.setVoxelRenderDistance({
           distance : renderDistances
@@ -440,7 +453,7 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 10 );
+      .setValue( 1 );
   }
 
   return( ViewerControlCenter );
