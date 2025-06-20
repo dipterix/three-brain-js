@@ -14,6 +14,9 @@ class TrkTract {
 
     this.points = parsed.pts;
     this.pointOffset = parsed.offsetPt0;
+    if(this.pointOffset[0] !== 0) {
+      this.pointOffset.unshift(0);
+    }
     this.lengthPerStreamline = parsed.lps;
     this.dataPerStreamline = parsed.dps;
     this.dataPerVertex = parsed.dpv;

@@ -83,57 +83,61 @@ function readMatV4(buffer) {
 // https://dsi-studio.labsolver.org/doc/cli_data.html
 // https://brain.labsolver.org/hcp_trk_atlas.html
 function readTT(buffer) {
-  let offsetPt0 = []
-  let pts = []
+  let offsetPt0 = [];
+  let pts = [];
   const mat = readMatV4(buffer);
-  if (!('trans_to_mni' in mat))
-    throw new Error("TT format file must have 'trans_to_mni'")
-  if (!('voxel_size' in mat))
-    throw new Error("TT format file must have 'voxel_size'")
-  if (!('track' in mat))
-    throw new Error("TT format file must have 'track'")
-  let trans_to_mni = mat4.create()
-  let m = mat.trans_to_mni
-  trans_to_mni = mat4.fromValues(m[0],m[1],m[2],m[3],  m[4],m[5],m[6],m[7],  m[8],m[9],m[10],m[11],  m[12],m[13],m[14],m[15])
-  mat4.transpose(trans_to_mni, trans_to_mni)
-  let zoomMat = mat4.create()
+  if (!('trans_to_mni' in mat)) {
+    throw new Error("TT format file must have 'trans_to_mni'");
+  }
+  if (!('voxel_size' in mat)) {
+    throw new Error("TT format file must have 'voxel_size'");
+  }
+  if (!('track' in mat)) {
+    throw new Error("TT format file must have 'track'");
+  }
+  let trans_to_mni = mat4.create();
+  let m = mat.trans_to_mni;
+  trans_to_mni = mat4.fromValues(m[0],m[1],m[2],m[3],  m[4],m[5],m[6],m[7],  m[8],m[9],m[10],m[11],  m[12],m[13],m[14],m[15]);
+  mat4.transpose(trans_to_mni, trans_to_mni);
+  let zoomMat = mat4.create();
   zoomMat = mat4.fromValues(1 / mat.voxel_size[0],0,0,-0.5,
         0, 1 / mat.voxel_size[1], 0, -0.5,
         0, 0, 1 / mat.voxel_size[2], -0.5,
-        0, 0, 0, 1)
-  mat4.transpose(zoomMat, zoomMat)
+        0, 0, 0, 1);
+  mat4.transpose(zoomMat, zoomMat);
   function parse_tt(track) {
-    let dv = new DataView(track.buffer)
-    let pos = []
-    let nvert3 = 0
-    let i = 0
+    let dv = new DataView(track.buffer);
+    let pos = [];
+    let nvert3 = 0;
+    let i = 0;
     while(i < track.length) {
-      pos.push(i)
-      let newpts = dv.getUint32(i, true)
-      i = i + newpts+13
-      nvert3 += newpts
+      pos.push(i);
+      let newpts = dv.getUint32(i, true);
+      i = i + newpts+13;
+      nvert3 += newpts;
     }
-    offsetPt0 = new Uint32Array(pos.length+1)
-    pts = new Float32Array(nvert3)
-    let npt = 0
+    offsetPt0 = new Uint32Array(pos.length+2);
+    offsetPt0[0] = 0;
+    pts = new Float32Array(nvert3);
+    let npt = 0;
     for (let i = 0; i < pos.length; i++) {
-      offsetPt0[i] = npt / 3
-      let p = pos[i]
-      let sz = dv.getUint32(p, true)/3
-      let x = dv.getInt32(p+4, true)
-      let y = dv.getInt32(p+8, true)
-      let z = dv.getInt32(p+12, true)
-      p += 16
-      pts[npt++] = x
-      pts[npt++] = y
-      pts[npt++] = z
+      offsetPt0[i+1] = npt / 3;
+      let p = pos[i];
+      let sz = dv.getUint32(p, true)/3;
+      let x = dv.getInt32(p+4, true);
+      let y = dv.getInt32(p+8, true);
+      let z = dv.getInt32(p+12, true);
+      p += 16;
+      pts[npt++] = x;
+      pts[npt++] = y;
+      pts[npt++] = z;
       for (let j = 2; j <= sz; j++) {
-          x = x + dv.getInt8(p++)
-          y = y + dv.getInt8(p++)
-          z = z + dv.getInt8(p++)
-          pts[npt++] = x
-          pts[npt++] = y
-          pts[npt++] = z
+          x = x + dv.getInt8(p++);
+          y = y + dv.getInt8(p++);
+          z = z + dv.getInt8(p++);
+          pts[npt++] = x;
+          pts[npt++] = y;
+          pts[npt++] = z;
       }
     } //for each streamline
     for (let i = 0; i < npt; i++)
@@ -148,14 +152,20 @@ function readTT(buffer) {
       pts[v++] = pos[1]
       pts[v++] = pos[2]
     }
-    offsetPt0[pos.length] = npt / 3; //solve fence post problem, offset for final streamline
+    offsetPt0[pos.length + 1] = npt / 3; //solve fence post problem, offset for final streamline
   } // parse_tt()
-  parse_tt(mat.track)
+  parse_tt(mat.track);
+  // window.mat = mat;
+
+  let color = "#000000";
+  if(Array.isArray( mat.color ) && mat.color.length > 0) {
+    color = mat.color[0]
+  }
   return {
     points : pts,
     cutoff : offsetPt0,
     shape  : mat.voxel_size,
-    color  : mat.color[0],
+    color  : color,
   }
 } // readTT()
 
