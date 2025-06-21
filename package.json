@@ -1,6 +1,6 @@
 {
   "name": "@rave-ieeg/three-brain",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Yet a 3D Viewer for Brain",
   "browser": "dist/threebrain.js",
   "scripts": {
