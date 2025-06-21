@@ -1,7 +1,9 @@
 /* mesh objects that always stays at the corner of canvas */
 
 import { CONSTANTS } from '../core/constants.js';
-import { Object3D, Vector3, ArrowHelper, Color, Mesh, MeshBasicMaterial, DoubleSide, Quaternion } from 'three';
+import {
+  Object3D, Vector3, ArrowHelper, Color, Mesh, Line, MeshBasicMaterial,
+  LineBasicMaterial, DoubleSide, Quaternion, BufferGeometry } from 'three';
 import { TextSprite } from '../ext/text_sprite.js';
 
 
@@ -15,8 +17,6 @@ class BasicCompass {
     layer = CONSTANTS.LAYER_SYS_MAIN_CAMERA_8
   } = {}){
     this._text = text;
-    this._tmpQuaternion = new Quaternion();
-
     this.forceVisible = undefined;
 
     this.container = new Object3D();
@@ -101,12 +101,52 @@ class BasicCompass {
 class Compass extends BasicCompass {
   constructor( camera, control, parameters = {} ){
     super( parameters );
+    const layer = parameters.layer ?? CONSTANTS.LAYER_SYS_MAIN_CAMERA_8;
 
     this._camera = camera;
     this._control = control;
     this._left = new Vector3();
     this._down = new Vector3();
 
+    // Also add ruler
+    this.rulerContainer = new Object3D();
+
+
+    const start = new Vector3(15, -1.8, 0);
+    const end = new Vector3(35, -1.8, 0);
+    const rulerGeometry = new BufferGeometry().setFromPoints([start, end]);
+    const rulerMaterial = new LineBasicMaterial({ color: 0xff0000 });
+    const line = new Line(rulerGeometry, rulerMaterial);
+    line.layers.set( layer );
+    this.ruler = line;
+    this.rulerContainer.add(line);
+
+    const rulerMeasure = new TextSprite(" 20.00 mm", {
+      textHeight: 3,
+      color: `#FFFFFF`
+    });
+    rulerMeasure.position.set(25, 0, 0);
+    rulerMeasure.layers.set( layer );
+    this.rulerContainer.add( rulerMeasure );
+    this.rulerMeasure = rulerMeasure;
+    this.setRulerColor("#000000");
+  }
+
+  setRulerColor( color ) {
+    this.rulerMeasure.material.color.set( color );
+    this.ruler.material.color.set( color );
+  }
+
+  dispose() {
+    super.dispose();
+    try {
+      this.rulerContainer.removeFromParent();
+    } catch (e) {}
+    this.rulerContainer.children.forEach(el => {
+      try {
+        el.dispose();
+      } catch (e) {}
+    })
   }
 
   update(){
@@ -131,6 +171,15 @@ class Compass extends BasicCompass {
 
       this.container.position.add( this._left ).add( this._down );
       this.container.scale.set( zoom, zoom, zoom );
+
+
+      // this._left.normalize()
+        // .multiplyScalar( ( this._camera.left + 20 * zoom + ( -150 * ( zoom - 1 ) ) ) );
+
+      this.rulerContainer.rotation.copy( this._camera.rotation );
+      this.rulerContainer.position.copy( this.container.position );
+      this.rulerContainer.scale.copy( this.container.scale );
+      this.rulerMeasure.text = `${ (zoom * 20).toFixed(2) } mm`.padStart(9, ' ');
 
     }
   }
