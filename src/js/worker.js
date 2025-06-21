@@ -6,7 +6,23 @@
 
 // Formats
 import { workerLoaders } from './core/DataLoaders.js';
+import { computeStreamlineToTargets } from './Math/computeStreamlineToTargets.js'
 
+function workerWrapper(fn) {
+  const wrapped = async function(args, postMessage, token) {
+    const result = await fn(...args);
+
+    postMessage({
+      token: token,
+      status: 'done',
+      object: result
+    });
+
+    return result;
+  };
+  wrapped._workerCallable = true;
+  return wrapped;
+}
 
 async function workerListener (event) {
   const methodNames = event.data.methodNames;
@@ -16,7 +32,10 @@ async function workerListener (event) {
   if ( !Array.isArray(methodNames) ) {
     throw new TypeError(`Invalid method names: ${methodNames}. Must be an array`);
   }
-  let method = { workerLoaders : workerLoaders };
+  let method = {
+    workerLoaders : workerLoaders,
+    computeStreamlineToTargets: workerWrapper( computeStreamlineToTargets ),
+  };
   methodNames.forEach((name) => {
     method = method[ name ];
     if( method === undefined ) {
@@ -35,7 +54,7 @@ async function workerListener (event) {
     status: "started"
   });
 
-  const re = method(args, postMessage, token);
+  const re = await method(args, postMessage, token);
 
   postMessage({
     token: token,
