@@ -417,6 +417,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.canvas.mainCamera.needsReset = reset === true;
     // this.shiny.set_token( this.settings.token );
     const workerURL = this.settings.worker_script;
+    // this.canvas.workerScript = workerURL;
     this.fileLoader.workerScript = workerURL;
     this.fileLoader.setCacheEnabled( data.settings.enable_cache || false );
 

@@ -19,7 +19,7 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController("Streamline MinLen", 0.0, {folderName: folderName})
+    this.gui.addController("Line MinLen", 0.0, {folderName: folderName})
       .min(0).max(500).step(1)
       .onChange(v => {
         if( typeof v !== "number" || v <= 0.0 ) {
@@ -30,7 +30,7 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController("Streamline MaxLen", 500, {folderName: folderName})
+    this.gui.addController("Line MaxLen", 500, {folderName: folderName})
       .min(0).max(500).step(1)
       .onChange(v => {
         if( typeof v !== "number" || v <= 0.0 || v >= 500 ) {
@@ -41,7 +41,7 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController("Streamline Retention", 0.0, {folderName: folderName})
+    this.gui.addController("Line Retention", 0.0, {folderName: folderName})
       .min(0.0).max(1).step(0.01)
       .onChange(v => {
         if( typeof v !== "number" || v < 0.01 ) {
@@ -55,12 +55,13 @@ function registerPresetTractography( ViewerControlCenter ){
       });
 
     const highlightStreamlineConfig = {
-      mode   : 'none',
-      radius : 1,
+      mode              : 'none',
+      distanceToTargetsThreshold : 1,
+      fadedLinewidth       : 0.01
     };
     this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
 
-    this.gui.addController("Highlight Streamlines", 'none', {args: ['none', 'electrode', 'crosshair'], folderName: folderName})
+    this.gui.addController("Highlight LineMode", 'none', {args: ['none', 'electrode', 'crosshair'], folderName: folderName})
       .onChange(v => {
         if( typeof v !== 'string' ) { return; }
         highlightStreamlineConfig.mode = v;
@@ -71,7 +72,7 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.setStreamlineHighlight();
       });
 
-    this.gui.addController("Highlight Radius", 1, {folderName: folderName})
+    this.gui.addController("Distance Threshold", 1, {folderName: folderName})
       .min(0.1).max(15).step(0.1)
       .onChange(v => {
         if( typeof v !== 'number' ) { return; }
@@ -80,7 +81,22 @@ function registerPresetTractography( ViewerControlCenter ){
         } else if( v >= 15 ) {
           v = Infinity;
         }
-        highlightStreamlineConfig.radius = v;
+        highlightStreamlineConfig.distanceToTargetsThreshold = v;
+        this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
+        this.broadcast();
+        // this.canvas.needsUpdate = true;
+        this.canvas.setStreamlineHighlight();
+      });
+
+
+    this.gui.addController("Faded Linewidth", 1, {folderName: folderName})
+      .min(0).max(1).step(0.1)
+      .onChange(v => {
+        if( typeof v !== 'number' ) { return; }
+        if( v < 0.0 ) {
+          v = 0.0;
+        }
+        highlightStreamlineConfig.fadedLinewidth = v * 0.01;
         this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
         this.broadcast();
         // this.canvas.needsUpdate = true;

@@ -6,13 +6,12 @@ import {
 	Vector2,
 } from 'three';
 
-UniformsLib.line = {
+UniformsLib.streamline = {
 
 	linewidth: { value: 1 },
 	shadowStrengh: { value: 0 },
 	distanceThreshold: { value: -1 },
 	resolution: { value: new Vector2( 1, 1 ) },
-	fadedWidth: { value: 0.005 },
 
 };
 
@@ -25,28 +24,18 @@ const StreamlineVertexShader = /* glsl */`
 
 uniform float linewidth;
 
-attribute vec3 instanceStart;
-attribute vec3 instanceEnd;
+attribute vec3 direction;
 attribute float lineWeight;
 
-attribute vec3 instanceColorStart;
-attribute vec3 instanceColorEnd;
-attribute float instanceWeight;
-
-varying vec4 worldPos;
-varying vec3 worldStart;
-varying vec3 worldEnd;
 varying vec3 worldUp;
-varying float vWeight;
 
 #ifdef USE_DISTANCE_THRESHOLD
 
   uniform float distanceThreshold;
-  uniform float fadedWidth;
 
-  attribute float distanceToTargets;
+  attribute float streamlineDistance;
 
-  varying float vDistanceToTargets;
+  varying float vDistanceToCenter;
 
 #endif
 
@@ -54,65 +43,46 @@ void main() {
 
 	#ifdef USE_COLOR
 
-		vColor.xyz = ( position.y < 0.5 ) ? instanceColorStart : instanceColorEnd;
+		// vColor.xyz = ( position.y < 0.5 ) ? instanceColorStart : instanceColorEnd;
 
 	#endif
+
+	// Compute the line segment position and direction in camera space
+	vec4 vViewDirection = modelViewMatrix * vec4( direction, 0.0 );
+	vec4 vViewPosition = modelViewMatrix * vec4( position, 1.0 );
 
 	// For orthographic camera, ray direction is fixed and equals camera's -Z axis in world space.
   // You can get this by taking the view matrix's third row (inverse of camera rotation)
   // vec3 rayDir = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]) * -1.0;
   // To operate in camera space, this is easier
-  // vec3 rayDir = vec3(0.0, 0.0, -1.0);
-  // rayDir = normalize( rayDir );
+  // vec3 rayDir = vec3(0.0, 0.0, 1.0);
 
-	// camera space
-	vec4 start = modelViewMatrix * vec4( instanceStart, 1.0 );
-	vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );
+  // Calculate line-segment up direction for widths
+  // worldUp = normalize( cross( vViewDirection.xyz, rayDir ) );
+  worldUp = normalize( vec3( -vViewDirection.y, vViewDirection.x, 0.0 ) );
 
-	worldStart = start.xyz;
-	worldEnd = end.xyz;
-
-	vec3 worldDirOrig = worldEnd - worldStart;
-
-	// lineLengthSq = dot(worldDirOrig, worldDirOrig);
-
-	vec3 worldDir = normalize( worldDirOrig );
-
-	worldUp = normalize( vec3( -worldDir.y, worldDir.x, 0.0 ) );
-
-	worldPos = position.y < 0.5 ? start: end;
-
-	// height offset
-	float hw = linewidth * 0.5;
+  // calculate line position
+  float hw = linewidth * 0.5;
 
 	#ifdef USE_DISTANCE_THRESHOLD
 
-	  vDistanceToTargets = distanceToTargets;
+	  vDistanceToCenter = streamlineDistance;
 
-    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToTargets ) {
-      // hw = 0.01;
-      hw *= fadedWidth;
+    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToCenter ) {
+      hw = 0.01;
     }
 
 	#endif
 
-	worldPos.xyz += position.x < 0.0 ? hw * worldUp : - hw * worldUp;
-
-	worldPos.xyz += position.y < 0.5 ? - hw * worldDir : hw * worldDir;
-
-	// add width to the box
-	// worldPos.xyz += worldFwd * hw;
+	vec4 mvPosition = vec4( vViewPosition.xyz + worldUp * hw, 1.0 );
 
 	// project the worldpos
-	if( instanceWeight < 0.0 || hw <= 0.0 ) {
+	if( lineWeight < 1.0 ) {
 	  gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside clip space
 	} else {
-	  gl_Position = projectionMatrix * worldPos;
+	  gl_Position = projectionMatrix * mvPosition;
 	}
 
-	vWeight = instanceWeight;
-
-	vec4 mvPosition = ( position.y < 0.5 ) ? start : end; // this is an approximation
 
 	#include <logdepthbuf_vertex>
 	#include <clipping_planes_vertex>
@@ -126,17 +96,15 @@ uniform vec3 diffuse;
 uniform float opacity;
 uniform float linewidth;
 uniform float shadowStrengh;
-uniform float distanceThreshold;
 
-varying vec4 worldPos;
-varying vec3 worldStart;
-varying vec3 worldEnd;
+
 varying vec3 worldUp;
-varying float vWeight;
 
 #ifdef USE_DISTANCE_THRESHOLD
 
-  varying float vDistanceToTargets;
+  uniform float distanceThreshold;
+
+  varying float vDistanceToCenter;
 
 #endif
 
@@ -150,23 +118,13 @@ varying float vWeight;
 
 void main() {
 
-  if( vWeight < 0.0 ) { discard; }
 
 	#include <clipping_planes_fragment>
 
 	float alpha = opacity;
 	float shade = 1.0;
 
-	// Find the closest points on the view ray and the line segment
-	vec3 lineDir = worldEnd - worldStart;
-	vec3 lineDirUnit = normalize(lineDir);
-
-	vec3 p1 = worldStart + lineDirUnit * dot( worldPos.xyz - worldStart, lineDirUnit );
-	vec3 delta = worldPos.xyz - p1;
-	delta.z = 0.0;
-
-	float len = length( delta );
-	float norm = len / linewidth;
+	float norm = length( worldUp ) / linewidth;
 
 	// Only apply shading to the sides (not endcaps/joints)
 	// Check if we're on the main body of the line (not endcaps)
@@ -174,22 +132,13 @@ void main() {
 	if( shadowStrengh < 0.2 ) {
 	  interpMax = 1.2 - shadowStrengh;
 	}
+	shade = 1.0 - smoothstep(0.0, interpMax, norm) * 0.8;
 
 	#ifdef USE_DISTANCE_THRESHOLD
 
-    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToTargets ) {
-
+    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToCenter ) {
       shade = 0.5;
-
-    } else {
-
-      shade = 1.0 - smoothstep(0.0, interpMax, norm);
-
     }
-
-  #else
-
-    shade = 1.0 - smoothstep(0.0, interpMax, norm);
 
   #endif
 
@@ -201,10 +150,10 @@ void main() {
 	gl_FragColor = vec4( diffuseColor.rgb, alpha );
 	// color = vec4( diffuseColor.rgb, alpha );
 
-	#include <tonemapping_fragment>
+	//#include <tonemapping_fragment>
 	#include <colorspace_fragment>
-	#include <fog_fragment>
-	#include <premultiplied_alpha_fragment>
+	//#include <fog_fragment>
+	//#include <premultiplied_alpha_fragment>
 
 }
 `
@@ -214,7 +163,7 @@ ShaderLib[ 'streamline' ] = {
 	uniforms: UniformsUtils.merge( [
 		UniformsLib.common,
 		UniformsLib.fog,
-		UniformsLib.line
+		UniformsLib.streamline
 	] ),
 
 	vertexShader: StreamlineVertexShader,
@@ -307,19 +256,6 @@ class StreamlineMaterial extends ShaderMaterial {
 	      this.needsUpdate = true;
 	    }
 	    this.uniforms.distanceThreshold.value = value;
-	  }
-	}
-
-	get fadedWidth() {
-	  return this.uniforms.distanceThreshold.value;
-	}
-
-	set fadedWidth( value ) {
-	  if ( ! this.uniforms.fadedWidth ) return;
-	  if( value <= 0 || !isFinite( value ) ) {
-	    this.uniforms.fadedWidth.value = 0;
-	  } else {
-	    this.uniforms.fadedWidth.value = value;
 	  }
 	}
 

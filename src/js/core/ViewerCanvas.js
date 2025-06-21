@@ -1149,7 +1149,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
   }
 
-  setStreamlineHighlight({ mode, radius, immediate = true } = {}) {
+  setStreamlineHighlight({ mode, distanceToTargetsThreshold, fadedLinewidth, immediate = true } = {}) {
     let defaultConfig = this.get_state('streamline_highlight');
     if( !defaultConfig || typeof defaultConfig !== 'object' ) {
       defaultConfig = {};
@@ -1158,12 +1158,19 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( typeof mode !== 'string' ) {
       mode = defaultConfig.mode ?? 'none';
     }
-    if( typeof radius !== 'number' ) {
-      radius = defaultConfig.radius ?? 1;
+    if( typeof distanceToTargetsThreshold !== 'number' ) {
+      distanceToTargetsThreshold = defaultConfig.distanceToTargetsThreshold ?? 1;
     }
-    if( radius < 0 ) { radius = 0; }
+    if( distanceToTargetsThreshold < 0 ) { distanceToTargetsThreshold = 0; }
+
+    if( typeof fadedLinewidth !== 'number' ) {
+      fadedLinewidth = defaultConfig.fadedLinewidth ?? 0.01;
+    }
+    if( fadedLinewidth < 0 ) { fadedLinewidth = 0; }
+
     defaultConfig.mode = mode;
-    defaultConfig.radius = radius;
+    defaultConfig.distanceToTargetsThreshold = distanceToTargetsThreshold;
+    defaultConfig.fadedLinewidth = fadedLinewidth;
 
     this.dispatch({
       type : "viewerApp.canvas.setStreamlineHighlight",

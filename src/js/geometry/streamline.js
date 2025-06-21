@@ -1,10 +1,10 @@
 import { AbstractThreeBrainObject } from './abstract.js';
-import { Vector3, Matrix4, Color, Quaternion,
+import { Vector3, Matrix4, Color, Quaternion, Box3, Sphere,
          Data3DTexture, NearestFilter, FloatType,
          RGBAFormat, RedFormat, UnsignedByteType, LinearFilter,
          Mesh, InstancedMesh, Float32BufferAttribute,
          InstancedInterleavedBuffer, InterleavedBufferAttribute,
-         BoxGeometry, BufferGeometry, SphereGeometry,
+         InstancedBufferGeometry, BoxGeometry, BufferGeometry, SphereGeometry,
          BufferAttribute, InstancedBufferAttribute,
          MeshPhysicalMaterial, MeshBasicMaterial,
          DoubleSide, FrontSide } from 'three';
@@ -12,39 +12,72 @@ import { LineSegmentsGeometry } from '../jsm/lines/LineSegmentsGeometry.js'
 import { StreamlineMaterial } from '../shaders/StreamlineMaterial.js';
 import { Line2 }from '../jsm/lines/Line2.js';
 import { LineMaterial }from '../jsm/lines/LineMaterial.js';
+import { mulberry32 } from '../utility/mulberry32.js'
+import { computeStreamlineToTargets } from '../Math/computeStreamlineToTargets.js';
+import { startWorker, stopWorker } from '../core/Workers.js';
 import { CONSTANTS } from '../core/constants.js';
+
 
 const tmpVec3 = new Vector3();
 const _start = new Vector3();
 const _end = new Vector3();
 const tmpMat4 = new Matrix4();
 
-function mulberry32(seed) {
-  return function() {
-    let t = seed += 0x6D2B79F5;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+class StreamlineGeometry extends InstancedBufferGeometry {
 
-class StreamlineGeometry extends LineSegmentsGeometry {
+  computeBoundingBox() {
 
-  constructor( pointOffset ) {
+    if ( this.boundingBox === null ) {
+      this.boundingBox = new Box3();
+    }
+    this.boundingBox.setFromArray( this.pointPositions );
+  }
 
-		super();
+  computeBoundingSphere() {
 
-		const positions = [ - 1, 2, 0, 1, 2, 0, - 1, - 1, 0, 1, - 1, 0 ];
-		const uvs = [ - 1, 2, 1, 2, - 1, - 2, 1, - 2 ];
-		const index = [ 0, 2, 1, 2, 3, 1 ];
+    if ( this.boundingBox === null ) {
+      this.computeBoundingBox();
+    }
+    if ( this.boundingSphere === null ) {
+      this.boundingSphere = new Sphere();
+    }
+    const center = this.boundingSphere.center;
+    const nPoints = this.pointPositions.length / 3;
 
-		this.setIndex( index );
-		this.setAttribute( 'position', new Float32BufferAttribute( positions, 3 ) );
-		this.setAttribute( 'uv', new Float32BufferAttribute( uvs, 2 ) );
+    // Find the farthest distance from center to any vertex
+    let maxRadiusSq = 0;
 
-		this.isStreamlineGeometry = true;
+    for ( let i = 0; i < nPoints; i ++ ) {
 
-		this.type = 'StreamlineGeometry';
+      tmpVec3.fromArray( this.pointPositions, i * 3 );
+      maxRadiusSq = Math.max( maxRadiusSq, center.distanceToSquared( tmpVec3 ) );
+
+    }
+
+    this.boundingSphere.center.copy( center );
+    this.boundingSphere.radius = Math.sqrt( maxRadiusSq );
+
+    if ( isNaN( this.boundingSphere.radius ) ) {
+
+      console.error( 'StreamlineGeometry.computeBoundingSphere(): Computed radius is NaN. The instanced position data is likely to have NaN values.', this );
+
+    }
+  }
+
+  constructor( pointPositions, pointOffset ) {
+
+    super();
+
+    const positions = [ - 1, 2, 0, 1, 2, 0, - 1, - 1, 0, 1, - 1, 0 ];
+    const uvs = [ - 1, 2, 1, 2, - 1, - 2, 1, - 2 ];
+    const index = [ 0, 2, 1, 2, 3, 1 ];
+
+    this.setIndex( index );
+    this.setAttribute( 'position', new Float32BufferAttribute( positions, 3 ) );
+    this.setAttribute( 'uv', new Float32BufferAttribute( uvs, 2 ) );
+
+    this.isStreamlineGeometry = true;
+    this.type = 'StreamlineGeometry';
 
     if ( pointOffset[0] != 0 ) {
       this.pointOffset = [0, ...pointOffset];
@@ -53,254 +86,209 @@ class StreamlineGeometry extends LineSegmentsGeometry {
     }
 
     this.nTracts = this.pointOffset.length - 1;
-		const length = this.pointOffset[ this.nTracts ];
-    this.distanceToCenter = new Float32Array( this.nTracts );
+    this.nSegments = this.pointOffset[ this.nTracts ] - 1;
+    const length = this.pointOffset[ this.nTracts ];
 
-		// attribute sizes (e.g. position should be nNodes * 3)
-		// this.attributeItemLength = length - this.nTracts;
-		this.attributeItemLength = 0;
-    for (let i = 0; i < this.nTracts; i++) {
-      const len = this.pointOffset[i + 1] - this.pointOffset[i];
-      if (len >= 2) {
-        this.attributeItemLength += len - 1;
-      }
-    }
+    // Create an indexing array
+    const randomGenerator = mulberry32(42);
+    const tractIndex = Array.from({ length: this.nTracts }, () => randomGenerator())
+      .map((value, index) => ({ value, index }))
+      .sort((a, b) => a.value - b.value)
+      .map(entry => entry.index);
+    this.tractIndex = tractIndex;
 
-    // Keep track of streamline indices that are visible
-    this.visibleTractCount = 0;
-    this.visibleTracts = new Uint32Array( this.nTracts );
+    // ith tract, seg length, start index
+    this.tractRange = new Uint32Array( this.nTracts * 3 );
 
-    // positions of the array
-    this.lineSegments = new Float32Array( this.attributeItemLength * 6 );
-    this.lineSegmentsBuffer = new InstancedInterleavedBuffer( this.lineSegments, 6, 1 ); // xyz, xyz
-		this.setAttribute( 'instanceStart', new InterleavedBufferAttribute( this.lineSegmentsBuffer, 3, 0 ) ); // xyz
-		this.setAttribute( 'instanceEnd', new InterleavedBufferAttribute( this.lineSegmentsBuffer, 3, 3 ) ); // xyz
+    this.pointPositions = new Float32Array( this.nSegments * 3 + 3 );
+    this.setAttribute( 'instanceStart',
+      new InstancedBufferAttribute( this.pointPositions.subarray(0, this.nSegments * 3), 3, 0 ) ); // xyz
+    this.setAttribute( 'instanceEnd',
+      new InstancedBufferAttribute( this.pointPositions.subarray(3), 3, 0 ) ); // xyz
 
-		// Distance to the center (crosshair/electrode)
-    this.streamlineDistance = new Float32Array( this.attributeItemLength );
-    this.streamlineDistanceBuffer = new InstancedBufferAttribute( this.streamlineDistance, 1 );
-		this.setAttribute( 'streamlineDistance', this.streamlineDistanceBuffer ); // highlighted
+    // Also create instanceWeight: mask array with
+    // -2 - shall not plot
+    // -1 - invisible (by filters)
+    // >= 0 - visible
+    const instanceWeight = new Float32Array( this.nSegments ).fill(0);
+    this.instanceWeight = instanceWeight;
+    this.setAttribute( 'instanceWeight',
+      new InstancedBufferAttribute( instanceWeight, 1, 0 ) ); // xyz
 
-		this.instanceCount = 0; // should be this.attributeItemLength; but since it's unset
-		// this.computeBoundingBox();
-		// this.computeBoundingSphere();
+    this.setAttribute( 'distanceToTargets',
+      new InstancedBufferAttribute( new Float32Array( this.nSegments ), 1, 0 ) ); // xyz
 
-	}
-
-	setPositions( array ) {
-
-	  this._positionArray = array;
-	  this.filterVisible();
-
-	  /*
-
-		// converts [ x1, y1, z1,  x2, y2, z2, ... ] to pairs format
-
-		const points = new Float32Array( this.attributeItemLength * 6 );
-
-		const pointOffset = this.pointOffset;
-    let n = 0;
-    for ( let idx = 0; idx < pointOffset.length - 1 ; idx++ ) {
-      const iStart = pointOffset[ idx ],
-            iEnd   = pointOffset[ idx + 1 ];
-      if( iEnd - iStart >= 2 ) {
-        for( let i = iStart; i < iEnd - 1; i++, n+=6 ) {
-          const i3 = i * 3;
-          points[ n ] = array[ i3 ];
-          points[ n + 1 ] = array[ i3 + 1 ];
-          points[ n + 2 ] = array[ i3 + 2 ];
-          points[ n + 3 ] = array[ i3 + 3 ];
-          points[ n + 4 ] = array[ i3 + 4 ];
-          points[ n + 5 ] = array[ i3 + 5 ];
-        }
-      }
-    }
-
-    this.dispose();
-    if (this.attributes.instanceStart) this.deleteAttribute('instanceStart');
-    if (this.attributes.instanceEnd) this.deleteAttribute('instanceEnd');
-    if (this.attributes.instanceDistanceStart) this.deleteAttribute('instanceDistanceStart');
-    if (this.attributes.instanceDistanceEnd) this.deleteAttribute('instanceDistanceEnd');
-
-		super.setPositions( points );
-		this.computeLineDistances();
-    */
-		return this;
-
-	}
-
-  // visibleArray is an array of true or false values
-  filterVisible( visibleArray ) {
-    const positionOrig = this._positionArray;
-    if(!positionOrig) { return; }
-
-    const pointOffset = this.pointOffset;
-    const distanceToCenter = this.distanceToCenter,
-          visibleTracts = this.visibleTracts;
-    const hasMask = visibleArray ? true : false;
-    const filterLength = hasMask ? Math.min(visibleArray.length, this.nTracts) : this.nTracts;
-    const lineSegments = this.lineSegments,
-          streamlineDistance = this.streamlineDistance;
-
-    // Find now many segments (instances) will be visible
-    let nSegments = 0, nn = 0;
-    this.visibleTractCount = 0;
-    for ( let idx = 0; idx < filterLength ; idx++ ) {
-      if( hasMask && !visibleArray[ idx ] ) { continue; }
-      const iStart = pointOffset[ idx ],
+    // Construct mapping from tractIndex
+    let iPos = 0;
+    for ( let i = 0; i < this.nTracts ; i++ ) {
+      const idx = tractIndex[ i ],
+            iStart = pointOffset[ idx ],
             iEnd   = pointOffset[ idx + 1 ],
-            distance = distanceToCenter[ idx ];
-      if( iEnd - iStart < 2 ) { continue; }
+            len = iEnd - iStart;
+      if( len <= 0 ) { continue; }
 
-      nSegments += (iEnd - iStart - 1);
-      visibleTracts[ this.visibleTractCount++ ] = idx;
+      this.tractRange[ i * 3 ] = idx;
 
-      for( let i = iStart; i < iEnd - 1; i++, nn++ ) {
+      // nSegments, including the last one, which is invalid
+      this.tractRange[ i * 3 + 1 ] = len;
+      this.tractRange[ i * 3 + 2 ] = iPos;
 
-        const i3 = i * 3,
-              nn6 = nn * 6;
+      // start of the tract, then fill len + 1 points
+      // len + 1 th segment is invalid
+      instanceWeight[ iPos + len - 1 ] = -2;
 
-        lineSegments[ nn6 ] = positionOrig[ i3 ];
-        lineSegments[ nn6 + 1 ] = positionOrig[ i3 + 1 ];
-        lineSegments[ nn6 + 2 ] = positionOrig[ i3 + 2 ];
-        lineSegments[ nn6 + 3 ] = positionOrig[ i3 + 3 ];
-        lineSegments[ nn6 + 4 ] = positionOrig[ i3 + 4 ];
-        lineSegments[ nn6 + 5 ] = positionOrig[ i3 + 5 ];
-        streamlineDistance[ nn ] = distance;
-      }
+      // next tract
+      iPos += len;
     }
 
-    this.instanceCount = nSegments;
-    this.lineSegmentsBuffer.addUpdateRange( 0, nSegments * 6 );
-    this.lineSegmentsBuffer.needsUpdate = true;
-    this.streamlineDistanceBuffer.addUpdateRange( 0, nSegments );
-    this.streamlineDistanceBuffer.needsUpdate = true;
-    if( !hasMask ) {
-      this.computeBoundingBox();
-      this.computeBoundingSphere();
-    }
+    this.setPositions( pointPositions );
 
-    // this.computeLineDistances();
-    return this;
-
+    this.instanceCount = this.nSegments;
+    this.computeBoundingBox();
+    this.computeBoundingSphere();
   }
 
-  computeStreamlineDistances({ target, reset = false, visibleOnly = true } = {}) {
-    if( reset ) {
-      this.distanceToCenter.fill( 0.0 );
-      this.streamlineDistance.fill( 0.0 );
-      return;
-    }
-    if( !target || !target.isVector3 ) { return; }
-    const positionOrig = this._positionArray;
-    if( !positionOrig ) { return; }
-    // calculate nearest distance to target
-    const pointOffset = this.pointOffset,
-          distanceToCenter = this.distanceToCenter,
-          streamlineDistance = this.streamlineDistance,
-          visibleTracts = this.visibleTracts;
+  setPositions( array ) {
 
-    const point = new Vector3();
-    let dist = 1e6; // Float32Array might not be infinity-friendly???
-    streamlineDistance.fill( 1e3 );
+    const tractRange = this.tractRange,
+          pointOffset = this.pointOffset,
+          pointPositions = this.pointPositions,
+          instanceWeight = this.instanceWeight;
 
-    if( visibleOnly ) {
-      let nn = 0;
-      for ( let ii = 0; ii < this.visibleTractCount ; ii++ ) {
-        const idx = visibleTracts[ ii ];
-        const iStart = pointOffset[ idx ],
-              iEnd   = pointOffset[ idx + 1 ];
-        const nSegments = iEnd - iStart - 1;
-        if( nSegments < 1 ) { continue; }
-        dist = 1e6;
-        for( let i = iStart; i < iEnd; i++ ) {
-          const dist2 = point
-            .fromArray( positionOrig, i * 3 )
-            .distanceToSquared( target );
-          if( dist2 < dist ) {
-            dist = dist2;
-          }
-        }
-        dist = Math.sqrt( dist );
-        distanceToCenter[ idx ] = dist;
-        streamlineDistance.fill( dist, nn, nn + nSegments );
-        nn += nSegments;
-      }
-    } else {
-      for( let idx = 0; idx < this.nTracts; idx++ ) {
-        dist = 1e6;
-        const iStart = pointOffset[ idx ],
-              iEnd   = pointOffset[ idx + 1 ];
-        for( let i = iStart; i < iEnd; i++ ) {
-          const dist2 = point
-            .fromArray( positionOrig, i * 3 )
-            .distanceToSquared( target );
-          if( dist2 < dist ) {
-            dist = dist2;
-          }
-        }
-        distanceToCenter[ idx ] = Math.sqrt( dist );
-      }
-
-      let nn = 0;
-      for ( let ii = 0; ii < this.visibleTractCount ; ii++ ) {
-        const idx = visibleTracts[ ii ];
-        const iStart = pointOffset[ idx ],
-              iEnd   = pointOffset[ idx + 1 ];
-        const nSegments = iEnd - iStart - 1;
-        if( nSegments < 1 ) { continue; }
-        dist = distanceToCenter[ idx ];
-        streamlineDistance.fill( dist, nn, nn + nSegments );
-        nn += nSegments;
-      }
-    }
-
-    this.streamlineDistanceBuffer.addUpdateRange( 0, this.instanceCount );
-    this.streamlineDistanceBuffer.needsUpdate = true;
-
-    return this;
-  }
-
-	setColors( array ) {
-
-		// converts [ r1, g1, b1,  r2, g2, b2, ... ] to pairs format
-
-		const colors = new Float32Array( this.attributeItemLength * 6 );
-
-		const pointOffset = this.pointOffset;
-    let n = 0;
-    for ( let idx = 0; idx < pointOffset.length - 1 ; idx++ ) {
-      const iStart = pointOffset[ idx ],
+    for ( let i = 0; i < this.nTracts ; i++ ) {
+      const idx = this.tractRange[ i * 3 ],
+            len = this.tractRange[ i * 3 + 1 ],
+            iStart = pointOffset[ idx ],
             iEnd   = pointOffset[ idx + 1 ];
-      for( let i = iStart; i < iEnd - 1; i++, n+=6 ) {
-        const i3 = i * 3;
-        colors[ n ] = array[ i3 ];
-  			colors[ n + 1 ] = array[ i3 + 1 ];
-  			colors[ n + 2 ] = array[ i3 + 2 ];
+      if( len <= 0 ) { continue; }
 
-  			colors[ n + 3 ] = array[ i3 + 3 ];
-  			colors[ n + 4 ] = array[ i3 + 4 ];
-  			colors[ n + 5 ] = array[ i3 + 5 ];
+      let iPos = this.tractRange[ i * 3 + 2 ];
+      for( let iArr = iStart; iArr < iEnd; iPos++, iArr++ ) {
+
+        const iPos3 = iPos * 3,
+              iArr3 = iArr * 3;
+        pointPositions[ iPos3 ] = array[ iArr3 ];
+        pointPositions[ iPos3 + 1 ] = array[ iArr3 + 1 ];
+        pointPositions[ iPos3 + 2 ] = array[ iArr3 + 2 ];
+
       }
     }
 
-		super.setColors( colors );
+    this.getAttribute('instanceStart').needsUpdate = true;
+    this.getAttribute('instanceEnd').needsUpdate = true;
 
-		return this;
+    this.computeBoundingBox();
+    this.computeBoundingSphere();
+    return this;
+  }
 
-	}
+  setWeights( weights ) {
+    const filterLength = Math.min(weights.length, this.nTracts);
+    const tractRange = this.tractRange,
+          pointOffset = this.pointOffset,
+          instanceWeight = this.instanceWeight;
 
-	fromLine( line ) {
+    for ( let i = 0; i < filterLength ; i++ ) {
+      const idx = this.tractRange[ i * 3 ],
+            len = this.tractRange[ i * 3 + 1 ],
+            iStart = pointOffset[ idx ],
+            iEnd   = pointOffset[ idx + 1 ],
+            weight = weights[ idx ];
+      if( len <= 0 ) { continue; }
 
-		const geometry = line.geometry;
+      let iPos = this.tractRange[ i * 3 + 2 ];
+      for( let j = 0; j < len - 1; j++, iPos++ ) {
+        instanceWeight[ iPos ] = weight;
+      }
+    }
 
-		this.setPositions( geometry.attributes.position.array ); // assumes non-indexed
+    this.getAttribute('instanceWeight').needsUpdate = true;
 
-		// set colors, maybe
+    return this;
 
-		return this;
+  }
 
-	}
+  async computeStreamlineDistances({ target, reset = false, visibleOnly = true } = {}) {
+    const instanceWeightAttr = this.getAttribute('instanceWeight'),
+          instanceWeight = instanceWeightAttr.array,
+          distanceToTargetsAttr = this.getAttribute('distanceToTargets'),
+          distanceToTargets = distanceToTargetsAttr.array,
+          pointOffset = this.pointOffset,
+          pointPositions = this.pointPositions,
+          tractRange = this.tractRange;
+
+    if( reset ) {
+      distanceToTargetsAttr.needsUpdate = true;
+      distanceToTargets.fill( 0.0 );
+      return this;
+    }
+    if(!target) { return this; }
+
+    const targetArray = target.toArray();
+
+    let maxInstanceCount = Infinity;
+    if( visibleOnly ) {
+      maxInstanceCount = this.instanceCount;
+    }
+
+    computeStreamlineToTargets(
+      targetArray,              // Float32Array
+      distanceToTargets,        // Float32Array, output: distance per segment
+      instanceWeight,           // Float32Array, one per segment
+      pointOffset,              // Int32Array, length nTracts+1
+      pointPositions,           // Float32Array, length ~ 3*(total segments+1)
+      tractRange,               // Uint32Array, nTracts * 3
+      maxInstanceCount          // Maximum number of instances
+    );
+
+    distanceToTargetsAttr.needsUpdate = true;
+
+    return this;
+
+    /*
+    const workToken = "streamline-computeStreamlineDistances-" + this.uuid;
+
+    await stopWorker( this.workerScript, workToken );
+
+    try {
+      const resultBuffer = await startWorker( this.workerScript, {
+        methodNames: ['computeStreamlineToTargets'],
+        args: [
+          targetArray,              // Float32Array
+          distanceToTargets,        // Float32Array, output: distance per segment
+          instanceWeight,           // Float32Array, one per segment
+          pointOffset,              // Int32Array, length nTracts+1
+          pointPositions,           // Float32Array, length ~ 3*(total segments+1)
+          tractRange,               // Uint32Array, nTracts * 3
+          maxInstanceCount          // Maximum number of instances
+        ],
+        timeOut : 10000, // optional
+        token   : workToken,
+      });
+
+      if(resultBuffer) {
+        distanceToTargets.set( resultBuffer );
+        distanceToTargetsAttr.needsUpdate = true;
+      }
+    } catch (e) {
+      let muffle = false;
+      if( e.message === 'Worker has been terminated.' ) {
+        muffle = true;
+      }
+      if( e.message.startsWith('A newer worker with token') ) {
+        muffle = true;
+      }
+
+      if( !muffle ) {
+        console.error(e);
+      }
+    }
+
+
+    return this;
+    */
+  }
+
 }
 
 class Streamline extends AbstractThreeBrainObject {
@@ -316,39 +304,39 @@ class Streamline extends AbstractThreeBrainObject {
     this.isStreamline = true;
 
     let fiber = g.imageObject;
-    const geometry = new StreamlineGeometry( fiber.pointOffset );
-    geometry.setPositions( fiber.points );
+    const geometry = new StreamlineGeometry( fiber.points, fiber.pointOffset );
+    // geometry.workerScript = this._canvas.workerScript;
+    geometry.setWeights( fiber.lengthPerStreamline );
     this.lengthPerStreamline = fiber.lengthPerStreamline;
-    this.streamlineVisibility = Array( geometry.nTracts ).fill(true);
     this._retentionRatio = 1;
     this._streamlineLengthMin = 0;
     this._streamlineLengthMax = Infinity;
 
     const material = new StreamlineMaterial( {
-			color: 0xff0000,
-			linewidth: 0.5, // in world units with size attenuation, pixels otherwise
-			vertexColors: false,
-			transparent: true,
-			alphaToCoverage: true,
+      color: 0xff0000,
+      linewidth: 0.5, // in world units with size attenuation, pixels otherwise
+      vertexColors: false,
+      transparent: true,
+      alphaToCoverage: true,
 
-		} );
-		material.color.set( g.color );
+    } );
+    material.color.set( g.color );
     material.alphaToCoverage = false;
-		material.needsUpdate = true;
+    material.needsUpdate = true;
     this.object = new Line2( geometry, material );
-		this.object.scale.set( 1, 1, 1 );
+    this.object.scale.set( 1, 1, 1 );
 
-		// filter mode
-		this.highlightConfig = {
-		  mode  : 'none',
-		  radius: 1,
+    // filter mode
+    this.highlightConfig = {
+      mode  : 'none',
+      radius: 1,
 
-		  // should be the model space
-		  center: new Vector3(),
-		};
-		this._canvas.$el.addEventListener( "viewerApp.canvas.setStreamlineHighlight", this._setHighlightMode );
-		this._canvas.$el.addEventListener( "viewerApp.canvas.setSliceCrosshair", this._setCrosshairHandler );
-		this._canvas.$el.addEventListener( "viewerApp.canvas.newObjectFocused", this._setFocusedObjectHandler );
+      // should be the model space
+      center: new Vector3(),
+    };
+    this._canvas.$el.addEventListener( "viewerApp.canvas.setStreamlineHighlight", this._setHighlightMode );
+    this._canvas.$el.addEventListener( "viewerApp.canvas.setSliceCrosshair", this._setCrosshairHandler );
+    this._canvas.$el.addEventListener( "viewerApp.canvas.newObjectFocused", this._setFocusedObjectHandler );
 
   }
 
@@ -384,7 +372,7 @@ class Streamline extends AbstractThreeBrainObject {
     } catch (e) {}
   }
 
-  setHighlightMode({ mode, radius, center, update = true } = {}) {
+  setHighlightMode({ mode, distanceToTargetsThreshold, fadedLinewidth, center, update = true } = {}) {
     let needsUpdate = false;
     if( typeof mode === 'string' ) {
       const oldMode = this.highlightConfig.mode;
@@ -395,7 +383,7 @@ class Streamline extends AbstractThreeBrainObject {
           break;
         default:
           this.highlightConfig.mode = 'none';
-          this.highlightConfig.radius = Infinity;
+          this.highlightConfig.distanceToTargetsThreshold = Infinity;
       }
       if( this.highlightConfig.mode !== oldMode ) {
         needsUpdate = true;
@@ -409,11 +397,17 @@ class Streamline extends AbstractThreeBrainObject {
       this._canvas.needsUpdate = true;
       return;
     }
-    if( typeof radius === 'number' ) {
-      if( radius <= 0 ) { radius = 0; }
-      const oldRadius = this.highlightConfig.radius;
-      if( this.highlightConfig.radius != radius ) {
-        this.highlightConfig.radius = radius;
+    if( typeof distanceToTargetsThreshold === 'number' ) {
+      if( distanceToTargetsThreshold <= 0 ) { distanceToTargetsThreshold = 0; }
+      if( this.highlightConfig.distanceToTargetsThreshold != distanceToTargetsThreshold ) {
+        this.highlightConfig.distanceToTargetsThreshold = distanceToTargetsThreshold;
+        needsUpdate = true;
+      }
+    }
+    if( typeof fadedLinewidth === 'number' ) {
+      if( fadedLinewidth <= 0 ) { fadedLinewidth = 0; }
+      if( this.highlightConfig.fadedLinewidth != fadedLinewidth ) {
+        this.highlightConfig.fadedLinewidth = fadedLinewidth;
         needsUpdate = true;
       }
     }
@@ -438,7 +432,8 @@ class Streamline extends AbstractThreeBrainObject {
       // Update highlighted streamlines
       this.updateHighlighted({ 'force' : true });
     }
-    this.object.material.distanceThreshold = this.highlightConfig.radius;
+    this.object.material.distanceThreshold = this.highlightConfig.distanceToTargetsThreshold;
+    this.object.material.fadedWidth = this.highlightConfig.fadedLinewidth;
     this._canvas.needsUpdate = true;
   }
 
@@ -459,16 +454,21 @@ class Streamline extends AbstractThreeBrainObject {
 
   updateHighlighted({ force = false, visibleOnly = true } = {}) {
     if( this.highlightConfig.mode === 'none' && !force ) { return; }
+
+    let promise;
     if( this.highlightConfig.mode === 'none' ) {
-      this.object.geometry.computeStreamlineDistances({ 'reset' : true });
+      promise = this.object.geometry.computeStreamlineDistances({ 'reset' : true });
     } else {
-      this.object.geometry.computeStreamlineDistances({
+      promise = this.object.geometry.computeStreamlineDistances({
         'reset' : false,
         'visibleOnly': visibleOnly,
         'target': this.highlightConfig.center,
       });
     }
-    this._canvas.needsUpdate = true;
+
+    return promise.then(() => {
+      this._canvas.needsUpdate = true;
+    })
   }
 
   filterByLength({ min, max, retentionRatio } = {}) {
@@ -498,31 +498,32 @@ class Streamline extends AbstractThreeBrainObject {
 
     const totalTracts = this.object.geometry.nTracts;
     const lengthPerStreamline = this.lengthPerStreamline;
-    const streamlineVisibility = this.streamlineVisibility;
+    const nRemain = Math.max(Math.ceil( retentionRatio * totalTracts ), 100);
 
-    const randomGenerator = mulberry32(42);
+    const streamlineWeights = new Float16Array( lengthPerStreamline.length ).fill( - 1 );
 
-    let nVisible = 0;
-    for( let ii = 0 ; ii < totalTracts; ii++ ) {
-      const lineLength = lengthPerStreamline[ ii ];
-      const rn = randomGenerator();
+    const tractRange = this.object.geometry.tractRange;
 
-      if( lineLength < min || lineLength > max ) {
-        streamlineVisibility[ ii ] = false;
-      } else {
+    let nVisible = 0, instanceCount = 0;
+    for ( let iTract = 0; iTract < totalTracts; iTract++ ) {
+      const idx = tractRange[ iTract * 3 ],
+            len = tractRange[ iTract * 3 + 1 ],
+            lineLength = lengthPerStreamline[ idx ];
+      if( len <= 1 ) { continue; }
+
+      if( lineLength >= min && lineLength <= max ) {
+        streamlineWeights[ idx ] = lineLength;
         nVisible++;
-        if( nVisible >= 100 && rn > retentionRatio ) {
-          streamlineVisibility[ ii ] = false;
-        } else {
-          streamlineVisibility[ ii ] = true;
-        }
+      }
+      instanceCount += len;
+      if( nVisible >= nRemain ) {
+        break;
       }
     }
-    this.object.geometry.filterVisible( streamlineVisibility );
-    this.object.scale.set( 1, 1, 1 );
-		// this.object.computeLineDistances();
+    this.object.geometry.setWeights( streamlineWeights );
+    this.object.geometry.instanceCount = instanceCount;
 
-		this.updateHighlighted({ 'force' : true, 'visibleOnly' : false });
+    this.updateHighlighted();
 
   }
 
