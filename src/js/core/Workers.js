@@ -27,6 +27,9 @@ class WorkerPool {
     } else {
       this.logger = console.debug;
     }
+
+    this._lastSpawnTime = 0;
+    this._spawnThrottleMs = 100;
   }
 
   _spawnWorker() {
@@ -40,6 +43,7 @@ class WorkerPool {
       startWorker : undefined,
       terminate : undefined,
       elapsed   : undefined,
+      token     : undefined
     };
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     const charactersLength = characters.length;
@@ -67,6 +71,7 @@ class WorkerPool {
         } else {
           this.logger(`Worker ${ uuid } -> idle`);
           item.idle = true;
+          item.token = undefined;
           item.timeOut = 15000;
         }
         this._dispatcher.dispatchEvent({
@@ -187,6 +192,7 @@ class WorkerPool {
 
       // in case callbacks are called
       item.idle = true;
+      item.token = undefined;
       item.timeOut = 15000;
     };
     item.elapsed = () => {
@@ -194,16 +200,26 @@ class WorkerPool {
     };
     // setIdle( true ); cannot call this, might terminate
     item.idle = true;
+    item.token = undefined;
     return uuid;
   }
 
   _spawn() {
     if( !useWorkerLoaders ) { return; }
+
+    const now = Date.now();
+    if (now - this._lastSpawnTime < this._spawnThrottleMs) {
+      const waitTime = this._spawnThrottleMs - (now - this._lastSpawnTime);
+      this.logger(`Spawn throttled. Waiting ${ waitTime }ms...`);
+      return waitTime;
+    }
+
     const currentSize = this._pool.size;
     if( currentSize >= this.maxSize ) { return; }
     if( currentSize < this.softSize ) {
       this.logger(`Spawning 1 parallel workers... Current workers: ${ currentSize }+1`);
       this._spawnWorker();
+      this._lastSpawnTime = now;
       return;
     }
 
@@ -224,9 +240,10 @@ class WorkerPool {
 
     this.logger(`Spawning 1 parallel workers... Current workers: ${ currentSize }+1`);
     this._spawnWorker();
+    this._lastSpawnTime = now;
   }
 
-  _startWorker( uuid, methodNames, args, { onResult, onError, onProgress, timeOut } = {} ) {
+  _startWorker( uuid, methodNames, args, { onResult, onError, onProgress, timeOut, token } = {} ) {
     this.logger(`Starting worker ${uuid} -> threeBrain.${ methodNames.join(".") }`);
     const item = this._pool.get( uuid );
     item.onError = onError;
@@ -235,10 +252,20 @@ class WorkerPool {
     if( typeof timeOut === "number" ) {
       item.timeOut = timeOut;
     }
+    item.token = token;
     item.startWorker({ methodNames : methodNames, args : args });
   }
 
-  startWorker({ methodNames, args, onProgress, timeOut = 15000 } = {}) {
+  startWorker({ methodNames, args, onProgress, token, timeOut = 15000 } = {}) {
+
+    if( !this._tokenStartTimeList ) {
+      this._tokenStartTimeList = {};
+    }
+
+    const now = Date.now();
+    if( token ) {
+      this._tokenStartTimeList[token] = now;
+    }
 
     return new Promise((resolve, reject) => {
 
@@ -258,20 +285,38 @@ class WorkerPool {
             reject("Async workers are turned off.");
             return;
           }
-          this._spawn();
+          const throttledWaitTime = this._spawn();
           const uuids = [...this._pool.keys()];
           for(let i = 0; i < uuids.length; i++) {
             const uuid = uuids[ i ];
             const item = this._pool.get( uuid );
             if( item.idle ) {
+              if( token ) {
+                const thenTime = this._tokenStartTimeList[token];
+                if( thenTime > now ) {
+                  // obsolete
+                  const e = new Error(`A newer worker with token [${ token }] already started`);
+                  e._muffle = true;
+                  reject( e );
+                  return;
+                }
+              }
               this._startWorker( uuid, methodNames, args, {
                 onResult: resolve, onError: reject,
-                onProgress : onProgress, timeOut: timeOut
+                onProgress : onProgress, timeOut: timeOut,
+                token : token
               });
               return;
             }
           }
-          throw new Error("No available worker.");
+          if( typeof throttledWaitTime === 'number' ) {
+            running = false;
+            setTimeout(handler, throttledWaitTime + 1);
+            return;
+          }
+          const e = new Error("No available worker.");
+          e._muffle = true;
+          throw e;
         } catch (e) {
           this.logger(`Awaiting... (${e.message})`);
           running = false;
@@ -286,16 +331,24 @@ class WorkerPool {
     });
   }
 
-  stopWorkers() {
-    this._pool.forEach(item => {
-      item.terminate();
-    });
+  stopWorkers(token) {
+    if( token ) {
+      this._pool.forEach(item => {
+        if( item.token === token ) {
+          item.terminate();
+        }
+      });
+    } else {
+      this._pool.forEach(item => {
+        item.terminate();
+      });
+    }
   }
 }
 const workerURL = [];
 const workerPool = {};
 
-async function startWorker( url, { methodNames, args, onProgress, logger, timeOut = 15000 } = {} ) {
+async function startWorker( url, { methodNames, args, onProgress, logger, token, timeOut = 15000 } = {} ) {
   if( !useWorkerLoaders ) {
     throw new Error("Async workers disabled.");
   }
@@ -314,14 +367,15 @@ async function startWorker( url, { methodNames, args, onProgress, logger, timeOu
   }
   return await pool.startWorker({
     methodNames : methodNames, args : args,
-    onProgress : onProgress, timeOut : timeOut });
+    onProgress : onProgress, timeOut : timeOut, token : token });
 }
-async function stopWorker( url ) {
+
+function stopWorker( url, token ) {
   let pool;
   let idx = workerURL.indexOf(url);
   if(idx > -1) {
     pool = workerPool[ idx ];
-    pool.stopWorkers();
+    pool.stopWorkers(token);
   }
 }
 
