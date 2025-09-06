@@ -13,6 +13,7 @@ import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
 import { FreeSurferAnnot } from '../formats/FreeSurferAnnot.js';
 import { TrkTract } from '../formats/TrkTract.js';
 import { TTTract } from '../formats/TTTract.js';
+import { TckTract } from '../formats/TckTract.js';
 
 
 const debugManager = new LoadingManager();
@@ -372,6 +373,14 @@ class TTLoader extends TypedLoader {
   classType = TTTract;
 }
 
+class TckLoader extends TypedLoader {
+  responseType = "arraybuffer";
+  loaderName = "TckLoader";
+  classType = TckTract;
+}
+
+
+
 class MGHLoader extends TypedLoader {
   responseType = "arraybuffer";
   loaderName = "MGHLoader";
@@ -415,6 +424,7 @@ const loaderClasses = {
   "FreeSurferAnnotLoader": FreeSurferAnnotLoader,
   "TrkLoader"   : TrkLoader,
   "TTLoader"    : TTLoader,
+  'TckLoader'   : TckLoader,
 }
 
 for(let loaderType in loaderClasses) {
@@ -453,6 +463,8 @@ function guessLoaderType( url ) {
     loaderType = "TrkLoader";
   } else if ( urlLowerCase.endsWith("tt") || urlLowerCase.endsWith("tt.gz") ) {
     loaderType = "TTLoader";
+  } else if ( urlLowerCase.endsWith("tck") ) {
+    loaderType = "TckLoader";
   } else {
     loaderType = "FreeSurferMeshLoader";
   }
