@@ -7,7 +7,9 @@ import {
   SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth
 } from 'three';
 // import { addColorCoat } from '../shaders/addColorCoat.js';
-import { ElectrodeMaterial } from '../shaders/ElectrodeMaterial.js';
+import {
+  ElectrodeBasicMaterial, ElectrodePhysicalMaterial
+} from '../shaders/ElectrodeMaterial.js';
 import { Sprite2, TextTexture } from '../ext/text_sprite.js';
 import { asArray } from '../utility/asArray.js';
 import { testColorString } from '../utility/color.js';
@@ -607,7 +609,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.contactCenter = this._geometry.parameters.contactCenter;
 
     // materials
-    this._material = new ElectrodeMaterial( MATERIAL_PARAMS_BASIC );
+    this._material = new ElectrodePhysicalMaterial( MATERIAL_PARAMS_BASIC );
     this._material.setModelDirection( this._geometry.parameters.modelDirection );
 
     // mesh
@@ -657,7 +659,7 @@ class Electrode extends AbstractThreeBrainObject {
       const nContacts = this.contactCenter.length;
       const instancedGeometry = new SphereGeometry( 1 );
       // materials
-      const instancedMaterial = new ElectrodeMaterial({
+      const instancedMaterial = new ElectrodeBasicMaterial({
         'transparent'   : false,
         'reflectivity'  : 0,
         'color'         : 0xffffff,
@@ -1452,7 +1454,7 @@ class Electrode extends AbstractThreeBrainObject {
         const textureWidth = params.textureWidth;
         const textureHeight = params.textureHeight;
         const colorArray = this._dataTexture.image.data;
-        colorArray.fill(50);
+        colorArray.fill(200);
 
         const values = this.state.displayValues;
         const valueIsArray = Array.isArray( values );
