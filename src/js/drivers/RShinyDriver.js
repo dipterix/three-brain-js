@@ -416,7 +416,10 @@ class RShinyDriver {
     this.canvas.needsUpdate = true;
   }
 
-  driveSetElectrodeData({ data, palettes = {}, valueRanges = {}, clearFirst = false, updateDisplay = true} = {}) {
+  driveSetElectrodeData({
+    data, palettes = {}, valueRanges = {},
+    clearFirst = false, updateDisplay = true
+  } = {}) {
     if( !data ) { return; }
     if( !Array.isArray( data ) ) {
       if( typeof data !== "object" ) { return; }
@@ -438,7 +441,12 @@ class RShinyDriver {
     if( clearFirst ) {
       this.canvas.colorMaps.clear();
     }
-    this.app.updateElectrodeData({ data : data, palettes : palettes, valueRanges : valueRanges, updateDisplay : updateDisplay });
+    this.app.updateElectrodeData({
+      data : data,
+      palettes : palettes,
+      valueRanges : valueRanges,
+      updateDisplay : updateDisplay,
+    });
     this.canvas.needsUpdate = true;
   }
 

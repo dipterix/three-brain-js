@@ -641,7 +641,7 @@ class ViewerApp extends ThrottledEventDispatcher {
 
   }
 
-  updateElectrodeData({ data, palettes, valueRanges, updateDisplay = true }) {
+  updateElectrodeData({ data, palettes, valueRanges, updateDisplay = true, override = false }) {
     // data is a data frame with Electrode/Channel, Subject (Opt),
     // Time (opt), values
     // type is either continuous or discrete
@@ -696,7 +696,7 @@ class ViewerApp extends ThrottledEventDispatcher {
       let existingColorMap = this.canvas.colorMaps.get( name );
       let existingParams = colorMapParams[ name ];
       let overrideParams = false,
-          overrideColorMap = false;
+          overrideColorMap = override;
 
       let isDiscrete = dataDiscrete[ name ] === true;
       if ( !isDiscrete && existingColorMap ) {
@@ -745,6 +745,8 @@ class ViewerApp extends ThrottledEventDispatcher {
                 cmapParam.controlColors.push( discreteControlColors[ ki % discreteControlColors.length ] );
               }
             });
+            // For discrete colors, the
+            cmapParam.controlColors.push( 0x000000 );
           } else {
             existingColorMap.map.forEach(keyColor => {
               cmapParam.controlColors.push( keyColor[1] );
@@ -758,6 +760,9 @@ class ViewerApp extends ThrottledEventDispatcher {
             controlColors = palettes[ name ];
             if( !Array.isArray(controlColors) || controlColors.length === 0 ) {
               controlColors = undefined;
+            } else if( isDiscrete ) {
+              // make sure controlColors.length is cmap.n + 1
+              controlColors.push( '0x000000' );
             }
           } catch (e) {}
           if( !Array.isArray(controlColors) ) {
@@ -896,7 +901,6 @@ class ViewerApp extends ThrottledEventDispatcher {
         } else {
           cmapParam.valueKeys = Object.keys( cmapParam.valueKeyCount ).sort();
         }
-
         this.canvas.createColorMap( cmapParam );
       }
     }
