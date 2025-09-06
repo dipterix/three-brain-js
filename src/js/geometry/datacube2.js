@@ -12,6 +12,7 @@ import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
+import { buildKDTree } from '../Math/computeStreamlineToTargets.js'
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
@@ -381,6 +382,34 @@ class DataCube2 extends AbstractThreeBrainObject {
     });
   }
   */
+
+  updatedKDTree() {
+    const points = [];
+    const colorNChannel = this.colorFormat === RedFormat ? 1 : 4;
+    const modelShape = this.modelShape;
+    const voxelColor = this.voxelColor;
+    const vox2world = new Matrix4()
+      .copy( this.model2vox ).invert()
+      .premultiply( this._transform );
+
+    for( let k = 0; k < modelShape.z; k++ ) {
+      for( let j = 0; j < modelShape.y; j++ ) {
+        for( let i = 0; i < modelShape.x; i++ ) {
+          const idx = i + modelShape.x * (j + modelShape.y * k);
+          if( voxelColor[ (idx + 1) * colorNChannel - 1 ] > 0 ) {
+            points.push(
+              tmpVec3.set(i, j, k)
+                .applyMatrix4( vox2world )
+                .clone()
+            );
+          }
+        }
+      }
+    }
+
+    this._kdtree = buildKDTree( points );
+    return this._kdtree;
+  }
 
   getMaxComponents() {
     return (this.voxelData.length / this.nVoxels);
@@ -881,6 +910,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
   dispose(){
     super.dispose();
+
+    this._kdtree = null;
+
     try {
       this.object.removeFromParent();
     } catch (e) {}
