@@ -131,6 +131,7 @@ class DataCube extends AbstractThreeBrainObject {
     } );
     this.sliceMaterial = sliceMaterial;
     const sliceGeometryXY = new PlaneGeometry( 512, 512 );
+    sliceGeometryXY.computeVertexNormals();
     this.sliceGeometryXY = sliceGeometryXY;
     const sliceMeshXY = new Mesh( sliceGeometryXY, sliceMaterial );
     sliceMeshXY.renderOrder = -1;
@@ -153,6 +154,7 @@ class DataCube extends AbstractThreeBrainObject {
       -256, 0, 256,
       256, 0, 256
     ]);
+    sliceGeometryXZ.computeVertexNormals();
     this.sliceGeometryXZ = sliceGeometryXZ;
     const sliceMeshXZ = new Mesh( sliceGeometryXZ, sliceMaterial );
     sliceMeshXZ.renderOrder = -1;
@@ -166,6 +168,7 @@ class DataCube extends AbstractThreeBrainObject {
       0, -256, 256,
       0, 256, 256
     ]);
+    sliceGeometryYZ.computeVertexNormals();
     this.sliceGeometryYZ = sliceGeometryYZ;
     const sliceMeshYZ = new Mesh( sliceGeometryYZ, sliceMaterial );
     // sliceMeshYZ.rotateY( Math.PI / 2 ).rotateZ( Math.PI / 2 );

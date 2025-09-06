@@ -40,11 +40,65 @@ in vec3 position;
 uniform mat4 modelMatrix;
 uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
+
+#if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
+
+  in vec3 normal;
+
+  uniform vec3 overlayShape;
+  uniform mat4 overlay2IJK;
+
+  out vec3 overlaySampPos;
+  out vec3 overlaySamplerOffsetXInIJK;
+  out vec3 overlaySamplerOffsetYInIJK;
+
+#endif
+
+
 out vec4 worldPosition;
+
+float min3 (vec3 v) {
+  return min (min (v.x, v.y), v.z);
+}
+
+vec3 safeNormalize(vec3 v){
+  float L=length(v);
+  return L>1e-8 ? v/L : vec3(0.0);
+}
 
 void main() {
   // obtain the world position for vertex
   worldPosition = modelMatrix * vec4( position, 1.0 );
+
+  #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
+
+    vec3 denomOverlayInv = 1.0 / max(overlayShape - 1.0, vec3(1.0));
+    overlaySampPos = ((overlay2IJK * worldPosition).xyz) * denomOverlayInv;
+
+    if( normal.z != 0.0 ) {
+      overlaySamplerOffsetXInIJK = vec3(1.0, 0.0, 0.0);
+      overlaySamplerOffsetYInIJK = vec3(0.0, 1.0, 0.0);
+    } else if( normal.y != 0.0 ) {
+      overlaySamplerOffsetXInIJK = vec3(1.0, 0.0, 0.0);
+      overlaySamplerOffsetYInIJK = vec3(0.0, 0.0, 1.0);
+    } else {
+      overlaySamplerOffsetXInIJK = vec3(0.0, 1.0, 0.0);
+      overlaySamplerOffsetYInIJK = vec3(0.0, 0.0, 1.0);
+    }
+
+    overlaySamplerOffsetXInIJK = (
+      overlay2IJK * modelMatrix * vec4( overlaySamplerOffsetXInIJK, 0.0 )
+    ).xyz;
+    overlaySamplerOffsetYInIJK = (
+      overlay2IJK * modelMatrix * vec4( overlaySamplerOffsetYInIJK, 0.0 )
+    ).xyz;
+
+    float maxOverlayMarginInv = min3(denomOverlayInv);
+
+    overlaySamplerOffsetXInIJK = safeNormalize(overlaySamplerOffsetXInIJK) * ( 0.2 * maxOverlayMarginInv );
+    overlaySamplerOffsetYInIJK = safeNormalize(overlaySamplerOffsetYInIJK) * ( 0.2 * maxOverlayMarginInv );
+
+  #endif
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }`),
@@ -62,9 +116,13 @@ uniform float allowDiscard;
 
 #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
+  in vec3 overlaySampPos;
+  in vec3 overlaySamplerOffsetXInIJK;
+  in vec3 overlaySamplerOffsetYInIJK;
+
   uniform sampler3D overlayMap;
-  uniform vec3 overlayShape;
-  uniform mat4 overlay2IJK;
+  // uniform vec3 overlayShape;
+  // uniform mat4 overlay2IJK;
   uniform float overlayAlpha;
 
 #endif
@@ -81,9 +139,11 @@ out vec4 color;
 void main() {
 // calculate IJK, then sampler position
 
-  vec3 samplerPosition = ((world2IJK * worldPosition).xyz) / (mapShape - 1.0);
+  vec3 denomMap = max(mapShape - 1.0, vec3(1.0));
+  vec3 samplerPosition = ((world2IJK * worldPosition).xyz) / denomMap;
   if( any(greaterThan( samplerPosition, vec3(1.0) )) || any( lessThan(samplerPosition, vec3(0.0)) ) ) {
-    gl_FragDepth = gl_DepthRange.far;
+    // gl_FragDepth = gl_DepthRange.far;
+    gl_FragDepth = 1.0;
     color.rgba = vec4(0.0);
 
     if( allowDiscard > 0.5 ) {
@@ -93,7 +153,8 @@ void main() {
     color.r = texture(map, samplerPosition).r;
     if( color.r <= threshold && texture( mapMask, samplerPosition ).r < 0.5 ) {
       color.rgba = vec4(0.0);
-      gl_FragDepth = gl_DepthRange.far;
+      // gl_FragDepth = gl_DepthRange.far;
+      gl_FragDepth = 1.0;
       if( allowDiscard > 0.5 ) {
         discard;
       }
@@ -110,7 +171,7 @@ void main() {
 
       #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
-        vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
+        // vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
 
         // Clamp to border not edge
         if( all( greaterThan( overlaySampPos, vec3(-0.00001) ) ) && all( lessThan( overlaySampPos, vec3(1.00001) ) ) ) {
@@ -154,15 +215,34 @@ void main() {
 
             }
 
+          #else
+
+            if( overlayAlpha <= 0.0 ) {
+
+              vec4 overlayPXColor = texture(overlayMap, overlaySampPos + overlaySamplerOffsetXInIJK);
+              vec4 overlayNXColor = texture(overlayMap, overlaySampPos - overlaySamplerOffsetXInIJK);
+              vec4 overlayPYColor = texture(overlayMap, overlaySampPos + overlaySamplerOffsetYInIJK);
+              vec4 overlayNYColor = texture(overlayMap, overlaySampPos - overlaySamplerOffsetYInIJK);
+
+              bool samePX = all(equal(overlayPXColor, overlayColor));
+              bool sameNX = all(equal(overlayNXColor, overlayColor));
+              bool samePY = all(equal(overlayPYColor, overlayColor));
+              bool sameNY = all(equal(overlayNYColor, overlayColor));
+
+              if (samePX && sameNX && samePY && sameNY) {
+
+                overlayColor.a = 0.0;
+
+              }
+            }
+
           #endif
 
-          if( overlayColor.a > 0.0 ) {
-            if( any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
-              if( overlayAlpha < 0.0 ) {
-                color.rgb = overlayColor.rgb;
-              } else {
-                color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
-              }
+          if( overlayColor.a > 0.0 && any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
+            if( overlayAlpha < 0.0 ) {
+              color.rgb = overlayColor.rgb;
+            } else {
+              color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
             }
           }
 
