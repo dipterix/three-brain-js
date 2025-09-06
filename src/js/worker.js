@@ -6,7 +6,6 @@
 
 // Formats
 import { workerLoaders } from './core/DataLoaders.js';
-import { computeStreamlineToTargets } from './Math/computeStreamlineToTargets.js'
 
 function workerWrapper(fn) {
   const wrapped = async function(args, postMessage, token) {
@@ -34,7 +33,7 @@ async function workerListener (event) {
   }
   let method = {
     workerLoaders : workerLoaders,
-    computeStreamlineToTargets: workerWrapper( computeStreamlineToTargets ),
+    // computeStreamlineToTargets: workerWrapper( computeStreamlineToTargets ),
   };
   methodNames.forEach((name) => {
     method = method[ name ];
