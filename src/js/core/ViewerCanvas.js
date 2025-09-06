@@ -441,7 +441,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$el.addEventListener( 'viewerApp.mouse.leaveViewer', this._deactivateViewer );
     this.$el.addEventListener( 'viewerApp.mouse.mousedown', this._onMouseDown, { capture : true } );
 
-    this.trackball.addEventListener( "start", this._onTrackballChanged );
+    this.trackball.addEventListener( "start", this._onTrackballStarted );
     this.trackball.addEventListener( "change", this._onTrackballChanged );
     this.trackball.addEventListener( "end", this._onTrackballEnded );
 
@@ -450,16 +450,28 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.$mainCanvas.addEventListener( 'mousemove', this._onMouseMove );
   }
 
+  _onTrackballStarted = ( event ) => {
+    if( !this.activated ) { return; }
+    this._trackballStarted = true;
+    this.setRenderFlag( CanvasState.RenderOnce, "|", "Trackball started" );
+  }
 
   _onTrackballChanged = ( event ) => {
     if( !this.activated ) {
-      this.activated = true;
+      // this.activated = true;
+      // this.setRenderFlag( CanvasState.RenderOnce, "|", "Trackball (inactive) changed" );
+      // this._renderFlag = this._renderFlag | CanvasState.RenderOnce;
+      return;
     }
-    this._renderFlag = this._renderFlag | CanvasState.TrackballChange;
+    if( !this._trackballStarted ) { return; }
+    this.setRenderFlag( CanvasState.TrackballChange, "|", "Trackball changed" );
+    // this._renderFlag = this._renderFlag | CanvasState.TrackballChange;
   }
 
   _onTrackballEnded = () => {
-    this._renderFlag = this._renderFlag & (CanvasState.TrackballChange ^ CanvasState.Mask);
+    this._trackballStarted = false;
+    // this._renderFlag = this._renderFlag & (CanvasState.TrackballChange ^ CanvasState.Mask);
+    this.setRenderFlag( CanvasState.TrackballChange ^ CanvasState.Mask, "&", "Trackball ended" );
     this.dispatch( _mainCameraUpdatedEvent );
   }
 
@@ -509,6 +521,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
 
     this.needsUpdate = true;
+  }
+
+  setRenderFlag( flag, operator, message ) {
+    const oldFlag = this._renderFlag;
+    // TODO: check the flags
+    if ( operator === "|" ) {
+      this._renderFlag = this._renderFlag | flag;
+    } else if ( operator === "&" ) {
+      this._renderFlag = this._renderFlag & flag;
+    } else {
+      this._renderFlag = flag;
+    }
+    if( this.debug && typeof message === "string" ) {
+      this.debugVerbose(`${message}  sets rendering flag from ${oldFlag} to ${this._renderFlag} with flag ${flag} and operator ${operator}`);
+    }
   }
 
   setRuler( state ) {
@@ -992,7 +1019,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.animParameters.dispose();
 
     // Remove listeners
-    this.trackball.removeEventListener( "start", this._onTrackballChanged );
+    this.trackball.removeEventListener( "start", this._onTrackballStarted );
     this.trackball.removeEventListener( "change", this._onTrackballChanged );
     this.trackball.removeEventListener( "end", this._onTrackballEnded );
     this.$el.removeEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
@@ -1149,7 +1176,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
   }
 
-  setStreamlineHighlight({ mode, distanceToTargetsThreshold, fadedLinewidth, immediate = true } = {}) {
+  setStreamlineHighlight({
+    mode, distanceToTargetsThreshold, fadedLinewidth,
+    forceUpdate = false, immediate = true
+  } = {}) {
     let defaultConfig = this.get_state('streamline_highlight');
     if( !defaultConfig || typeof defaultConfig !== 'object' ) {
       defaultConfig = {};
@@ -1171,6 +1201,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     defaultConfig.mode = mode;
     defaultConfig.distanceToTargetsThreshold = distanceToTargetsThreshold;
     defaultConfig.fadedLinewidth = fadedLinewidth;
+    defaultConfig.forceUpdate = forceUpdate;
 
     this.dispatch({
       type : "viewerApp.canvas.setStreamlineHighlight",
@@ -1782,7 +1813,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       return;
     }
     if( !persistLevel ){
-      this._renderFlag = CanvasState.NoRender;
+      this.setRenderFlag( CanvasState.NoRender, null, "canvas.updateRenderFlag (no persist)" );
+      // this._renderFlag = CanvasState.NoRender;
       return;
     }
     if( persistLevel < 0 ) {
@@ -1791,7 +1823,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       persistLevel = this._renderFlag | (persistLevel & CanvasState.Mask);
     }
 
-    this._renderFlag = this._renderFlag | persistLevel | CanvasState.RenderOnce;
+    this.setRenderFlag( persistLevel | CanvasState.RenderOnce, "|", "canvas.updateRenderFlag" );
+    // this._renderFlag = this._renderFlag | persistLevel | CanvasState.RenderOnce;
   }
 
   update(){
@@ -2157,8 +2190,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         }
 
       default:
+        this.crosshairGroup.position.set( 0, 0, 0 );
         this.crosshairGroup.quaternion.set( 0, 0, 0, 1 );
         this.crosshairGroup.scale.set(1, 1, 1);
+        const tkrRAS_Scanner = this.get_state("tkrRAS_Scanner");
+        if(tkrRAS_Scanner && typeof tkrRAS_Scanner === "object" && tkrRAS_Scanner.isMatrix4) {
+          this.crosshairGroup.applyMatrix4(tkrRAS_Scanner);
+        }
         this.crosshairGroup.LR.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
         this.crosshairGroup.PA.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     }

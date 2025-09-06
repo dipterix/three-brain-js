@@ -316,10 +316,12 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         })
       .onChange(v => {
         if(v){
-          this.canvas._renderFlag = this.canvas._renderFlag | CanvasState.Animate;
+          this.canvas.setRenderFlag( CanvasState.Animate, "|", "Controller [Play/Pause]" );
+          // this.canvas._renderFlag = this.canvas._renderFlag | CanvasState.Animate;
           this.canvas.animParameters.start();
         }else{
-          this.canvas._renderFlag = this.canvas._renderFlag & (CanvasState.Animate ^ CanvasState.Mask);
+          this.canvas.setRenderFlag( CanvasState.Animate ^ CanvasState.Mask, "&", "Controller [Play/Pause]" );
+          // this.canvas._renderFlag = this.canvas._renderFlag & (CanvasState.Animate ^ CanvasState.Mask);
           this.canvas.animParameters.stop();
         }
         this.broadcast();
