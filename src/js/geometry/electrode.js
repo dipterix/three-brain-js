@@ -384,7 +384,7 @@ class Electrode extends AbstractThreeBrainObject {
 
       case "mni305.affine+fix.target": {
         this.mapToTemplateAffine({ subjectCode : subjectCode });
-        this.updatePrototypeModel({ coordinateSys : "mni305FixTarget" });
+        this.updatePrototypeModel({ coordinateSys : "mni305FixTarget", rigid : true });
         break;
       }
 
@@ -858,7 +858,7 @@ class Electrode extends AbstractThreeBrainObject {
 
   }
 
-  updatePrototypeModel ({ coordinateSys = "native" } = {}) {
+  updatePrototypeModel ({ coordinateSys = "native", rigid = false } = {}) {
 
     if( !Array.isArray( this.contactCenter ) || this.contactCenter.length === 0 ) {
       coordinateSys = "native";
@@ -892,7 +892,7 @@ class Electrode extends AbstractThreeBrainObject {
     }
 
     // has to be prototype
-    this._geometry.updatePositions();
+    this._geometry.updatePositions(rigid);
   }
 
   updateElectrodeDirection() {

@@ -567,12 +567,12 @@ class ElasticGeometry extends BufferGeometry {
 
 	}
 
-	updatePositions() {
+	updatePositions(rigid = false) {
 	  const contactCenter = this.parameters.contactCenter;
 
 	  if( !Array.isArray( contactCenter ) || !this.parameters.contactCenter.length ) { return; }
 
-    if( !this.morphAvailable || !this.trajectory ) {
+    if( rigid || !this.morphAvailable || !this.trajectory ) {
 
       // only translate positions according to the first contactCenter element
       const targetPosition = this.parameters.contactCenter[0];
