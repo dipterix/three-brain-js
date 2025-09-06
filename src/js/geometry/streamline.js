@@ -208,7 +208,10 @@ class StreamlineGeometry extends InstancedBufferGeometry {
 
   }
 
-  async computeStreamlineDistances({ target, reset = false, visibleOnly = true } = {}) {
+  async computeStreamlineDistances({
+    targets, reset = false, visibleOnly = true,
+    matrixWorld = new Matrix4()
+  } = {}) {
     const instanceWeightAttr = this.getAttribute('instanceWeight'),
           instanceWeight = instanceWeightAttr.array,
           distanceToTargetsAttr = this.getAttribute('distanceToTargets'),
@@ -222,9 +225,9 @@ class StreamlineGeometry extends InstancedBufferGeometry {
       distanceToTargets.fill( 0.0 );
       return this;
     }
-    if(!target) { return this; }
+    if(!targets) { return this; }
 
-    const targetArray = target.toArray();
+    // const targetArray = target.toArray();
 
     let maxInstanceCount = Infinity;
     if( visibleOnly ) {
@@ -232,61 +235,20 @@ class StreamlineGeometry extends InstancedBufferGeometry {
     }
 
     computeStreamlineToTargets(
-      targetArray,              // Float32Array
+      targets,                  // Float32Array or kdtree
       distanceToTargets,        // Float32Array, output: distance per segment
       instanceWeight,           // Float32Array, one per segment
       pointOffset,              // Int32Array, length nTracts+1
       pointPositions,           // Float32Array, length ~ 3*(total segments+1)
       tractRange,               // Uint32Array, nTracts * 3
-      maxInstanceCount          // Maximum number of instances
+      maxInstanceCount,         // Maximum number of instances
+      matrixWorld
     );
 
     distanceToTargetsAttr.needsUpdate = true;
 
     return this;
 
-    /*
-    const workToken = "streamline-computeStreamlineDistances-" + this.uuid;
-
-    await stopWorker( this.workerScript, workToken );
-
-    try {
-      const resultBuffer = await startWorker( this.workerScript, {
-        methodNames: ['computeStreamlineToTargets'],
-        args: [
-          targetArray,              // Float32Array
-          distanceToTargets,        // Float32Array, output: distance per segment
-          instanceWeight,           // Float32Array, one per segment
-          pointOffset,              // Int32Array, length nTracts+1
-          pointPositions,           // Float32Array, length ~ 3*(total segments+1)
-          tractRange,               // Uint32Array, nTracts * 3
-          maxInstanceCount          // Maximum number of instances
-        ],
-        timeOut : 10000, // optional
-        token   : workToken,
-      });
-
-      if(resultBuffer) {
-        distanceToTargets.set( resultBuffer );
-        distanceToTargetsAttr.needsUpdate = true;
-      }
-    } catch (e) {
-      let muffle = false;
-      if( e.message === 'Worker has been terminated.' ) {
-        muffle = true;
-      }
-      if( e.message.startsWith('A newer worker with token') ) {
-        muffle = true;
-      }
-
-      if( !muffle ) {
-        console.error(e);
-      }
-    }
-
-
-    return this;
-    */
   }
 
 }
@@ -372,65 +334,92 @@ class Streamline extends AbstractThreeBrainObject {
     } catch (e) {}
   }
 
-  setHighlightMode({ mode, distanceToTargetsThreshold, fadedLinewidth, center, update = true } = {}) {
-    let needsUpdate = false;
-    if( typeof mode === 'string' ) {
-      const oldMode = this.highlightConfig.mode;
-      switch (mode) {
-        case 'electrode':
-        case 'crosshair':
-          this.highlightConfig.mode = mode;
-          break;
-        default:
-          this.highlightConfig.mode = 'none';
-          this.highlightConfig.distanceToTargetsThreshold = Infinity;
-      }
-      if( this.highlightConfig.mode !== oldMode ) {
-        needsUpdate = true;
-      }
-    }
-    if( this.highlightConfig.mode === 'none' ) {
-      if( needsUpdate ) {
-        this.updateHighlighted({ 'force' : true });
-      }
-      this.object.material.distanceThreshold = Infinity;
-      this._canvas.needsUpdate = true;
-      return;
+  setHighlightMode({ mode, distanceToTargetsThreshold, fadedLinewidth, forceUpdate = false } = {}) {
+    let targetsNeedsUpdate = forceUpdate;
+    if( typeof mode === 'string' && this.highlightConfig.mode !== mode ) {
+      this.highlightConfig.mode = mode;
+      targetsNeedsUpdate = true;
     }
     if( typeof distanceToTargetsThreshold === 'number' ) {
       if( distanceToTargetsThreshold <= 0 ) { distanceToTargetsThreshold = 0; }
       if( this.highlightConfig.distanceToTargetsThreshold != distanceToTargetsThreshold ) {
         this.highlightConfig.distanceToTargetsThreshold = distanceToTargetsThreshold;
-        needsUpdate = true;
       }
     }
     if( typeof fadedLinewidth === 'number' ) {
       if( fadedLinewidth <= 0 ) { fadedLinewidth = 0; }
       if( this.highlightConfig.fadedLinewidth != fadedLinewidth ) {
         this.highlightConfig.fadedLinewidth = fadedLinewidth;
-        needsUpdate = true;
       }
     }
-    if( !center || typeof center !== 'object' && !center.isVector3 ) {
-      switch (mode) {
+
+    // update highlight mode
+    switch ( this.highlightConfig.mode ) {
+      case 'electrode':
+      case 'crosshair':
+        targetsNeedsUpdate = true;
+        this.highlightConfig.datacube2Name = null;
+        break;
+      case 'active volume':
+        // {"activeDataCube2Instance" => undefined}
+        const datacube2Instance = this._canvas.get_state( "activeDataCube2Instance" );
+        const oldInstName = this.highlightConfig.datacube2Name;
+        if( datacube2Instance ) {
+          this.highlightConfig.datacube2Name = datacube2Instance.name;
+          if( datacube2Instance.name !== oldInstName ) {
+            targetsNeedsUpdate = true;
+          }
+        } else {
+          this.highlightConfig.datacube2Name = null;
+        }
+        break;
+      default:
+        this.highlightConfig.mode = 'none';
+        this.highlightConfig.datacube2Name = null;
+        this.highlightConfig.distanceToTargetsThreshold = Infinity;
+        if( targetsNeedsUpdate ) {
+          // reset
+          this._updateHighlighted({ 'force' : true });
+        }
+        this.object.material.distanceThreshold = Infinity;
+        this._canvas.needsUpdate = true;
+        return;
+    }
+
+    let kdtree = null;
+
+    if( targetsNeedsUpdate ) {
+      switch ( this.highlightConfig.mode ) {
         case 'crosshair':
-          center = this._canvas.crosshairGroup.position;
+          kdtree = {
+            isKDTree: true,
+            point: this._canvas.crosshairGroup.position,
+            left: null,
+            right: null,
+            axis: 'x'
+          };
+          break;
+        case 'electrode':
+          kdtree = {
+            isKDTree: true,
+            point: this._canvas.highlightTarget.position,
+            left: null,
+            right: null,
+            axis: 'x'
+          };
+          break;
+        case 'active volume':
+          const datacube2Instance = this._canvas.get_state( "activeDataCube2Instance" );
+          if( datacube2Instance ) {
+            kdtree = datacube2Instance._kdtree;
+          }
           break;
         default:
-          center = this._canvas.highlightTarget.position;
+          kdtree = null;
+          // const center = this._canvas.highlightTarget.position;
       }
-    }
-
-    const modeCenter = tmpVec3.copy( center ).applyMatrix4( tmpMat4.copy( this.object.matrixWorld ).invert() );
-
-    const dist = modeCenter.distanceToSquared( this.highlightConfig.center );
-    if( dist > 0 ) {
-      this.highlightConfig.center.copy( modeCenter );
-      needsUpdate = true;
-    }
-    if( needsUpdate && update ) {
       // Update highlighted streamlines
-      this.updateHighlighted({ 'force' : true });
+      this._updateHighlighted(kdtree, { 'force' : true });
     }
     this.object.material.distanceThreshold = this.highlightConfig.distanceToTargetsThreshold;
     this.object.material.fadedWidth = this.highlightConfig.fadedLinewidth;
@@ -444,15 +433,15 @@ class Streamline extends AbstractThreeBrainObject {
 
   _setCrosshairHandler = (event) => {
     if( this.highlightConfig.mode !== 'crosshair' ) { return; }
-    this.setHighlightMode({ 'center' : this._canvas.crosshairGroup.position });
+    this.setHighlightMode();
   }
 
   _setFocusedObjectHandler = (event) => {
     if( this.highlightConfig.mode !== 'electrode' ) { return; }
-    this.setHighlightMode({ 'center' : this._canvas.highlightTarget.position });
+    this.setHighlightMode();
   }
 
-  updateHighlighted({ force = false, visibleOnly = true } = {}) {
+  _updateHighlighted(targets, { force = false, visibleOnly = true } = {}) {
     if( this.highlightConfig.mode === 'none' && !force ) { return; }
 
     let promise;
@@ -462,7 +451,8 @@ class Streamline extends AbstractThreeBrainObject {
       promise = this.object.geometry.computeStreamlineDistances({
         'reset' : false,
         'visibleOnly': visibleOnly,
-        'target': this.highlightConfig.center,
+        'targets': targets,
+        'matrixWorld' : this.object.matrixWorld
       });
     }
 
@@ -523,7 +513,7 @@ class Streamline extends AbstractThreeBrainObject {
     this.object.geometry.setWeights( streamlineWeights );
     this.object.geometry.instanceCount = instanceCount;
 
-    this.updateHighlighted();
+    this.setHighlightMode();
 
   }
 
