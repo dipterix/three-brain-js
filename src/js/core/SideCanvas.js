@@ -66,10 +66,14 @@ class SideCanvas {
 
     // { enabled: true, fullWidth: 256, fullHeight: 256, offsetX: 0, offsetY: 0, width: 256, height: 256 }
     const view = this.camera.view;
+    const viewFlipSign = this.camera.right - this.camera.left < 0 ? -1 : 1;
     // calculate origin in model
     this.mainCanvas.crosshairGroup.worldToLocal( tmpVec3.set(0, 0, 0) );
 
-    const boundingCenterX = tmpVec3Alt.copy( this.camera.position ).cross( this.camera.up ).normalize().dot( tmpVec3 );
+    const boundingCenterX = tmpVec3Alt.copy( this.camera.position )
+      .cross( this.camera.up )
+      .normalize()
+      .dot( tmpVec3 ) * viewFlipSign;
     const boundingCenterY = tmpVec3.dot( this.camera.up );
 
     let viewCenterX = 128;
@@ -202,16 +206,84 @@ class SideCanvas {
     this.$footer.innerHTML = footer;
   }
 
+  set radiographic ( value ) {
+    let radiographic = value === true ? true : false;
+    const viewMode = this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical");
+    if ( viewMode === 'column-row-slice' ) {
+      // column row slice should not be inverted
+      radiographic = false;
+    }
+
+    if( radiographic !== this._radiographic) {
+      this._radiographic = radiographic;
+
+      if( radiographic ) {
+        this.camera.left = 128;
+        this.camera.right = -128;
+      } else {
+        this.camera.left = -128;
+        this.camera.right = 128;
+      }
+
+      this.camera.updateProjectionMatrix();
+
+      this.headerTextNeedsUpdate = true;
+    }
+
+  }
+
+  get radiographic() {
+
+    return this._radiographic;
+
+  }
+
+  set viewMode ( value ) {
+
+    if( typeof value !== 'string' ) {
+      value = 'canonical';
+    }
+
+    const oldViewMode = this._viewMode;
+
+    switch (value) {
+      case 'column-row-slice':
+        this._viewMode = value;
+        this.radiographic = false;
+        // code
+        break;
+
+      case 'line-of-sight':
+      case 'snap-to-electrode':
+        this._viewMode = value;
+        break;
+
+      default:
+        this._viewMode = 'canonical';
+    }
+
+    if( oldViewMode !== this._viewMode ) {
+      this.headerTextNeedsUpdate = true;
+    }
+  }
+
+  get viewMode() {
+    return this._viewMode;
+  }
 
   get headerText () {
-    switch ( this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical") ) {
+
+    const radiographic = this.radiographic;
+    const viewMode = this.viewMode;
+
+    switch ( viewMode ) {
       case 'canonical': {
         switch ( this.type ) {
           case 'coronal':
-            return "CORONAL (R=R)";
+            return radiographic ? "CORONAL (R=L)" : "CORONAL (R=R)";
             break;
           case 'axial':
-            return "AXIAL (R=R)";
+            return radiographic ? "AXIAL (R=L)" : "AXIAL (R=R)";
             break;
           case 'sagittal':
             return "SAGITTAL";
@@ -240,13 +312,13 @@ class SideCanvas {
       default: {
         switch ( this.type ) {
           case 'coronal':
-            return "Normal (Horizontal)";
+            return radiographic ? "Normal (Horizontal, Radiographic)" : "Normal (Horizontal)";
             break;
           case 'axial':
-            return "Line of Sight";
+            return radiographic ? "Line of Sight (Radiographic)" : "Line of Sight";
             break;
           case 'sagittal':
-            return "Normal (Vertical)";
+            return radiographic ? "Normal (Vertical, Radiographic)" : "Normal (Vertical)";
             break;
           default:
         }
@@ -283,7 +355,15 @@ class SideCanvas {
     if( !this._enabled ) { return; }
     this.renderer.clear();
 
-    this.setHeader( this.headerText );
+    // whether Radiographic?
+    this.viewMode = this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical");
+    this.radiographic = this.mainCanvas.get_state("sideCameraRadiographic", false);
+
+    if( this.headerTextNeedsUpdate ) {
+      this.setHeader( this.headerText );
+    }
+
+    this.headerTextNeedsUpdate = undefined;
 
     // Let side slices track camera rotation
     this.renderer.render( this.mainCanvas.scene, this.camera );
@@ -327,6 +407,7 @@ class SideCanvas {
 
     // { enabled: true, fullWidth: 256, fullHeight: 256, offsetX: 0, offsetY: 0, width: 256, height: 256 }
     const view = this.camera.view;
+    const viewFlipSign = this.camera.right - this.camera.left < 0 ? -1 : 1;
 
     // data is xy coord relative to $canvas
     let depthX, depthY;
@@ -357,6 +438,8 @@ class SideCanvas {
         tmpVec3.x += centerOffsetHoriz + depthX;
         tmpVec3.z += -centerOffsetVerti + depthY;
 
+        tmpVec3.x *= viewFlipSign;
+
         this.camera.setViewOffset(
           view.fullWidth,
           view.fullHeight,
@@ -370,6 +453,8 @@ class SideCanvas {
       case 'axial':
         tmpVec3.x += centerOffsetHoriz + depthX;
         tmpVec3.y += -centerOffsetVerti + depthY;
+
+        tmpVec3.x *= viewFlipSign;
 
         this.camera.setViewOffset(
           view.fullWidth,
@@ -385,6 +470,8 @@ class SideCanvas {
       case 'sagittal':
         tmpVec3.y += -centerOffsetHoriz - depthX;
         tmpVec3.z += -centerOffsetVerti + depthY;
+
+        tmpVec3.y *= viewFlipSign;
 
         this.camera.setViewOffset(
           view.fullWidth,
@@ -403,7 +490,7 @@ class SideCanvas {
     // console.log(`x: ${depthX}, y: ${depthY} of [${canvasSize[0]}, ${canvasSize[1]}]`);
     // console.log(`x: ${sagittalDepth}, y: ${coronalDepth}, z: ${axialDepth}`);
 
-    const tmpVec32 = tmpVec3.clone();
+    // const tmpVec32 = tmpVec3Alt.copy( tmpVec3 );
 
     tmpVec3.applyQuaternion( this.mainCanvas.crosshairGroup.quaternion )
       .add( this.mainCanvas._crosshairPosition );
@@ -441,6 +528,8 @@ class SideCanvas {
     this.mainCanvas = mainCanvas;
     this.zoomLevel = 1;
     this.pixelRatio = this.mainCanvas.pixel_ratio[1];
+    this._radiographic = false;
+    this._viewMode = 'canonical';
     this._renderThreshold = { near: 2.0, far: 2.0 };
 
     this._enabled = true;
@@ -464,6 +553,9 @@ class SideCanvas {
     this.$header.innerHTML = "";
     this.$header.className = 'THREEBRAIN-SIDE-HEADER';
     this.$header.id = this._container_id + '__' + type + 'header';
+
+    // force headers to update at render stage
+    this.headerTextNeedsUpdate = true;
     this.setHeader();
     this.$el.appendChild( this.$header );
 

@@ -83,7 +83,6 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
           case "column-row-slice":
             this.canvas.set_state("sideCameraTrackMainCamera", "column-row-slice");
             break;
-
           default:
             this.canvas.set_state("sideCameraTrackMainCamera", "canonical");
             compassVisible = false;
@@ -112,6 +111,18 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         }
       }
     });
+
+    this.gui
+      .addController(
+        'Radiographic View', false,
+        { folderName: folderName })
+      .onChange(v => {
+        const radiographic = v === true ? true : false
+        this.canvas.set_state("sideCameraRadiographic", radiographic);
+        this.canvas.needsUpdate = true;
+        this.broadcast();
+      });
+    this.canvas.set_state("sideCameraRadiographic", false);
 
 
     this.gui.addController( 'Crosshair Gap', 0.0, { folderName: folderName })

@@ -375,7 +375,20 @@ class DataCube extends AbstractThreeBrainObject {
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
-    if( this._canvas.get_state("sideCameraTrackMainCamera", "canonical") !== "canonical" ) {
+    const sliceMode = this._canvas.get_state("sideCameraTrackMainCamera", "canonical");
+    const crosshairQuaternion = this._canvas.crosshairGroup.quaternion;
+    let megFilter = NearestFilter;
+    if( crosshairQuaternion.w === 1 ) {
+      megFilter = LinearFilter;
+    }
+
+    if( this.dataTexture.magFilter !== megFilter ) {
+      this.dataTexture.magFilter = megFilter;
+      this.dataTexture.needsUpdate = true;
+    }
+
+    /*
+    if( sliceMode !== "canonical" ) {
       if( this.dataTexture.magFilter !== LinearFilter ) {
         this.dataTexture.magFilter = LinearFilter;
         this.dataTexture.needsUpdate = true;
@@ -386,6 +399,7 @@ class DataCube extends AbstractThreeBrainObject {
         this.dataTexture.needsUpdate = true;
       }
     }
+    */
 
     const displayOverlay = this._canvas.get_state("voxelDisplay", "hidden");
     let useOverlay = false;
