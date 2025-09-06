@@ -1,20 +1,18 @@
 import { Vector3, Matrix4, Color } from 'three';
-import { readTT } from './streamlineIO.js';
+import { readTCK } from './streamlineIO.js';
 
-class TTTract {
+class TckTract {
   constructor ( data ) {
     this.isInvalid = true;
     this.isStreamline = true;
-    this.isTTTract = true;
+    this.isTckTract = true;
 
     if(!data) { return; }
     // parse TT
-    const parsed = readTT(data);
+    const parsed = readTCK(data);
 
-    this.shape = parsed.shape;
-
-    this.points = parsed.points;
-    this.pointOffset = parsed.cutoff;
+    this.points = parsed.pts;
+    this.pointOffset = parsed.offsetPt0;
     if(this.pointOffset[0] !== 0) {
       // This should not happen
       // this.pointOffset.unshift(0);
@@ -39,7 +37,7 @@ class TTTract {
     // this.dataPerStreamline = parsed.dps;
     // this.dataPerVertex = parsed.dpv;
 
-    this.color = new Color().set(parsed.color);
+    // this.color = new Color();
 
 
     this.isInvalid = false;
@@ -47,11 +45,10 @@ class TTTract {
   }
 
   dispose () {
-    this.shape = undefined;
     this.points = undefined;
     this.pointOffset = undefined;
     this.lengthPerStreamline = undefined;
-    this.color = undefined;
+    // this.color = undefined;
     this.isInvalid = true;
   }
 
@@ -59,18 +56,17 @@ class TTTract {
     this.isInvalid = el.isInvalid;
     if(this.isInvalid) { return this; }
 
-    this.shape = el.shape;
     this.points = el.points;
     this.pointOffset = el.pointOffset;
     this.lengthPerStreamline = el.lengthPerStreamline;
-    this.color = new Color().copy( el.color );
+    // this.color = new Color().copy( el.color );
 
     this.isStreamline = true;
-    this.isTTTract = true;
+    this.isTckTract = true;
 
     return this;
   }
 
 }
 
-export { TTTract }
+export { TckTract }

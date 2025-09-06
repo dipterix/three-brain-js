@@ -16,13 +16,14 @@ class StreamlineHandler extends FileDataHandler {
       fileNameLowerCase.endsWith("trk") ||
       fileNameLowerCase.endsWith("trk.gz") ||
       fileNameLowerCase.endsWith("tt") ||
-      fileNameLowerCase.endsWith("tt.gz")
+      fileNameLowerCase.endsWith("tt.gz") ||
+      fileNameLowerCase.endsWith("tck")
     )) {
-      throw new Error("StreamlineHandler: fileName is not a valid TRK nor TT file name");
+      throw new Error(`StreamlineHandler: ${ fileName } is not supported`);
     }
 
     if( !data.isStreamline ) {
-      throw new Error("StreamlineHandler: data is not a valid TRK nor TT tract");
+      throw new Error("StreamlineHandler: data is not a streamline");
     }
     return data;
   }

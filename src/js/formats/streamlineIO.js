@@ -1,3 +1,13 @@
+/*******************************************************************************
+ *
+ * This file is modified from NiiVue, an awesome package for more generalized
+ * medical imaging visualization.
+ *
+ * niivue is released under BSD 2-Clause License
+ *
+ * https://github.com/niivue/niivue/blob/main/packages/niivue/src/nvmesh-loaders.ts
+ *
+ ******************************************************************************/
 // import * as fflate from 'fflate';
 import { decompressSync } from 'fflate';
 import { mat3, mat4, vec3, vec4 } from "gl-matrix"; //for trk
@@ -99,12 +109,6 @@ function readTT(buffer) {
   let m = mat.trans_to_mni;
   trans_to_mni = mat4.fromValues(m[0],m[1],m[2],m[3],  m[4],m[5],m[6],m[7],  m[8],m[9],m[10],m[11],  m[12],m[13],m[14],m[15]);
   mat4.transpose(trans_to_mni, trans_to_mni);
-  let zoomMat = mat4.create();
-  zoomMat = mat4.fromValues(1 / mat.voxel_size[0],0,0,-0.5,
-        0, 1 / mat.voxel_size[1], 0, -0.5,
-        0, 0, 1 / mat.voxel_size[2], -0.5,
-        0, 0, 0, 1);
-  mat4.transpose(zoomMat, zoomMat);
   function parse_tt(track) {
     let dv = new DataView(track.buffer);
     let pos = [];
@@ -142,12 +146,10 @@ function readTT(buffer) {
     } //for each streamline
     for (let i = 0; i < npt; i++)
       pts[i] = pts[i]/32.0
-    let vox2mmMat = mat4.create()
-    mat4.mul(vox2mmMat, zoomMat, trans_to_mni)
     let v = 0
     for (let i = 0; i < npt / 3; i++) {
       const pos = vec4.fromValues(pts[v], pts[v+1], pts[v+2], 1)
-      vec4.transformMat4(pos, pos, vox2mmMat)
+      vec4.transformMat4(pos, pos, trans_to_mni)
       pts[v++] = pos[0]
       pts[v++] = pos[1]
       pts[v++] = pos[2]
@@ -260,10 +262,11 @@ function readTRK(buffer) {
   let i = 0
   let npt = 0
   // pre-allocate and over-provision offset array
-  let offsetPt0 = new Uint32Array(i32.length / 4)
+  let offsetPt0 = new Uint32Array(i32.length / 4 + 1);
+  offsetPt0[0] = 0;
   // pre-allocate and over-provision streamline length array
-  let lps32 = new Float32Array(i32.length / 4)
-  let noffset = 0
+  let lps32 = new Float32Array(i32.length / 4);
+  let noffset = 0;
   // pre-allocate and over-provision vertex positions array
   let pts = new Float32Array(i32.length)
   let npt3 = 0
@@ -309,7 +312,8 @@ function readTRK(buffer) {
       }
     }
     lps32[noffset] = slen;
-    offsetPt0[noffset++] = npt;
+    noffset++;
+    offsetPt0[noffset + 1] = npt;
   } // for each streamline: while i < n_count
   // output uses static float32 not dynamic number[]
   const dps32 = []
@@ -328,11 +332,12 @@ function readTRK(buffer) {
     })
   }
   // add 'first index' as if one more line was added (fence post problem)
-  offsetPt0[noffset++] = npt;
+  noffset++;
+  offsetPt0[noffset] = npt;
   // resize offset/vertex arrays that were initially over-provisioned
   pts = pts.slice(0, npt3);
   offsetPt0 = offsetPt0.slice(0, noffset);
-  lps32 = lps32.slice(0, noffset - 1);
+  lps32 = lps32.slice(0, noffset - 2);
   return {
     pts,
     offsetPt0,
@@ -342,4 +347,84 @@ function readTRK(buffer) {
   }
 } // readTRK()
 
-export { readTT, readTRK };
+// read mrtrix tck format streamlines
+// https://mrtrix.readthedocs.io/en/latest/getting_started/image_data.html#tracks-file-format-tck
+function readTCK(buffer) {
+
+  const len = buffer.byteLength;
+  if (len < 20) {
+    throw new Error('File too small to be TCK: bytes = ' + len);
+  }
+  const bytes = new Uint8Array(buffer);
+  let pos = 0;
+  function readStr() {
+    while (pos < len && bytes[pos] === 10) {
+      pos++;
+    } // skip blank lines
+    const startPos = pos;
+    while (pos < len && bytes[pos] !== 10) {
+      pos++;
+    }
+    pos++; // skip EOLN
+    if (pos - startPos < 1) {
+      return '';
+    }
+    return new TextDecoder().decode(buffer.slice(startPos, pos - 1));
+  }
+  let line = readStr(); // 1st line: signature 'mrtrix tracks'
+  if (!line.includes('mrtrix tracks')) {
+    throw new Error('Not a valid TCK file');
+  }
+  let offset = -1; // "file: offset" is REQUIRED
+  while (pos < len && !line.includes('END')) {
+    line = readStr();
+    if (line.toLowerCase().startsWith('file:')) {
+      offset = parseInt(line.split(' ').pop());
+    }
+  }
+  if (offset < 20) {
+    throw new Error('Not a valid TCK file (missing file offset)');
+  }
+  pos = offset;
+  const reader = new DataView(buffer);
+  // read and transform vertex positions
+  let npt = 0;
+  // over-provision offset array to store number of segments
+  let offsetPt0 = new Uint32Array(len / (4 * 4) + 1);
+  let noffset = 1;
+  // over-provision points array to store vertex positions
+  let npt3 = 0;
+  let pts = new Float32Array(len / 4);
+  offsetPt0[0] = 0; // 1st streamline starts at 0
+  while (pos + 12 < len) {
+    const ptx = reader.getFloat32(pos, true);
+    pos += 4;
+    const pty = reader.getFloat32(pos, true);
+    pos += 4;
+    const ptz = reader.getFloat32(pos, true);
+    pos += 4;
+    if (!isFinite(ptx)) {
+      // both NaN and Infinity are not finite
+      offsetPt0[noffset++] = npt;
+      if (!isNaN(ptx)) {
+        // terminate if infinity
+        break;
+      }
+    } else {
+      pts[npt3++] = ptx;
+      pts[npt3++] = pty;
+      pts[npt3++] = ptz;
+      npt++;
+    }
+  }
+  // resize offset/vertex arrays that were initially over-provisioned
+  pts = pts.slice(0, npt3);
+  offsetPt0 = offsetPt0.slice(0, noffset);
+  return {
+    pts,
+    offsetPt0
+  };
+
+} // readTCK()
+
+export { readTT, readTRK, readTCK };
