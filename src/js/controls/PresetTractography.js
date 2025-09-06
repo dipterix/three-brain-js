@@ -61,16 +61,46 @@ function registerPresetTractography( ViewerControlCenter ){
     };
     this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
 
-    this.gui.addController("Highlight LineMode", 'none', {args: ['none', 'electrode', 'crosshair'], folderName: folderName})
+    const updateTargets = () => {
+
+      if( highlightStreamlineConfig.mode === 'active volume' ) {
+        const datacube2Instance = this.canvas.get_state( "activeDataCube2Instance" );
+        if( datacube2Instance ) {
+          datacube2Instance.updatedKDTree();
+        }
+      }
+
+    }
+
+    const ctrlLineSelector = this.gui
+      .addController(
+        "Line Selector", 'none',
+        {
+          args: ['none', 'crosshair', 'active volume', 'electrode'],
+          folderName: folderName
+        })
       .onChange(v => {
         if( typeof v !== 'string' ) { return; }
         highlightStreamlineConfig.mode = v;
-
+        updateTargets();
         this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
-        this.broadcast();
-        // this.canvas.needsUpdate = true;
         this.canvas.setStreamlineHighlight();
+        this.canvas.needsUpdate = true;
+        this.broadcast();
       });
+
+    const ctrlUpdateCache = this.gui
+      .addController(
+        "Update Distance Tree",
+        () => {
+          updateTargets();
+          this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
+          this.canvas.setStreamlineHighlight({ forceUpdate : true });
+          this.canvas.needsUpdate = true;
+        }, {
+          folderName: folderName
+        }
+      );
 
     this.gui.addController("Distance Threshold", 1, {folderName: folderName})
       .min(0.1).max(15).step(0.1)

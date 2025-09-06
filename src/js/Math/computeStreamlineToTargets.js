@@ -1,130 +1,85 @@
-import { Vector3 } from 'three';
+import { Vector3, Matrix4 } from 'three';
 
-function buildTargetGrid(targetArray, gridSize = 5) {
-  const grid = new Map();
+const _vector = new Vector3();
+const _axisNames = ['x', 'y', 'z']
+
+function buildKDTree( vec3Arrays, depth = 0 ) {
+  if (vec3Arrays.length === 0) return null;
+
+  const axis = _axisNames[ depth % 3 ];
+
+  vec3Arrays.sort((a, b) => a[axis] - b[axis]);
+  const median = Math.floor(vec3Arrays.length / 2);
+
+  return {
+    isKDTree: true,
+    nPoints: vec3Arrays.length,
+    point: vec3Arrays[median],
+    left: buildKDTree(vec3Arrays.slice(0, median), depth + 1),
+    right: buildKDTree(vec3Arrays.slice(median + 1), depth + 1),
+    axis: axis
+  };
+}
+
+function nearest(tree, vec3, depth = 0, best = { point: null, distSq: Infinity }) {
+  if (tree === null) return best;
+
+  const d = vec3.distanceToSquared( tree.point );
+  if ( d < best.distSq ) {
+    best.point = tree.point;
+    best.distSq = d;
+  }
+
+  const axis = tree.axis;
+  const diff = vec3[axis] - tree.point[axis];
+  const [nearBranch, farBranch] = diff < 0 ? [tree.left, tree.right] : [tree.right, tree.left];
+
+  best = nearest(nearBranch, vec3, depth + 1, best);
+
+  // Check if we need to explore the other side
+  if (diff ** 2 < best.distSq) {
+    best = nearest(farBranch, vec3, depth + 1, best);
+  }
+
+  return best;
+}
+
+function buildKDTreeFromArray( targetArray ) {
+  if( targetArray.length === 0 ) { return null; }
   const nTargets = targetArray.length / 3;
-
-  for (let i = 0; i < nTargets; i++) {
-    const x = targetArray[i * 3];
-    const y = targetArray[i * 3 + 1];
-    const z = targetArray[i * 3 + 2];
-
-    const gx = Math.floor(x / gridSize);
-    const gy = Math.floor(y / gridSize);
-    const gz = Math.floor(z / gridSize);
-    const key = `${gx},${gy},${gz}`;
-
-    if (!grid.has(key)) grid.set(key, []);
-    grid.get(key).push([x, y, z]);
+  const vec3Arrays = [];
+  for( let i = 0 ; i < nTargets; i++ ) {
+    const point = new Vector3().fromArray( targetArray , 3 * i );
+    vec3Arrays.push( point );
   }
-
-  return { grid, gridSize };
+  return buildKDTree(vec3Arrays)
 }
 
-function findClosestInGrid(pt, gridData) {
-  const { grid, gridSize } = gridData;
-  const gx = Math.floor(pt.x / gridSize);
-  const gy = Math.floor(pt.y / gridSize);
-  const gz = Math.floor(pt.z / gridSize);
-
-  let minDistSq = Infinity;
-
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        const key = `${gx + dx},${gy + dy},${gz + dz}`;
-        const bucket = grid.get(key);
-        if (!bucket) continue;
-
-        for (let i = 0; i < bucket.length; i++) {
-          const [x, y, z] = bucket[i];
-          const dx = pt.x - x, dy = pt.y - y, dz = pt.z - z;
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 < minDistSq) minDistSq = d2;
-        }
-      }
-    }
-  }
-
-  return minDistSq;
-}
-
-function computeStreamlineToTargets2(
-  targetArray,
-  distanceToTargets,
-  instanceWeight,
-  pointOffset,
-  pointPositions,
-  tractRange,
-  maxInstanceCount = Infinity,
-  gridSize = 5
-) {
-  const nTracts = tractRange.length / 3;
-  const gridData = buildTargetGrid(targetArray, gridSize);
-
-  const pt = new Vector3();
-  const ptPrevious = new Vector3();
-
-  let instanceCount = 0;
-
-  for (let iTract = 0; iTract < nTracts; iTract++) {
-    const idx = tractRange[iTract * 3];
-    const len = tractRange[iTract * 3 + 1];
-    const iPos = tractRange[iTract * 3 + 2];
-
-    if (len <= 0 || instanceWeight[iPos] < 0) continue;
-
-    let minDistSq = Infinity;
-    let previousDist = 0;
-    ptPrevious.fromArray(pointPositions, iPos * 3);
-
-    for (let i = 0; i < len; i++) {
-      pt.fromArray(pointPositions, (iPos + i) * 3);
-
-      previousDist -= pt.distanceTo(ptPrevious);
-      ptPrevious.copy(pt);
-
-      if (previousDist > 0) continue;
-
-      const d2 = findClosestInGrid(pt, gridData);
-      if (d2 < minDistSq) minDistSq = d2;
-
-      previousDist = Math.sqrt(minDistSq);
-    }
-
-    const dist = isFinite(minDistSq) ? Math.sqrt(minDistSq) : 1e8;
-    for (let i = 0; i < len; i++) {
-      distanceToTargets[iPos + i] = dist;
-    }
-
-    instanceCount += len;
-    if (instanceCount >= maxInstanceCount) break;
-  }
-
-  return distanceToTargets;
-}
-
-// export { computeStreamlineToTargets };
-
-//*
 
 function computeStreamlineToTargets(
-  targetArray,              // Float32Array
+  targetArray,              // array of Vector3 or a kdtree
   distanceToTargets,        // Float32Array, output: distance per segment
   instanceWeight,           // Float32Array, one per segment
   pointOffset,              // Int32Array, length nTracts+1
   pointPositions,           // Float32Array, length ~ 3*(total segments+1)
   tractRange,               // Uint32Array, nTracts * 3
-  maxInstanceCount = Infinity // Maximum number of instances
+  maxInstanceCount = Infinity, // Maximum number of instances
+  matrixWorld = new Matrix4()
 ) {
   const nTracts = tractRange.length / 3;
-  const nTargets = targetArray.length / 3;
+
+  let kdtree = targetArray;
+  if( !targetArray || typeof targetArray !== 'object' || !targetArray.isKDTree ) {
+    kdtree = buildKDTree( targetArray );
+  }
+  let nTargets = kdtree ? kdtree.nPoints : 0;
 
   const target = new Vector3();
   const pt = new Vector3();
   const ptPrevious = new Vector3();
 
   let instanceCount = 0;
+
 
   for (let iTract = 0; iTract < nTracts; iTract++) {
     const idx = tractRange[iTract * 3];
@@ -136,7 +91,8 @@ function computeStreamlineToTargets(
       continue;
     }
 
-    let minDistSq = Infinity;
+    const best = { point: null, distSq: Infinity }
+
     let previousDist = 0;
     ptPrevious.fromArray( pointPositions, iPos * 3 );
 
@@ -152,19 +108,20 @@ function computeStreamlineToTargets(
         continue;
       }
 
-      for (let j = 0; j < nTargets; j++) {
+      /*for (let j = 0; j < nTargets; j++) {
         target.fromArray( targetArray, j * 3 );
         const d2 = pt.distanceToSquared(target);
-        if (d2 < minDistSq) {
-          minDistSq = d2;
+        if (d2 < best.distSq) {
+          best.distSq = d2;
         }
-      }
+      }*/
+      nearest(kdtree, pt.applyMatrix4( matrixWorld ), 0, best);
 
-      previousDist = Math.sqrt(minDistSq);
+      previousDist = Math.sqrt( best.distSq );
 
     }
 
-    const dist = isFinite(minDistSq) ? Math.sqrt(minDistSq) : 1e8;
+    const dist = isFinite( best.distSq ) ? Math.sqrt( best.distSq ) : 1e8;
     for (let i = 0; i < len; i++) {
       distanceToTargets[iPos + i] = dist;
     }
@@ -178,5 +135,5 @@ function computeStreamlineToTargets(
   return distanceToTargets;
 }
 
-export { computeStreamlineToTargets };
+export { computeStreamlineToTargets, buildKDTree };
 //*/
