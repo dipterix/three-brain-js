@@ -5,7 +5,7 @@ import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedF
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType, Color } from 'three';
-import { SliceShader } from '../shaders/SliceShader.js';
+import { SliceShader, SliceMaterial } from '../shaders/SliceShader.js';
 
 
 /* WebGL doesn't take transparency into consideration when calculating depth
@@ -35,9 +35,19 @@ class DataCube extends AbstractThreeBrainObject {
     this.type = 'DataCube';
     this.isDataCube = true;
     this.mainCanvasActive = false;
-    this._uniforms = UniformsUtils.clone( SliceShader.uniforms );
 
     const subjectData = this._canvas.shared_data.get( this.subject_code );
+    const world2UnderlayVoxel = new Matrix4().set(1,0,0,128, 0,1,0,128, 0,0,1,128, 0,0,0,1);
+    const world2MaskVoxel = new Matrix4().set(1,0,0,128, 0,1,0,128, 0,0,1,128, 0,0,0,1);
+
+    const uniforms = {
+
+      // maskData
+      maskMap: { value : null },
+      maskShape: { value : new Vector3().set( 256, 256, 256 ) },
+      mask2IJK: { value : world2MaskVoxel },
+    };
+
 
     // Shader will take care of it
     g.disable_trans_mat = true;
@@ -71,24 +81,44 @@ class DataCube extends AbstractThreeBrainObject {
         this.cubeData = niftiData.getNormalizedImage();
         dataTextureType = FloatType;
       }
-      if( niftiMask && niftiMask.image.length === this.cubeData.length ) {
-        this.maskData = new Uint8Array( niftiMask.image );
-      } else {
-        this.maskData = null;
+      if( niftiMask ) {
+        // uniforms.maskMap.value
+        const maskTexture = new Data3DTexture(
+          new Uint8Array( niftiMask.image ),
+          niftiMask.shape.x, niftiMask.shape.y, niftiMask.shape.z
+        );
+        maskTexture.minFilter = NearestFilter;
+        maskTexture.magFilter = NearestFilter;
+        maskTexture.format = RedFormat;
+        maskTexture.type = UnsignedByteType;
+        maskTexture.unpackAlignment = 1;
+        maskTexture.needsUpdate = true;
+
+        uniforms.maskMap.value = maskTexture;
+        uniforms.maskShape.value.copy( niftiMask.shape );
+
+        world2MaskVoxel.copy( niftiMask.affine ).invert();
       }
       this.cubeShape = new Vector3().copy( niftiData.shape );
-      const affine = niftiData.affine.clone();
+
+      // scanRAS -> IJK
+      world2UnderlayVoxel.copy( niftiData.affine ).invert();
       if( subjectData && typeof subjectData === "object" && subjectData.matrices ) {
-        affine.copy( subjectData.matrices.Torig )
-          .multiply( subjectData.matrices.Norig.clone().invert() )
-          .multiply( niftiData.affine );
+
+        // tkrRAS -> SubIJK -> scanRAS
+        const tkr2Scan = subjectData.matrices.Torig.clone().invert()
+          .premultiply( subjectData.matrices.Norig );
+
+        // tkrRAS -> scanRAS -> IJK
+        world2UnderlayVoxel.multiply( tkr2Scan );
+        world2MaskVoxel.multiply( tkr2Scan );
+
       }
-      this._uniforms.world2IJK.value.copy( affine ).invert();
+
     } else {
       this.cubeData = new Uint8Array(canvas.get_data('datacube_value_'+g.name, g.name, g.group.group_name));
-      this.maskData = null;
       this.cubeShape = new Vector3().fromArray( canvas.get_data('datacube_dim_'+g.name, g.name, g.group.group_name) );
-      this._uniforms.world2IJK.value.set(1,0,0,128, 0,1,0,128, 0,0,1,128, 0,0,0,1);
+      world2UnderlayVoxel.set(1,0,0,128, 0,1,0,128, 0,0,1,128, 0,0,0,1);
     }
     this.dataTexture = new Data3DTexture(
       this.cubeData, this.cubeShape.x, this.cubeShape.y, this.cubeShape.z
@@ -100,35 +130,20 @@ class DataCube extends AbstractThreeBrainObject {
     this.dataTexture.unpackAlignment = 1;
     this.dataTexture.needsUpdate = true;
 
-
-    // Generate shader
-    this._uniforms.map.value = this.dataTexture;
-    this._uniforms.mapShape.value.copy( this.cubeShape );
-
-    if( this.maskData ) {
-      this.maskTexture = new Data3DTexture(
-        this.maskData, this.cubeShape.x, this.cubeShape.y, this.cubeShape.z
-      );
-      this.maskTexture.minFilter = NearestFilter;
-      this.maskTexture.magFilter = NearestFilter;
-      this.maskTexture.format = RedFormat;
-      this.maskTexture.type = UnsignedByteType;
-      this.maskTexture.unpackAlignment = 1;
-      this.maskTexture.needsUpdate = true;
-      this._uniforms.mapMask.value = this.maskTexture;
-    } else {
-      this.maskTexture = null;
-    }
-
-    const sliceMaterial = new RawShaderMaterial( {
-      glslVersion: GLSL3,
-      uniforms: this._uniforms,
-      vertexShader: SliceShader.vertexShader,
-      fragmentShader: SliceShader.fragmentShader,
-      side: DoubleSide,
-      transparent : false,
-      depthWrite: true
+    const sliceMaterial = new SliceMaterial( {
+      // glslVersion: GLSL3,
+      uniforms: uniforms,
+      // vertexShader: SliceShader.vertexShader,
+      // fragmentShader: SliceShader.fragmentShader,
+      // side: DoubleSide,
+      // transparent : false,
+      // depthWrite: true
     } );
+
+    sliceMaterial.underlayMap = this.dataTexture;
+    sliceMaterial.underlayShape.copy( this.cubeShape );
+    sliceMaterial.world2UnderlayVoxel.copy( world2UnderlayVoxel );
+
     this.sliceMaterial = sliceMaterial;
     const sliceGeometryXY = new PlaneGeometry( 512, 512 );
     sliceGeometryXY.computeVertexNormals();
@@ -183,7 +198,6 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryXY.dispose();
       this.dataTexture.dispose();
-      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshXY.userData.instance = this;
     this.sliceXY = sliceMeshXY;
@@ -192,7 +206,6 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryXZ.dispose();
       this.dataTexture.dispose();
-      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshXZ.userData.instance = this;
     this.sliceXZ = sliceMeshXZ;
@@ -201,155 +214,16 @@ class DataCube extends AbstractThreeBrainObject {
   	  sliceMaterial.dispose();
   	  sliceGeometryYZ.dispose();
       this.dataTexture.dispose();
-      if( this.maskTexture ) { this.maskTexture.dispose(); }
     };
     sliceMeshYZ.userData.instance = this;
     this.sliceYZ = sliceMeshYZ;
 
   }
 
-  _setOverlayColorChangeHandler = ( event ) => {
-    if( !this._overlay ) { return; }
-    if( this._overlay.name !== event.instanceName ) { return; }
-    this.setOverlay( this._overlay );
-  };
-
-  removeOverlay = () => {
-    let needsUpdate = false;
-    const thisMaterialDefines = this.sliceMaterial.defines;
-    this._uniforms.overlayMap.value = null;
-
-    if( thisMaterialDefines.HAS_OVERLAY !== undefined ) {
-      delete thisMaterialDefines.HAS_OVERLAY;
-      needsUpdate = true;
-    }
-    if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
-      delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
-      needsUpdate = true;
-    }
-
-    if( this._overlay ) {
-      try {
-        this._overlay.removeEventListener(
-          CONSTANTS.EVENTS.onDataCube2ColorUpdated,
-          this._setOverlayColorChangeHandler
-        );
-        this._overlay.removeEventListener(
-          CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
-          this.removeOverlay
-        );
-      } catch (e) {
-        console.warn(e);
-      }
-      needsUpdate = true;
-    }
-    if( needsUpdate ) {
-      this.sliceMaterial.needsUpdate = true;
-    }
-  }
-
   setOverlay( x ) {
 
     const inst = getThreeBrainInstance( x );
-    if( !inst || !( inst.isDataCube2 || inst.isDataCube ) ) {
-      this.removeOverlay();
-      return;
-    }
-
-    if( this._overlay !== inst ) {
-      this.removeOverlay();
-      this._overlay = inst;
-    }
-
-    const thisMaterialDefines = this.sliceMaterial.defines;
-
-    let materialNeedsUpdate = false;
-
-    if( typeof thisMaterialDefines.HAS_OVERLAY !== "string" ) {
-      thisMaterialDefines.HAS_OVERLAY = "";
-      materialNeedsUpdate = true;
-    }
-
-
-    if( inst.isDataCube2 ) {
-
-      if ( inst.isDataContinuous ) {
-
-        const nColors = inst.object.material.defines.N_SINGLE_CHANNEL_COLORS;
-        const thatUniforms = inst.object.material.uniforms;
-
-        const thisColors = this._uniforms.overlayColorsWhenSingleChannel.value;
-        const thatColors = thatUniforms.colorsWhenSingleChannel.value;
-        for( let i = 0; i < nColors; i++ ) {
-          if( !thisColors[ i ] ) {
-            thisColors[ i ] = new Color();
-          }
-          const thatC = thatColors[ i ];
-          if( thatC ) {
-            thisColors[ i ].copy( thatC );
-          }
-        }
-
-        this._uniforms.overlayValueLB.value = thatUniforms.singleChannelColorRangeLB.value;
-        this._uniforms.overlayValueUB.value = thatUniforms.singleChannelColorRangeUB.value;
-
-        if( nColors !== thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS ) {
-          thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS = nColors;
-          materialNeedsUpdate = true;
-        }
-
-      } else if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
-        delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
-        materialNeedsUpdate = true;
-      }
-
-      this._uniforms.overlayMap.value = inst.colorTexture;
-      this._uniforms.overlayShape.value.copy( inst.modelShape );
-
-      // inst._transform is model to world
-      this._uniforms.overlay2IJK.value.copy( inst._transform ).invert()
-        .premultiply( inst.model2vox );
-
-    } else if( inst.isDataCube ) {
-
-      if( thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
-        delete thisMaterialDefines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
-        materialNeedsUpdate = true;
-      }
-
-      this._uniforms.overlayMap.value = inst._uniforms.map.value;
-      this._uniforms.overlayShape.value.copy( inst._uniforms.mapShape );
-      this._uniforms.overlay2IJK.value.copy( inst._uniforms.world2IJK.value );
-
-    }
-
-    if( materialNeedsUpdate ) {
-      this.sliceMaterial.needsUpdate = true;
-    }
-
-    if(
-      !inst.hasEventListener(
-        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
-        this._setOverlayColorChangeHandler
-      )
-    ) {
-      inst.addEventListener(
-        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
-        this._setOverlayColorChangeHandler
-      );
-    }
-
-    if(
-      !inst.hasEventListener(
-        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
-        this.removeOverlay
-      )
-    ) {
-      inst.addEventListener(
-        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
-        this.removeOverlay
-      );
-    }
+    this.sliceMaterial.setOverlay( inst );
 
   }
 
@@ -357,7 +231,9 @@ class DataCube extends AbstractThreeBrainObject {
     super.disposeGPU();
     this.sliceMaterial.dispose();
     this.dataTexture.dispose();
-    if( this.maskTexture ) { this.maskTexture.dispose(); }
+    if( this.sliceMaterial.uniforms.maskMap.value ) {
+      this.sliceMaterial.uniforms.maskMap.value.dispose();
+    }
   }
 
   dispose(){
@@ -367,7 +243,9 @@ class DataCube extends AbstractThreeBrainObject {
     this.sliceGeometryXZ.dispose();
   	this.sliceGeometryYZ.dispose();
     this.dataTexture.dispose();
-    if( this.maskTexture ) { this.maskTexture.dispose(); }
+    if( this.sliceMaterial.uniforms.maskMap.value ) {
+      this.sliceMaterial.uniforms.maskMap.value.dispose();
+    }
 
     this._canvas.removeClickable( '_coronal_' + this.name );
     this._canvas.removeClickable( '_axial_' + this.name );
@@ -380,9 +258,9 @@ class DataCube extends AbstractThreeBrainObject {
 
     const sliceMode = this._canvas.get_state("sideCameraTrackMainCamera", "canonical");
     const crosshairQuaternion = this._canvas.crosshairGroup.quaternion;
-    let megFilter = NearestFilter;
+    let megFilter = LinearFilter;
     if( crosshairQuaternion.w === 1 ) {
-      megFilter = LinearFilter;
+      megFilter = NearestFilter;
     }
 
     if( this.dataTexture.magFilter !== megFilter ) {
@@ -407,16 +285,14 @@ class DataCube extends AbstractThreeBrainObject {
     const displayOverlay = this._canvas.get_state("voxelDisplay", "hidden");
     let useOverlay = false;
     if( target === CONSTANTS.RENDER_CANVAS.main ) {
-      this._uniforms.threshold.value = 0.0;
-      this._uniforms.allowDiscard.value = 1.0;
+      this.sliceMaterial.zeroThreshold = this._canvas.get_state("sliceMaskThrehsold", 0.0);
       this.sliceMaterial.depthWrite = true;
       useOverlay =
             displayOverlay === "normal" ||
             displayOverlay === "main camera" ||
             displayOverlay === "anat. slices";
     } else {
-      this._uniforms.threshold.value = -1.0;
-      this._uniforms.allowDiscard.value = 0.0;
+      this.sliceMaterial.zeroThreshold = -1.0;
       this.sliceMaterial.depthWrite = false;
       useOverlay = displayOverlay === "normal" ||
             displayOverlay === "side camera" ||
@@ -436,13 +312,13 @@ class DataCube extends AbstractThreeBrainObject {
     }
 
     const brightness = this._canvas.get_state("sliceBrightness", 0.0);
-    this._uniforms.brightness.value = brightness;
+    this.sliceMaterial.underlayBrightness = brightness;
 
     const contrast = this._canvas.get_state("sliceContrast", 0.0);
-    this._uniforms.contrast.value = contrast;
+    this.sliceMaterial.underlayContrast = contrast;
 
     const overlayAlpha = this._canvas.get_state("overlayAlpha", 0.0);
-    this._uniforms.overlayAlpha.value = overlayAlpha;
+    this.sliceMaterial.overlayAlpha = overlayAlpha;
 
   }
 

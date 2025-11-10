@@ -19,6 +19,19 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
+    this.gui.addController("Streamline Opacity", 1.0, {folderName: folderName})
+      .min(0).max(1)
+      .onChange(v => {
+        if( typeof v !== "number" || v > 1.0 ) {
+          v = 1.0;
+        } else if ( v < 0.0 ) {
+          v = 0.0;
+        }
+        this.canvas.set_state('streamline_opacity', v);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
     this.gui.addController("Line MinLen", 0.0, {folderName: folderName})
       .min(0).max(500).step(1)
       .onChange(v => {

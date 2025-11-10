@@ -59,7 +59,7 @@ const compile_free_material = ( material, options ) => {
       throw new TypeError("Must provide a DataCube (slice) instance.");
       return;
     }
-    if( !datacube._uniforms.map.value ) {
+    if( !datacube.sliceMaterial.underlayMap ) {
       delete material.defines.USE_CLIPPING_SLICE;
       material.needsUpdate = true;
       return;
@@ -70,13 +70,13 @@ const compile_free_material = ( material, options ) => {
     }
 
     const datacubeMatrixWorldInverse = options.clippingMapMatrixWorldInverse.value;
-    const cubeShape = datacube._uniforms.mapShape.value.clone().subScalar(1);
+    const cubeShape = datacube.sliceMaterial.underlayShape.clone().subScalar(1);
 
     datacubeMatrixWorldInverse.identity()
       .scale( cubeShape ).invert()    // IJK -> model
-      .multiply( datacube._uniforms.world2IJK.value );       // world -> IJK -> model
+      .multiply( datacube.sliceMaterial.world2UnderlayVoxel );       // world -> IJK -> model
 
-    options.clippingMap.value = datacube._uniforms.map.value; // texture
+    options.clippingMap.value = datacube.sliceMaterial.underlayMap; // texture
 
     const clippingNormal = options.clippingNormal.value.copy( normal ).normalize(); // plane normal
     if( clippingNormal.lengthSq() < 0.5 ) {

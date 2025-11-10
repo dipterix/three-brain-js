@@ -1,4 +1,7 @@
-import { Vector2, Vector3, Color, UniformsLib, UniformsUtils, RawShaderMaterial, BackSide, GLSL3 } from 'three';
+import {
+  Vector2, Vector3, Color, UniformsLib, UniformsUtils, RawShaderMaterial,
+  BackSide, GLSL3, DataTexture
+} from 'three';
 import { remove_comments } from '../utils.js';
 import { Lut } from '../jsm/math/Lut2.js'
 
@@ -29,11 +32,15 @@ class RayMarchingMaterial extends RawShaderMaterial {
     parameters.uniforms.stepSize = { value : 1.0 };
     parameters.uniforms.dithering = { value : 1.0 };
     parameters.uniforms.maxRenderDistance = { value : 1000.0 };
-    // only works when number of color channels is 1
-    const colorsWhenSingleChannel = [];
-    parameters.uniforms.colorsWhenSingleChannel = { value: colorsWhenSingleChannel };
+    // only works when number of color channels is 1 for converting numeric to color
+    // create nColors
+    const keyColors = new Uint8Array( 4 * nColors );
+    parameters.uniforms.colorRampPalette = { value: new DataTexture( keyColors, nColors, 1 ) };
+    parameters.uniforms.colorRampPalette.value.needsUpdate = true;
+
     parameters.uniforms.singleChannelColorRangeLB = { value: 0.0 };
     parameters.uniforms.singleChannelColorRangeUB = { value: 1.0 };
+
 
     let useSingleChannel = false;
 
@@ -44,7 +51,11 @@ class RayMarchingMaterial extends RawShaderMaterial {
     if( colorChannels == 1 ) {
       useSingleChannel = true;
       for( let ii = 0; ii < nColors; ii++ ) {
-        colorsWhenSingleChannel.push( colorLUT.getColor( ii ) );
+        const keyColor = colorLUT.getColor( ii );
+        keyColors[ ii * 4 ] = keyColor.r * 255;
+        keyColors[ ii * 4 + 1 ] = keyColor.g * 255;
+        keyColors[ ii * 4 + 2 ] = keyColor.b * 255;
+        keyColors[ ii * 4 + 3 ] = keyColor.a * 255;
       }
       if( typeof parameters.defines !== "object" ) {
         parameters.defines = {
@@ -52,9 +63,6 @@ class RayMarchingMaterial extends RawShaderMaterial {
         };
       }
     } else {
-      colorsWhenSingleChannel.push(
-        new Color()
-      );
       parameters.defines = {
         N_SINGLE_CHANNEL_COLORS : 1
       };
@@ -121,7 +129,7 @@ in mat4 mv;
 out vec4 color;
 uniform sampler3D cmap;
 uniform int colorChannels;
-uniform vec3 colorsWhenSingleChannel[N_SINGLE_CHANNEL_COLORS];
+uniform sampler2D colorRampPalette;
 uniform float singleChannelColorRangeLB;
 uniform float singleChannelColorRangeUB;
 uniform float alpha;
@@ -163,22 +171,31 @@ vec4 sample2( vec3 p ) {
     // using red channel as the color intensity
     re.a = re.r;
 
-    float tmp = (re.r - singleChannelColorRangeLB) / (singleChannelColorRangeUB - singleChannelColorRangeLB);
-    if( tmp > 1.0 ) {
-      tmp = 1.0;
-    } else if (tmp < 0.0) {
-      tmp = 0.0;
+    // otherwise transparent, skip
+    if( re.a > 0.0 ) {
+
+      // intensity, by default equals to re.r
+      float intensity = re.r;
+
+      if( singleChannelColorRangeUB - singleChannelColorRangeLB > 0.0001 ) {
+        intensity = (intensity - singleChannelColorRangeLB) / (singleChannelColorRangeUB - singleChannelColorRangeLB);
+      }
+
+      intensity = clamp(intensity, 0.0, 1.0);
+
+      float nColors = float(N_SINGLE_CHANNEL_COLORS);
+      if ( nColors <= 1.0 ) {
+        nColors = 1.0;
+      }
+
+      // place key colors to the center of the pixels
+      intensity = ( intensity * (nColors - 1.0) + 0.5 ) / nColors;
+      re.rgb = texture( colorRampPalette, vec2( intensity , 0.5 ) ).rgb;
+
     }
 
-    tmp *= float(N_SINGLE_CHANNEL_COLORS - 1);
-    int idx = int(floor(tmp));
-    if( idx >= N_SINGLE_CHANNEL_COLORS ) {
-      idx = N_SINGLE_CHANNEL_COLORS - 1;
-    }
-    tmp -= float(idx);
 
-    re.rgb = colorsWhenSingleChannel[idx] * (1.0 - tmp) + colorsWhenSingleChannel[idx + 1] * tmp;
-    // re.rgb = color1WhenSingleChannel * re.r + color2WhenSingleChannel * (1.0 - re.r);
+
   }
   return re;
 }
@@ -410,10 +427,22 @@ void main(){
     lut.minV = 0;
     lut.maxV = nColors - 1;
 
-    const pal = this.uniforms.colorsWhenSingleChannel.value;
+    const paletteTexture = this.uniforms.colorRampPalette.value;
+
+    if( paletteTexture.image.width !== nColors ) {
+      paletteTexture.image.width = nColors;
+      paletteTexture.image.data = new Uint8Array( nColors * 4 );
+    }
+    paletteTexture.needsUpdate = true;
+    const keyColors = paletteTexture.image.data;
+
 
     for( let i = 0; i < nColors; i++ ) {
-      pal[ i ] = lut.getColor( i );
+      const keyColor = lut.getColor( i );
+      keyColors[ i * 4 ] = keyColor.r * 255;
+      keyColors[ i * 4 + 1 ] = keyColor.g * 255;
+      keyColors[ i * 4 + 2 ] = keyColor.b * 255;
+      keyColors[ i * 4 + 3 ] = keyColor.a * 255;
     }
 
     this.uniformsNeedUpdate = true;

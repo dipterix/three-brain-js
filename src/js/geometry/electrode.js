@@ -609,7 +609,12 @@ class Electrode extends AbstractThreeBrainObject {
     this.contactCenter = this._geometry.parameters.contactCenter;
 
     // materials
-    this._material = new ElectrodePhysicalMaterial( MATERIAL_PARAMS_BASIC );
+    if( this.isElectrodePrototype ) {
+      this._material = new ElectrodePhysicalMaterial( MATERIAL_PARAMS_BASIC );
+    } else {
+      this._material = new ElectrodeBasicMaterial( MATERIAL_PARAMS_BASIC );
+    }
+
     this._material.setModelDirection( this._geometry.parameters.modelDirection );
 
     // mesh
@@ -1518,6 +1523,9 @@ class Electrode extends AbstractThreeBrainObject {
                       k1 -= textureWidth;
                     }
                     j = r + k1 + ( c + l1 ) * textureWidth;
+                    colorArray[ j * 4 ] = 50;
+                    colorArray[ j * 4 + 1 ] = 50;
+                    colorArray[ j * 4 + 2 ] = 50;
                     colorArray[ j * 4 + 3 ] = 255;
                   }
                 }

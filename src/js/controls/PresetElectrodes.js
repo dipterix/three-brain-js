@@ -136,13 +136,14 @@ function registerPresetElectrodes( ViewerControlCenter ){
     });
 
     this.gui
-      .addController( 'Prototype Cutoff', 0, { folderName : folderName } )
+      .addController( 'Prototype Cutoff', 70, { folderName : folderName } )
       .min(0).max(500).step(1)
       .onChange(( v ) => {
         this.canvas.set_state( 'electrode_prototype_length_cutoff', v );
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
+      .setValue(70);
 
     this.canvas.set_state("outline_state", "auto");
     const outlineOptions = ["auto", "on", "off"];

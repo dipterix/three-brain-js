@@ -276,6 +276,22 @@ class StreamlineMaterial extends ShaderMaterial {
 
 	}
 
+	set lineOpacity( value ) {
+
+	  if( typeof value !== 'number' ) {
+	    value = 1.0;
+	  }
+	  this.transparent = true;
+	  this.opacity = value;
+
+	}
+
+	get lineOpacity() {
+
+	  return this.opacity;
+
+	}
+
 	get shadowStrengh() {
 	  return this.uniforms.shadowStrengh.value;
 	}

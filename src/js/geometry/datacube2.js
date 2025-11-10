@@ -462,46 +462,66 @@ class DataCube2 extends AbstractThreeBrainObject {
     const index = new Uint32Array( surfaceParams.index );
 
     // migrate colors
-    const color = new Float32Array( surfaceParams.nVerts * 4 ).fill(1);
-    const colorsWhenSingleChannel = this.object.material.uniforms.colorsWhenSingleChannel.value;
+    const color = new Uint8Array( surfaceParams.nVerts * 4 ).fill(255);
 
-    if( singleChannel && Array.isArray(colorsWhenSingleChannel) && colorsWhenSingleChannel.length > 1 ) {
-      const nColors = colorsWhenSingleChannel.length;
-      const tmpColor = new Color(),
-            tmpColor2 = new Color();
+    if( singleChannel ) {
+      const colorPalette = this.object.material.uniforms.colorRampPalette.value.image,
+            nColors = colorPalette.width,
+            keyColors = colorPalette.data;
 
       let colorKey, colorKeyIdx, alpha;
       for( let i = 0; i < surfaceParams.nVerts; i++ ) {
-        let colorKey = surfaceParams.color[ i * 3 ] / 255;
+        const i4 = i * 4;
+
+        let colorKey = surfaceParams.color[ i * 3 ];
+
         if( colorKey <= 0 ) {
-          tmpColor.copy( colorsWhenSingleChannel[0] );
+
+          color[ i4 ] = keyColors[ 0 ];
+          color[ i4 + 1 ] = keyColors[ 1 ];
+          color[ i4 + 2 ] = keyColors[ 2 ];
+
         } else if ( colorKey >= 1 ) {
-          tmpColor.copy( colorsWhenSingleChannel[ nColors - 1 ] );
+
+          const cidx = nColors * 4 - 4;
+
+          color[ i4 ] = keyColors[ cidx ];
+          color[ i4 + 1 ] = keyColors[ cidx + 1 ];
+          color[ i4 + 2 ] = keyColors[ cidx + 2 ];
+
         } else {
-          colorKey *= nColors - 1;
-          colorKeyIdx = Math.floor( colorKey );
-          alpha = colorKey - colorKeyIdx;
-          tmpColor2.copy( colorsWhenSingleChannel[ colorKeyIdx + 1 ] ).multiplyScalar( alpha );
-          tmpColor.copy( colorsWhenSingleChannel[ colorKeyIdx ] ).multiplyScalar( 1. - alpha );
-          tmpColor.add( tmpColor2 );
+          colorKey *= nColors;
+          colorKeyIdx = Math.floor( colorKey ) * 4;
+          /*alpha = colorKey - colorKeyIdx;
+
+          color[ i4 ] = (  keyColors[ colorKeyIdx * 4 ] * (1. - alpha) +
+                              keyColors[ colorKeyIdx * 4 + 4 ] * alpha );
+          color[ i4 + 1 ] = (  keyColors[ colorKeyIdx * 4 + 1 ] * (1. - alpha) +
+                                  keyColors[ colorKeyIdx * 4 + 5 ] * alpha );
+          color[ i4 + 2 ] = (  keyColors[ colorKeyIdx * 4 + 2 ] * (1. - alpha) +
+                                  keyColors[ colorKeyIdx * 4 + 6 ] * alpha );
+                                  */
+
+          color[ i4 ] = keyColors[ colorKeyIdx ];
+          color[ i4 + 1 ] = keyColors[ colorKeyIdx + 1 ];
+          color[ i4 + 2 ] = keyColors[ colorKeyIdx + 2 ];
+
         }
 
-        color[ i * 4 ] = tmpColor.r;
-        color[ i * 4 + 1 ] = tmpColor.g;
-        color[ i * 4 + 2 ] = tmpColor.b;
       }
     } else {
       for( let i = 0; i < surfaceParams.nVerts; i++ ) {
-        color[ i * 4 ] = surfaceParams.color[ i * 3 ] / 255;
-        color[ i * 4 + 1 ] = surfaceParams.color[ i * 3 + 1 ] / 255;
-        color[ i * 4 + 2 ] = surfaceParams.color[ i * 3 + 2 ] / 255;
+        const i4 = i * 4;
+        color[ i4 ] = surfaceParams.color[ i * 3 ];
+        color[ i4 + 1 ] = surfaceParams.color[ i * 3 + 1 ];
+        color[ i4 + 2 ] = surfaceParams.color[ i * 3 + 2 ];
       }
     }
 
     const geometry = new BufferGeometry();
     geometry.setIndex( new BufferAttribute(index, 1, false) );
     geometry.setAttribute( 'position', new BufferAttribute(position, 3) );
-    geometry.setAttribute( 'color', new BufferAttribute(color, 4) );
+    geometry.setAttribute( 'color', new BufferAttribute(color, 4, true) );
     geometry.computeVertexNormals();
 
     if( this.isoSurface ) {
@@ -1039,42 +1059,46 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     super.set_display_mode( mode );
 
+    // do not render in side canvas
+    this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+
     if( this.useISOSurface && this.isoSurface && !this.isoSurface.isInvalid ) {
       // show the isoSurface instead of the volume
       switch (mode) {
         case 'main camera':
           this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
           this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
           break;
         case 'side camera':
         case 'anat. slices':
           this.isoSurface.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
           this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
           break;
         default:
           this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
           this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
       }
     } else {
       if( this.isoSurface ) {
         this.isoSurface.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
       }
+
       switch (mode) {
         case 'main camera':
           this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
           break;
         case 'side camera':
         case 'anat. slices':
           this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
           break;
         default:
           this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
       }
     }
 
@@ -1095,11 +1119,12 @@ class DataCube2 extends AbstractThreeBrainObject {
 
 
     if( target === CONSTANTS.RENDER_CANVAS.side ) {
-      // sliceInstance.sliceMaterial.depthWrite = false;
-      // if( renderCube && datacubeInstance.object.material.uniforms.alpha.value > 0 ) {
-      this.object.material.depthWrite = false;
-      this.object.material.depthTest = false;
-      this.object.material.uniforms.dithering.value = 0.0;
+
+      this.object.visible = false;
+
+      // this.object.material.depthWrite = false;
+      // this.object.material.depthTest = false;
+      // this.object.material.uniforms.dithering.value = 0.0;
     } else {
       this.object.material.depthWrite = true;
       this.object.material.depthTest = true;

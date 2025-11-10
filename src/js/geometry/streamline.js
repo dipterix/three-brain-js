@@ -519,6 +519,7 @@ class Streamline extends AbstractThreeBrainObject {
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
     super.pre_render({ target : target });
+    const lineOpacity = this._canvas.get_state("streamline_opacity", 1.0);
     let linewidth = this._canvas.get_state("streamline_linewidth", 0.0);
     let shadowStrengh = 0.0;
     if( linewidth <= 0.0 ) {
@@ -536,6 +537,7 @@ class Streamline extends AbstractThreeBrainObject {
       }
     }
     this.object.material.linewidth = linewidth;
+    this.object.material.lineOpacity = lineOpacity;
     this.object.material.shadowStrengh = shadowStrengh;
 
     if( !this.object.visible ) { return; }

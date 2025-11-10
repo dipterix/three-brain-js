@@ -1,4 +1,5 @@
-import { Vector3, Matrix4 } from 'three';
+import { Vector3, Matrix4, DataTexture, RawShaderMaterial, GLSL3, DoubleSide, UniformsUtils } from 'three';
+import { CONSTANTS } from '../core/constants.js';
 import { remove_comments } from '../utils.js';
 
 const SliceShader = {
@@ -6,13 +7,17 @@ const SliceShader = {
 
     // volume data
     map : { value : null },
-    mapMask: { value : null },
-
     // volume dimension
     mapShape : { value : new Vector3().set( 256, 256, 256 ) },
 
     // transform matrix from world to volume IJK
     world2IJK : { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
+
+    // Mask
+    maskMap: { value : null },
+    maskShape: { value : new Vector3().set( 256, 256, 256 ) },
+    mask2IJK: { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
+
 
     // values below this threshold should be discarded
     threshold : { value : 0.0 },
@@ -23,7 +28,7 @@ const SliceShader = {
     overlay2IJK: { value : new Matrix4().set(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1) },
     overlayAlpha: { value : 0.5 },
 
-    overlayColorsWhenSingleChannel: { value : [] },
+    colorRampPalette: { value: new DataTexture( new Uint8Array( 4 ) , 1, 1 ) },
     overlayValueLB: { value : 0.0 },
     overlayValueUB: { value : 1.0 },
 
@@ -37,9 +42,23 @@ const SliceShader = {
 
   vertexShader: remove_comments(`precision highp float;
 in vec3 position;
+
+uniform vec3 mapShape;
+
 uniform mat4 modelMatrix;
 uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
+uniform mat4 world2IJK;
+
+out vec3 underlaySampPos;
+
+#if defined( USE_MASK )
+
+  uniform vec3 maskShape;
+  uniform mat4 mask2IJK;
+  out vec3 maskSampPos;
+
+#endif
 
 #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
@@ -55,8 +74,6 @@ uniform mat4 projectionMatrix;
 #endif
 
 
-out vec4 worldPosition;
-
 float min3 (vec3 v) {
   return min (min (v.x, v.y), v.z);
 }
@@ -68,17 +85,27 @@ vec3 safeNormalize(vec3 v){
 
 void main() {
   // obtain the world position for vertex
-  worldPosition = modelMatrix * vec4( position, 1.0 );
+  vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+
+  vec3 denomMap = max(mapShape - 1.0, vec3(1.0));
+  underlaySampPos = ((world2IJK * worldPosition).xyz) / denomMap;
+
+  #if defined( USE_MASK )
+
+    vec3 denomMaskInv = 1.0 / max(maskShape - 1.0, vec3(1.0));
+    maskSampPos = ((mask2IJK * worldPosition).xyz) * denomMaskInv;
+
+  #endif
 
   #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
     vec3 denomOverlayInv = 1.0 / max(overlayShape - 1.0, vec3(1.0));
     overlaySampPos = ((overlay2IJK * worldPosition).xyz) * denomOverlayInv;
 
-    if( normal.z != 0.0 ) {
+    if( abs( normal.z ) >= 0.5 ) {
       overlaySamplerOffsetXInIJK = vec3(1.0, 0.0, 0.0);
       overlaySamplerOffsetYInIJK = vec3(0.0, 1.0, 0.0);
-    } else if( normal.y != 0.0 ) {
+    } else if( abs( normal.y ) >= 0.5 ) {
       overlaySamplerOffsetXInIJK = vec3(1.0, 0.0, 0.0);
       overlaySamplerOffsetYInIJK = vec3(0.0, 0.0, 1.0);
     } else {
@@ -95,24 +122,32 @@ void main() {
 
     float maxOverlayMarginInv = min3(denomOverlayInv);
 
-    overlaySamplerOffsetXInIJK = safeNormalize(overlaySamplerOffsetXInIJK) * ( 0.2 * maxOverlayMarginInv );
-    overlaySamplerOffsetYInIJK = safeNormalize(overlaySamplerOffsetYInIJK) * ( 0.2 * maxOverlayMarginInv );
+    overlaySamplerOffsetXInIJK = safeNormalize(overlaySamplerOffsetXInIJK) * maxOverlayMarginInv;
+    overlaySamplerOffsetYInIJK = safeNormalize(overlaySamplerOffsetYInIJK) * maxOverlayMarginInv;
 
   #endif
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }`),
   fragmentShader: remove_comments(`precision highp float;
+precision mediump sampler2D;
 precision mediump sampler3D;
-in vec4 worldPosition;
+
+in vec3 underlaySampPos;
+
 uniform float threshold;
 uniform float brightness;
 uniform float contrast;
 uniform sampler3D map;
-uniform sampler3D mapMask;
-uniform vec3 mapShape;
-uniform mat4 world2IJK;
 uniform float allowDiscard;
+uniform vec3 mapShape;
+
+#if defined( USE_MASK )
+
+  in vec3 maskSampPos;
+  uniform sampler3D maskMap;
+
+#endif
 
 #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
@@ -121,140 +156,409 @@ uniform float allowDiscard;
   in vec3 overlaySamplerOffsetYInIJK;
 
   uniform sampler3D overlayMap;
-  // uniform vec3 overlayShape;
-  // uniform mat4 overlay2IJK;
   uniform float overlayAlpha;
+  uniform vec3 overlayShape;
 
 #endif
 
 #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
 
-  uniform vec3 overlayColorsWhenSingleChannel[ OVERLAY_N_SINGLE_CHANNEL_COLORS ];
+  uniform sampler2D colorRampPalette;
   uniform float overlayValueLB;
   uniform float overlayValueUB;
 
 #endif
 
+vec3 roundToSubPixel(vec3 p, vec3 resolution, float pixelRatio) {
+
+  vec3 superResolution = resolution * pixelRatio;
+
+  return round(p * superResolution) / (superResolution);
+
+}
+
+
 out vec4 color;
 void main() {
 // calculate IJK, then sampler position
 
-  vec3 denomMap = max(mapShape - 1.0, vec3(1.0));
-  vec3 samplerPosition = ((world2IJK * worldPosition).xyz) / denomMap;
-  if( any(greaterThan( samplerPosition, vec3(1.0) )) || any( lessThan(samplerPosition, vec3(0.0)) ) ) {
-    // gl_FragDepth = gl_DepthRange.far;
-    gl_FragDepth = 1.0;
-    color.rgba = vec4(0.0);
-
-    if( allowDiscard > 0.5 ) {
-      discard;
-    }
+  if( any(greaterThan( underlaySampPos, vec3(1.0) )) || any( lessThan(underlaySampPos, vec3(0.0)) ) ) {
+    discard;
   } else {
-    color.r = texture(map, samplerPosition).r;
-    if( color.r <= threshold && texture( mapMask, samplerPosition ).r < 0.5 ) {
-      color.rgba = vec4(0.0);
-      // gl_FragDepth = gl_DepthRange.far;
-      gl_FragDepth = 1.0;
-      if( allowDiscard > 0.5 ) {
-        discard;
-      }
-    } else {
-      gl_FragDepth = gl_FragCoord.z;
-      color.a = 1.0;
 
-      if( abs( contrast ) > 0.03 ) {
-        color.r = ( exp( contrast * color.r * 10.0 ) - 1.0 ) / ( exp( contrast * 10.0 ) - 1.0 );
-      }
-      color.r *= 1.15 / (1.15 - min( brightness , 1.0 ) );
+    // super-resolution by 2 and nearest sampler
+    float underlayIntensity = texture(map, roundToSubPixel(underlaySampPos, mapShape, 4.0) ).r;
+    float overlayIntensity = 0.0;
+    color.r = underlayIntensity;
 
-      color.rgb =  color.rrr;
+    color.a = 1.0;
 
-      #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
+    if( abs( contrast ) > 0.03 ) {
+      color.r = ( exp( contrast * color.r * 10.0 ) - 1.0 ) / ( exp( contrast * 10.0 ) - 1.0 );
+    }
+    color.r *= 1.15 / (1.15 - min( brightness , 1.0 ) );
 
-        // vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
+    color.rgb =  color.rrr;
 
-        // Clamp to border not edge
-        if( all( greaterThan( overlaySampPos, vec3(-0.00001) ) ) && all( lessThan( overlaySampPos, vec3(1.00001) ) ) ) {
+    #if defined( USE_OVERLAY ) && defined( HAS_OVERLAY )
 
-          vec4 overlayColor = texture(overlayMap, overlaySampPos).rgba;
+      // vec3 overlaySampPos = ((overlay2IJK * worldPosition).xyz) / (overlayShape - 1.0);
 
-          #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
+      // Clamp to border not edge
+      if(
+        all( greaterThanEqual( overlaySampPos, vec3(0.0) ) ) &&
+        all( lessThanEqual( overlaySampPos, vec3(1.0) ) )
+      ) {
+
+        // Binned super-sampled position
+        vec3 overlaySampPosInBin = roundToSubPixel(overlaySampPos, overlayShape, 4.0);
+        vec4 overlayColor = texture(overlayMap, overlaySampPosInBin).rgba;
+
+        #if defined( OVERLAY_N_SINGLE_CHANNEL_COLORS )
+
+          if( overlayColor.r > 0.0 ) {
 
             // using red channel as the color intensity
-            int nColors = int( OVERLAY_N_SINGLE_CHANNEL_COLORS );
-
-            if( overlayColor.r > 0.0 && nColors > 0 ) {
-
-              float nColorMinusOne = float( OVERLAY_N_SINGLE_CHANNEL_COLORS ) - 1.0;
-              float intensity = overlayColor.r - overlayValueLB;
-
-              if( overlayValueUB - overlayValueLB > 0.00001 ) {
-                intensity = intensity / (overlayValueUB - overlayValueLB);
-              }
-
-              intensity = clamp( intensity , 0.0 , 1.0 ) * nColorMinusOne;
-
-              float colorIndex = floor( intensity );
-              int colorIndex_d = int( colorIndex );
-
-              if( colorIndex >= nColorMinusOne ) {
-
-                overlayColor.rgb = overlayColorsWhenSingleChannel[ nColors - 1 ];
-
-              } else if ( colorIndex < 0.0 ) {
-
-                overlayColor.rgb = overlayColorsWhenSingleChannel[ 0 ];
-
-              } else {
-
-                intensity -= colorIndex;
-
-                overlayColor.rgb = overlayColorsWhenSingleChannel[ colorIndex_d ] * (1.0 - intensity) + overlayColorsWhenSingleChannel[ colorIndex_d + 1 ] * intensity;
-
-              }
-
+            float nColors = float( OVERLAY_N_SINGLE_CHANNEL_COLORS );
+            if ( nColors < 1.0 ) {
+              nColors = 1.0;
             }
 
-          #else
+            overlayIntensity = overlayColor.r;
 
-            if( overlayAlpha <= 0.0 ) {
-
-              vec4 overlayPXColor = texture(overlayMap, overlaySampPos + overlaySamplerOffsetXInIJK);
-              vec4 overlayNXColor = texture(overlayMap, overlaySampPos - overlaySamplerOffsetXInIJK);
-              vec4 overlayPYColor = texture(overlayMap, overlaySampPos + overlaySamplerOffsetYInIJK);
-              vec4 overlayNYColor = texture(overlayMap, overlaySampPos - overlaySamplerOffsetYInIJK);
-
-              bool samePX = all(equal(overlayPXColor, overlayColor));
-              bool sameNX = all(equal(overlayNXColor, overlayColor));
-              bool samePY = all(equal(overlayPYColor, overlayColor));
-              bool sameNY = all(equal(overlayNYColor, overlayColor));
-
-              if (samePX && sameNX && samePY && sameNY) {
-
-                overlayColor.a = 0.0;
-
-              }
+            if( overlayValueUB - overlayValueLB > 0.00001 ) {
+              overlayIntensity = (overlayIntensity - overlayValueLB) / (overlayValueUB - overlayValueLB);
             }
 
-          #endif
+            overlayIntensity = clamp( overlayIntensity , 0.0 , 1.0 );
+
+            overlayIntensity = ( overlayIntensity * ( nColors - 1.0 ) + 0.5 ) / nColors;
+
+            overlayColor.rgb = texture( colorRampPalette , vec2( overlayIntensity , 0.5 ) ).rgb;
+
+          }
+
+        #else
 
           if( overlayColor.a > 0.0 && any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
-            if( overlayAlpha < 0.0 ) {
-              color.rgb = overlayColor.rgb;
-            } else {
-              color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+
+            overlayIntensity = 1.0;
+
+          }
+
+          if( overlayAlpha <= 0.0 ) {
+
+            vec4 overlayPXColor = texture(overlayMap, roundToSubPixel(
+              overlaySampPosInBin + 0.25 * overlaySamplerOffsetXInIJK,
+              overlayShape, 4.0
+            ));
+            vec4 overlayNXColor = texture(overlayMap, roundToSubPixel(
+              overlaySampPosInBin - 0.25 * overlaySamplerOffsetXInIJK,
+              overlayShape, 4.0
+            ));
+            vec4 overlayPYColor = texture(overlayMap, roundToSubPixel(
+              overlaySampPosInBin + 0.25 * overlaySamplerOffsetYInIJK,
+              overlayShape, 4.0
+            ));
+            vec4 overlayNYColor = texture(overlayMap, roundToSubPixel(
+              overlaySampPosInBin - 0.25 * overlaySamplerOffsetYInIJK,
+              overlayShape, 4.0
+            ));
+
+            bool samePX = all(equal(overlayPXColor, overlayColor));
+            bool sameNX = all(equal(overlayNXColor, overlayColor));
+            bool samePY = all(equal(overlayPYColor, overlayColor));
+            bool sameNY = all(equal(overlayNYColor, overlayColor));
+
+            if (samePX && sameNX && samePY && sameNY) {
+
+              overlayColor.a = 0.0;
+
             }
           }
 
+        #endif
+
+        if( overlayColor.a > 0.0 && any(greaterThan( overlayColor.rgb, vec3(0.0) )) ) {
+          if( overlayAlpha < 0.0 ) {
+            color.rgb = overlayColor.rgb;
+          } else {
+            color.rgb = mix( color.rgb, overlayColor.rgb, overlayAlpha * overlayColor.a );
+          }
         }
+      }
 
 
 
-      #endif
+    #endif
 
-    }
+    // check if mask is used
+    #if defined( USE_MASK )
+
+      vec3 mpos = clamp(maskSampPos, 0.0, 1.0);
+
+      if(
+        threshold > 0.0 &&
+        underlayIntensity < threshold &&
+        overlayIntensity < threshold &&
+        texture( maskMap, mpos ).r == 0.0
+      ) {
+
+        discard;
+
+      }
+
+    #endif
+
   }
 }`)
 }
 
-export { SliceShader };
+
+class SliceMaterial extends RawShaderMaterial {
+
+  constructor( parameters ) {
+
+    const param2 = {
+      'glslVersion' : GLSL3,
+      'vertexShader' : SliceShader.vertexShader,
+      'fragmentShader' : SliceShader.fragmentShader,
+      'side' : parameters.side ?? DoubleSide,
+      'transparent' : parameters.transparent ?? false,
+      'depthWrite' : parameters.depthWrite ?? true,
+
+    }
+    const uniforms = UniformsUtils.clone( SliceShader.uniforms );
+    param2.uniforms = uniforms;
+
+    if( parameters.uniforms ) {
+      for(let k in parameters.uniforms) {
+        uniforms[ k ] = { value : parameters.uniforms[k].value };
+      }
+    }
+
+    super( param2 );
+
+    if( uniforms.maskMap.value ) {
+      this.defines.USE_MASK = "";
+      this.needsUpdate = true;
+    }
+
+  }
+
+  // overlayAlpha
+  set overlayAlpha( v ) {
+    if( typeof v !== 'number' ) { return; }
+    this.uniforms.overlayAlpha.value = v;
+  }
+
+  get overlayAlpha() {
+    return this.uniforms.overlayAlpha.value;
+  }
+
+  // overlayValueLB
+  set overlayValueLB( v ) {
+    if( typeof v !== 'number' ) { return; }
+    this.uniforms.overlayValueLB.value = v;
+  }
+
+  get overlayValueLB() {
+    return this.uniforms.overlayValueLB.value;
+  }
+
+  // overlayValueUB
+  set overlayValueUB( v ) {
+    if( typeof v !== 'number' ) { return; }
+    this.uniforms.overlayValueUB.value = v;
+  }
+
+  get overlayValueUB() {
+    return this.uniforms.overlayValueUB.value;
+  }
+
+  // underlayContrast
+  set underlayContrast( v ) {
+    if( typeof v !== "number" ) { return; }
+    this.uniforms.contrast.value = v;
+  }
+
+  get underlayContrast() {
+    return this.uniforms.contrast.value;
+  }
+
+  // underlayBrightness
+  set underlayBrightness( v ) {
+    if( typeof v !== "number" ) { return; }
+    this.uniforms.brightness.value = v;
+  }
+
+  get underlayBrightness() {
+    return this.uniforms.brightness.value;
+  }
+
+  set underlayMap( v ) {
+    this.uniforms.map.value = v;
+  }
+
+  get underlayMap() {
+    return this.uniforms.map.value;
+  }
+
+  get underlayShape() {
+    return this.uniforms.mapShape.value;
+  }
+
+  get world2UnderlayVoxel() {
+    return this.uniforms.world2IJK.value;
+  }
+
+  set zeroThreshold ( v ) {
+    if( typeof v !== "number" ) { return; }
+    this.uniforms.threshold.value = v;
+  }
+
+  get zeroThreshold() {
+    return this.uniforms.threshold.value;
+  }
+
+  // event handlers
+  _setOverlayColorChangeHandler = ( event ) => {
+    if( !this._overlay ) { return; }
+    if( this._overlay.name !== event.instanceName ) { return; }
+    this.setOverlay( this._overlay );
+  };
+
+  // Methods
+
+  // set/remove overlay
+  removeOverlay = () => {
+    this.uniforms.overlayMap = { value : null };
+    this.uniforms.colorRampPalette = { value : SliceShader.uniforms.colorRampPalette.value };
+
+    if( this.defines.HAS_OVERLAY !== undefined ) {
+      delete this.defines.HAS_OVERLAY;
+      this.needsUpdate = true;
+    }
+    if( this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+      delete this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+      this.needsUpdate = true;
+    }
+
+    if( this._overlay ) {
+      try {
+        this._overlay.removeEventListener(
+          CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+          this._setOverlayColorChangeHandler
+        );
+        this._overlay.removeEventListener(
+          CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+          this.removeOverlay
+        );
+      } catch (e) {
+        console.warn(e);
+      }
+      this.needsUpdate = true;
+    }
+  }
+
+  setOverlay( inst ) {
+
+    // const inst = getThreeBrainInstance( x );
+    if( !inst || !( inst.isDataCube2 || inst.isDataCube ) ) {
+      this.removeOverlay();
+      return;
+    }
+
+    if( this._overlay !== inst ) {
+      this.removeOverlay();
+      this._overlay = inst;
+    }
+
+    if( typeof this.defines.HAS_OVERLAY !== "string" ) {
+      this.defines.HAS_OVERLAY = "";
+      this.needsUpdate = true;
+    }
+
+
+    if( inst.isDataCube2 ) {
+
+      const thatUniforms = inst.object.material.uniforms;
+
+      if ( inst.isDataContinuous ) {
+
+        const nColors = inst.object.material.defines.N_SINGLE_CHANNEL_COLORS;
+
+        if ( this.uniforms.colorRampPalette !== thatUniforms.colorRampPalette ) {
+          this.uniforms.colorRampPalette = thatUniforms.colorRampPalette;
+          this.needsUpdate = true;
+        }
+
+        this.overlayValueLB = thatUniforms.singleChannelColorRangeLB.value;
+        this.overlayValueUB = thatUniforms.singleChannelColorRangeUB.value;
+
+        if( nColors !== this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS ) {
+          this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS = nColors;
+          this.needsUpdate = true;
+        }
+
+      } else if( this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+        delete this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+        this.needsUpdate = true;
+      }
+
+      if( this.uniforms.overlayMap !== thatUniforms.cmap ) {
+        this.uniforms.overlayMap = thatUniforms.cmap;
+        this.needsUpdate = true;
+      }
+      this.uniforms.overlayShape.value.copy( inst.modelShape );
+
+      // inst._transform is model to world
+      this.uniforms.overlay2IJK.value.copy( inst._transform ).invert()
+        .premultiply( inst.model2vox );
+
+    } else if( inst.isDataCube ) {
+
+      if( this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS !== undefined ) {
+        delete this.defines.OVERLAY_N_SINGLE_CHANNEL_COLORS;
+        this.needsUpdate = true;
+      }
+
+      if( this.uniforms.overlayMap != inst.uniforms.map ) {
+        this.uniforms.overlayMap = inst.uniforms.map;
+        this.needsUpdate = true;
+      }
+
+      this.uniforms.overlayShape.value.copy( inst.uniforms.mapShape );
+      this.uniforms.overlay2IJK.value.copy( inst.uniforms.world2IJK.value );
+
+    }
+
+    if(
+      !inst.hasEventListener(
+        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+        this._setOverlayColorChangeHandler
+      )
+    ) {
+      inst.addEventListener(
+        CONSTANTS.EVENTS.onDataCube2ColorUpdated,
+        this._setOverlayColorChangeHandler
+      );
+    }
+
+    if(
+      !inst.hasEventListener(
+        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+        this.removeOverlay
+      )
+    ) {
+      inst.addEventListener(
+        CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
+        this.removeOverlay
+      );
+    }
+
+  }
+
+}
+
+export { SliceShader, SliceMaterial };

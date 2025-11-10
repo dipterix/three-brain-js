@@ -61,6 +61,16 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       })
 
+    this.gui.addController(
+      'Slice Mask', 0.0, { folderName: folderName })
+      .min(0).max(1).step(0.005)
+      .onChange((v) => {
+        this.canvas.set_state("sliceMaskThrehsold", v);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+
+
     const sliceModeOptions = ["canonical", "line-of-sight", "snap-to-electrode", "column-row-slice"];
 
     const controllerSliceMode = this.gui
