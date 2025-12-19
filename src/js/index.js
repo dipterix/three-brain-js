@@ -5,8 +5,8 @@
 
 // External libraries
 import * as THREE from 'three';
-import WebGL from './jsm/capabilities/WebGL.js'
-import { Lut, ColorMapKeywords, addToColorMapKeywords } from './jsm/math/Lut2.js'
+import WebGL from 'three/addons/capabilities/WebGL.js'
+import { Lut, ColorMapKeywords, addToColorMapKeywords } from './core/CustomLut.js'
 import { NamedLut } from './core/NamedLut.js'
 import * as download from 'downloadjs';
 import { json2csv } from 'json-2-csv';
@@ -35,7 +35,7 @@ import { TrkTract } from './formats/TrkTract.js';
 import { TTTract } from './formats/TTTract.js';
 import { debugManager, loaderClasses, resolveURL, Cache } from './core/DataLoaders.js';
 
-import { GLTFExporter } from './jsm/exporters/GLTFExporter.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { exportScene } from './formats/exportScene.js'
 
 import { workerPool } from './core/Workers.js';

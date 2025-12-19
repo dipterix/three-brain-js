@@ -1,5 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
-import { ColorMapKeywords } from '../jsm/math/Lut2.js';
+import { ColorMapKeywords } from '../core/CustomLut.js';
 
 // 17. Voxel color type
 

@@ -1,6 +1,6 @@
-import { GLTFExporter } from '../jsm/exporters/GLTFExporter.js';
-import { PLYExporter } from '../jsm/exporters/PLYExporter.js';
-import { OBJExporter } from '../jsm/exporters/OBJExporter.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { PLYExporter } from 'three/examples/jsm/exporters/PLYExporter.js';
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 
 import * as download from 'downloadjs';
 

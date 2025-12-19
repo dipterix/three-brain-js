@@ -1,5 +1,5 @@
 import { Color, LinearSRGBColorSpace } from 'three';
-import { testColorString } from '../../utility/color.js';
+import { testColorString } from '../utility/color.js';
 
 const ColorMapKeywords = {};
 

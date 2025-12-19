@@ -184,6 +184,10 @@ class Compass extends BasicCompass {
     }
   }
 
+  set visible ( visible ) {
+    super.visible = visible;
+    this.rulerMeasure.visible = this.visible;
+  }
 }
 
 

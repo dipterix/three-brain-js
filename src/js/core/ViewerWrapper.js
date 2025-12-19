@@ -1,7 +1,7 @@
 // External libraries
 import { CONSTANTS } from './constants.js';
 import { MathUtils } from 'three';
-import WebGL from '../jsm/capabilities/WebGL.js'
+import WebGL from 'three/addons/capabilities/WebGL.js'
 import { StorageCache } from './StorageCache.js';
 import { ViewerApp } from './ViewerApp.js';
 

@@ -5,7 +5,7 @@ import { is_electrode } from '../geometry/electrode.js';
 import { copyToClipboard } from '../utility/copyToClipboard.js';
 import { vector3ToString } from '../utility/vector3ToString.js';
 import { asColor } from '../utility/color.js';
-import { ColorMapKeywords, addToColorMapKeywords } from '../jsm/math/Lut2.js';
+import { ColorMapKeywords, addToColorMapKeywords } from './CustomLut.js';
 import { testColorString } from '../utility/color.js';
 import { normalizeImageName } from '../utility/normalizeImageName.js';
 

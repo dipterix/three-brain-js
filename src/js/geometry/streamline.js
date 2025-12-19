@@ -8,10 +8,10 @@ import { Vector3, Matrix4, Color, Quaternion, Box3, Sphere,
          BufferAttribute, InstancedBufferAttribute,
          MeshPhysicalMaterial, MeshBasicMaterial,
          DoubleSide, FrontSide } from 'three';
-import { LineSegmentsGeometry } from '../jsm/lines/LineSegmentsGeometry.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
 import { StreamlineMaterial } from '../shaders/StreamlineMaterial.js';
-import { Line2 }from '../jsm/lines/Line2.js';
-import { LineMaterial }from '../jsm/lines/LineMaterial.js';
+import { Line2 }from 'three/addons/lines/Line2.js';
+import { LineMaterial }from '../shaders/LineMaterial.js';
 import { mulberry32 } from '../utility/mulberry32.js'
 import { computeStreamlineToTargets } from '../Math/computeStreamlineToTargets.js';
 import { startWorker, stopWorker } from '../core/Workers.js';

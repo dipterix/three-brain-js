@@ -6,7 +6,7 @@ import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
-import { Lut } from '../jsm/math/Lut2.js'
+import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
 
 const MATERIAL_PARAMS_BASIC = {

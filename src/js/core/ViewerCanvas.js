@@ -1,7 +1,7 @@
 import {
   Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4, Layers,
   // OrthographicCamera,
-  WebGLRenderer, WebGL1Renderer,
+  WebGLRenderer,
   DirectionalLight, AmbientLight,
   Raycaster, ArrowHelper, BoxHelper, AlwaysDepth,
   LoadingManager, FileLoader, FontLoader,
@@ -35,7 +35,6 @@ import { RulerHelper } from '../geometry/RulerHelper.js';
 import { asArray } from '../utility/asArray.js';
 import { asColor, invertColor, colorLuma } from '../utility/color.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
-import { addToColorMapKeywords } from '../jsm/math/Lut2.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
 
@@ -345,17 +344,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
 
     // Set Main renderer, strongly recommend WebGL2
-    if( this.has_webgl2 ){
-      // We need to use webgl2 for VolumeRenderShader1 to work
-      let main_canvas_el = document.createElement('canvas'),
-          main_context = main_canvas_el.getContext( 'webgl2' );
-    	this.main_renderer = new WebGLRenderer({
-    	  antialias: false, alpha: true, canvas: main_canvas_el, context: main_context
-    	});
-
-    }else{
-    	this.main_renderer = new WebGL1Renderer({ antialias: false, alpha: true });
-    }
+    // We need to use webgl2 for VolumeRenderShader1 to work
+    let main_canvas_el = document.createElement('canvas'),
+        main_context = main_canvas_el.getContext( 'webgl2' );
+  	this.main_renderer = new WebGLRenderer({
+  	  antialias: false, alpha: true, canvas: main_canvas_el, context: main_context
+  	});
   	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
   	this.main_renderer.setSize( width, height );
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes

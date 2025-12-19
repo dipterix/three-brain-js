@@ -3,7 +3,7 @@ import {
   BackSide, GLSL3, DataTexture
 } from 'three';
 import { remove_comments } from '../utils.js';
-import { Lut } from '../jsm/math/Lut2.js'
+import { Lut } from '../core/CustomLut.js'
 
 
 class RayMarchingMaterial extends RawShaderMaterial {

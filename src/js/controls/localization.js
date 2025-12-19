@@ -8,9 +8,9 @@ import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { getAnatomicalLabelFromPosition } from '../Math/getAnatomicalLabelFromPosition.js';
 import { getAnatomicalLabelFromIndex } from '../Math/getAnatomicalLabelFromIndex.js';
 import * as download from 'downloadjs';
-import { LineSegments2 } from '../jsm/lines/LineSegments2.js';
-import { LineMaterial } from '../jsm/lines/LineMaterial.js';
-import { LineSegmentsGeometry } from '../jsm/lines/LineSegmentsGeometry.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineMaterial } from '../shaders/LineMaterial.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { getVoxelBlobCenter } from '../Math/getVoxelBlobCenter.js';
 import { getClosestVoxel } from '../Math/getClosestVoxel.js';
 

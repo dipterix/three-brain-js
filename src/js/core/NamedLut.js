@@ -3,7 +3,7 @@ import {
 } from 'three';
 import {
   ColorMapKeywords, addToColorMapKeywords, Lut
-} from '../jsm/math/Lut2.js';
+} from './CustomLut.js';
 
 class NamedLut extends Lut {
 

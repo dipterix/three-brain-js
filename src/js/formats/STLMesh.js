@@ -1,4 +1,4 @@
-import { STLLoader } from '../jsm/loaders/STLLoader.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
 function extractAttribute(geometry, attr) {
   let bufferAttr;

@@ -1620,6 +1620,7 @@ class Electrode extends AbstractThreeBrainObject {
     super.pre_render({ target : target });
 
     const isMainRenderer = target === CONSTANTS.RENDER_CANVAS.main;
+
     if(!isMainRenderer) { return; }
 
     // check if prototype exists (if yes, hide this electrode sphere)
