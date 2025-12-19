@@ -1,147 +1,152 @@
-import { MeshBasicMaterial, MeshPhysicalMaterial, Vector3 } from 'three';
+import { MeshBasicMaterial, MeshPhysicalMaterial, Vector3, Matrix4 } from 'three';
 import { remove_comments } from '../utils.js';
 
 function makeElectrodeMaterial(SuperClass) {
   class ElectrodeMaterial extends SuperClass {
 
-  constructor( parameters ) {
-    super( parameters );
+    constructor( parameters ) {
+      super( parameters );
 
-    /**
-     * Defines:
-     * USE_OUTLINE
-     * USE_DATATEXTURE
-     */
-    this.uniforms = {
-      outlineThreshold  : { value : 0 },
-      dataTexture       : { value : null },
-      darken            : { value : 0 },
+      /**
+       * Defines:
+       * USE_OUTLINE
+       * USE_DATATEXTURE
+       */
+      this.uniforms = {
+        outlineThreshold  : { value : 0 },
+        dataTexture       : { value : null },
+        darken            : { value : 0 },
 
-      // model direction for calculating outlines
-      tangent           : { value : new Vector3() },
+        // model direction for calculating outlines
+        tangent           : { value : new Vector3() },
 
-      // max length along the trajectory to show,
-      // `tangent` must be set
-      // -Inf ~ -0: show all
-      // 0 ~ l: show max of l
-      maxLength         : { value : -1 },
+        // max length along the trajectory to show,
+        // `tangent` must be set
+        // -Inf ~ -0: show all
+        // 0 ~ l: show max of l
+        maxLength         : { value : -1 },
+
+        // inverse(Projection * Model * View) - inverse(pmv)
+        modelViewProjectionInversed : { value : new Matrix4() },
+
+      }
+
+      this.defines = {};
+
+
     }
 
-    this.defines = {};
+    useOutline( outlineThreshold ) {
+      if( outlineThreshold > 0.01 ) {
+        this.uniforms.outlineThreshold.value = outlineThreshold;
+        if( this.defines.USE_OUTLINE === undefined ) {
+          this.defines.USE_OUTLINE = "";
+          this.needsUpdate = true;
+        }
+      } else {
+        if( this.defines.USE_OUTLINE !== undefined ) {
+          delete this.defines.USE_OUTLINE;
+          this.needsUpdate = true;
+        }
+      }
+    }
 
+    setTranslucent( level ) {
+      // level = 0 or false: nothing is translucent, depth=always
+      // level = 1 or true: contact is translucent, outline depth = always
+      // level = 2: depth = always for all
+      if( level === 0 || level === false ) {
+        if( this.defines.ALWAYS_DEPTH === undefined ) {
+          this.defines.ALWAYS_DEPTH = "";
+          this.needsUpdate = true;
+        }
+        return;
+      }
 
-  }
-
-  useOutline( outlineThreshold ) {
-    if( outlineThreshold > 0.01 ) {
-      this.uniforms.outlineThreshold.value = outlineThreshold;
-      if( this.defines.USE_OUTLINE === undefined ) {
-        this.defines.USE_OUTLINE = "";
+      if( this.defines.ALWAYS_DEPTH === "" ) {
+        delete this.defines.ALWAYS_DEPTH;
         this.needsUpdate = true;
       }
-    } else {
-      if( this.defines.USE_OUTLINE !== undefined ) {
-        delete this.defines.USE_OUTLINE;
+
+      if( level === 1 || level === true ) {
+        // outline is always at the front
+        if( this.defines.OUTLINE_ALWAYS_DEPTH === undefined ) {
+          this.defines.OUTLINE_ALWAYS_DEPTH = "";
+          this.needsUpdate = true;
+        }
+        return;
+      }
+
+      if( this.defines.OUTLINE_ALWAYS_DEPTH === "" ) {
+        delete this.defines.OUTLINE_ALWAYS_DEPTH;
         this.needsUpdate = true;
       }
-    }
-  }
 
-  setTranslucent( level ) {
-    // level = 0 or false: nothing is translucent, depth=always
-    // level = 1 or true: contact is translucent, outline depth = always
-    // level = 2: depth = always for all
-    if( level === 0 || level === false ) {
-      if( this.defines.ALWAYS_DEPTH === undefined ) {
-        this.defines.ALWAYS_DEPTH = "";
-        this.needsUpdate = true;
+    }
+
+    setMaxRenderLength( len ) {
+      if( typeof len !== "number" ) { return; }
+
+      if( !isFinite(len) || len <= 0 ) {
+        len = -1;
       }
-      return;
-    }
 
-    if( this.defines.ALWAYS_DEPTH === "" ) {
-      delete this.defines.ALWAYS_DEPTH;
-      this.needsUpdate = true;
-    }
-
-    if( level === 1 || level === true ) {
-      // outline is always at the front
-      if( this.defines.OUTLINE_ALWAYS_DEPTH === undefined ) {
-        this.defines.OUTLINE_ALWAYS_DEPTH = "";
-        this.needsUpdate = true;
+      if( this.uniforms.maxLength.value != len ) {
+        this.uniforms.maxLength.value = len;
       }
-      return;
     }
 
-    if( this.defines.OUTLINE_ALWAYS_DEPTH === "" ) {
-      delete this.defines.OUTLINE_ALWAYS_DEPTH;
-      this.needsUpdate = true;
+    setModelDirection( dir ) {
+      this.uniforms.tangent.value.copy( dir ).normalize();
     }
 
-  }
-
-  setMaxRenderLength( len ) {
-    if( typeof len !== "number" ) { return; }
-
-    if( !isFinite(len) || len <= 0 ) {
-      len = -1;
-    }
-
-    if( this.uniforms.maxLength.value != len ) {
-      this.uniforms.maxLength.value = len;
-    }
-  }
-
-  setModelDirection( dir ) {
-    this.uniforms.tangent.value.copy( dir ).normalize();
-  }
-
-  useDataTexture( texture, enabled = true ) {
-    const previousTexture = this.uniforms.dataTexture.value;
-    if( texture ) {
-      this.uniforms.dataTexture.value = texture;
-    } else {
-      this.uniforms.dataTexture.value = null;
-      enabled = false;
-    }
-
-    if( previousTexture !== texture ) {
+    useDataTexture( texture, enabled = true ) {
+      const previousTexture = this.uniforms.dataTexture.value;
       if( texture ) {
         this.uniforms.dataTexture.value = texture;
       } else {
         this.uniforms.dataTexture.value = null;
         enabled = false;
       }
-      if( previousTexture ) {
-        previousTexture.dispose();
+
+      if( previousTexture !== texture ) {
+        if( texture ) {
+          this.uniforms.dataTexture.value = texture;
+        } else {
+          this.uniforms.dataTexture.value = null;
+          enabled = false;
+        }
+        if( previousTexture ) {
+          previousTexture.dispose();
+        }
+      } else if( !texture ) {
+        enabled = false;
       }
-    } else if( !texture ) {
-      enabled = false;
+
+      if( enabled ) {
+        if( this.defines.USE_DATATEXTURE === undefined ) {
+          this.defines.USE_DATATEXTURE = "";
+          this.needsUpdate = true;
+        }
+      } else {
+        if( this.defines.USE_DATATEXTURE !== undefined ) {
+          delete this.defines.USE_DATATEXTURE;
+          this.needsUpdate = true;
+        }
+      }
     }
 
-    if( enabled ) {
-      if( this.defines.USE_DATATEXTURE === undefined ) {
-        this.defines.USE_DATATEXTURE = "";
-        this.needsUpdate = true;
+    onBeforeCompile ( shader, renderer ) {
+      this._shader = shader;
+      for( let uniformKey in this.uniforms ) {
+        shader.uniforms[ uniformKey ] = this.uniforms[ uniformKey ];
       }
-    } else {
-      if( this.defines.USE_DATATEXTURE !== undefined ) {
-        delete this.defines.USE_DATATEXTURE;
-        this.needsUpdate = true;
-      }
-    }
-  }
 
-  onBeforeCompile ( shader, renderer ) {
-    this._shader = shader;
-    for( let uniformKey in this.uniforms ) {
-      shader.uniforms[ uniformKey ] = this.uniforms[ uniformKey ];
-    }
-
-    // vertexShader par vars
-    shader.vertexShader = remove_comments(`
+      // vertexShader par vars
+      shader.vertexShader = remove_comments(`
 
 uniform vec3 tangent;
+uniform mat4 modelViewProjectionInversed;
 varying float reflectProd;
 
 #if defined( USE_DATATEXTURE )
@@ -150,13 +155,13 @@ varying float reflectProd;
   varying float positionAlongTrjectory;
 
 #endif
-    `) + shader.vertexShader;
+      `) + shader.vertexShader;
 
-    // vertexShader body
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <fog_vertex>",
-      remove_comments(
-`#include <fog_vertex>
+      // vertexShader body
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <fog_vertex>",
+        remove_comments(
+  `#include <fog_vertex>
 
 #if defined( USE_DATATEXTURE )
 
@@ -173,7 +178,8 @@ mat4 pmv = projectionMatrix * modelViewMatrix;
 // vOrigin will be interpolated in fragmentShader, hence project and unproject
 vec4 vOriginProjected = pmv * vec4( position, 1.0 );
 vOriginProjected.z = -vOriginProjected.w;
-vec3 vOrigin = (inverse(pmv) * vOriginProjected).xyz;
+// vec3 vOrigin = (inverse(pmv) * vOriginProjected).xyz;
+vec3 vOrigin = (modelViewProjectionInversed * vOriginProjected).xyz;
 
 // cameraRay is in model
 vec3 cameraRay = position.xyz - vOrigin.xyz;
@@ -194,11 +200,11 @@ if( length(tangent) > 0.5 ) {
 
 reflectProd = abs( dot( normalize( normal ), normalize( cameraRay ) ) );
 
-`)
-    );
+  `)
+      );
 
-    // fragmentShader par vars
-    shader.fragmentShader = remove_comments(`
+      // fragmentShader par vars
+      shader.fragmentShader = remove_comments(`
 #if defined( USE_OUTLINE )
 
   uniform float outlineThreshold;
@@ -218,13 +224,13 @@ varying float reflectProd;
 
 #endif
 
-    `) + shader.fragmentShader;
+      `) + shader.fragmentShader;
 
-    // fragmentShader body
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <color_fragment>",
-      remove_comments(
-`
+      // fragmentShader body
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <color_fragment>",
+        remove_comments(
+  `
 #if defined( USE_DATATEXTURE )
 
   vec4 dColor = texture( dataTexture, vUv ).rgba;
@@ -300,11 +306,22 @@ if( diffuseColor.a <= 0.0001 ) {
   gl_FragDepth = fDepth;
 }
 
-      `)
-    );
+        `)
+      );
 
     }
 
+    // https://threejs.org/docs/?q=onBeforeRender#Material
+    // .onBeforeRender( renderer : WebGLRenderer, scene : Scene, camera : Camera, geometry : BufferGeometry, object : Object3D, group : Object )
+    onBeforeRender ( renderer, scene, camera, geometry, object, group ) {
+      super.onBeforeRender( renderer, scene, camera, geometry, object, group );
+
+      // Update modelViewProjectionInversed
+      this.uniforms.modelViewProjectionInversed.value
+        .copy( object.modelViewMatrix )
+        .invert()
+        .multiply( camera.projectionMatrixInverse );
+    }
   }
 
   return ElectrodeMaterial;
