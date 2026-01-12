@@ -119,6 +119,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.canvas = new ViewerCanvas( this, width, height, 250, false );
     super( viewerApp.$wrapper );
 
+    // Store reference to parent app for invokeWorker access
+    this._app = viewerApp;
+
     const el = viewerApp.$wrapper,
           has_webgl2 = viewerApp.webgl2Enabled,
           debug = viewerApp.debug,

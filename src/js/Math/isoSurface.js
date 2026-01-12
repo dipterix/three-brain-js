@@ -204,7 +204,7 @@ function isoSurface({ density, shape, lowerBound = 0.5, upperBound = Infinity,
 
 }
 
-function isoSurfaceFromColors({ colorVolume, shape, colorSize = 4, vox2world = null, offset = 0 } = {}) {
+function isoSurfaceFromColors({ colorVolume, shape, colorSize = 4, vox2world = null, offset = 0, volumeGradient = null } = {}) {
   // density is an array
   // shape is Vector3
   const width  = shape.x;
@@ -268,13 +268,65 @@ function isoSurfaceFromColors({ colorVolume, shape, colorSize = 4, vox2world = n
     return color;
   }
 
+  // Helper function to sample gradient (normal) at a voxel position
+  // volumeGradient is expected to be RGBA format where RGB encodes normalized gradient
+  // (values 0-255 mapped from -1 to 1)
+  // ISO surface vertices lie between voxels, so we need to sample from nearby voxels
+  // and find the one with a valid (non-zero) gradient
+  const normal = new Vector3();
+  function sampleGradientAt(x, y, z) {
+    if( !volumeGradient ) { return null; }
+    
+    // Try floor first (the voxel that contains the surface vertex),
+    // then try the 8 corners of the unit cube around this position
+    const offsets = [
+      [0, 0, 0],   // floor
+      [1, 0, 0], [0, 1, 0], [0, 0, 1],   // adjacent on positive side
+      [1, 1, 0], [1, 0, 1], [0, 1, 1],   // diagonal edges
+      [1, 1, 1],   // opposite corner
+    ];
+    
+    const baseX = Math.floor(x);
+    const baseY = Math.floor(y);
+    const baseZ = Math.floor(z);
+    
+    for( const [ox, oy, oz] of offsets ) {
+      const vx = Math.max(0, Math.min(width - 1, baseX + ox));
+      const vy = Math.max(0, Math.min(height - 1, baseY + oy));
+      const vz = Math.max(0, Math.min(depth - 1, baseZ + oz));
+      
+      const idx = ( vx + vy * width + vz * width * height ) * 4;
+      
+      // Check if this voxel has a valid gradient (stored in alpha channel as magnitude)
+      const magnitude = volumeGradient[ idx + 3 ];
+      if( magnitude < 3 ) { continue; } // Skip voxels with zero/tiny gradient
+      
+      // Decode from 0-255 to -1 to 1
+      normal.x = (volumeGradient[ idx ] / 127.5) - 1.0;
+      normal.y = (volumeGradient[ idx + 1 ] / 127.5) - 1.0;
+      normal.z = (volumeGradient[ idx + 2 ] / 127.5) - 1.0;
+      
+      // Check if gradient is valid (non-zero length)
+      const len = normal.length();
+      if( len < 0.007 ) { continue; }
+      
+      normal.divideScalar( len ); // Normalize
+      return normal;
+    }
+    
+    return null;
+  }
+
   const ret = isoSurface({ density: mask, shape: shape, lowerBound: 0.5 });
   const position = ret.position;
   const nVerts = position.length / 3;
   const pos = new Vector3()
   const colors = [];
+  const normals = volumeGradient ? [] : null;
 
   ret.color = colors;
+  ret.normal = normals;
+  
   for( let i = 0; i < nVerts; i++ ) {
     pos.fromArray( position, i * 3 );
     let x = Math.round( pos.x ),
@@ -285,6 +337,22 @@ function isoSurfaceFromColors({ colorVolume, shape, colorSize = 4, vox2world = n
       if( useColorAt( x - pointOffset.x, y - pointOffset.y, z - pointOffset.z ) ) { break; }
     }
     colors.push( color.r, color.g, color.b );
+    
+    // Sample normal from volume gradient if available
+    if( volumeGradient ) {
+      const sampledNormal = sampleGradientAt( pos.x, pos.y, pos.z );
+      if( sampledNormal ) {
+        // Transform normal by vox2world if provided (only rotation, no translation)
+        if( vox2world ) {
+          sampledNormal.transformDirection( vox2world );
+        }
+        normals.push( sampledNormal.x, sampledNormal.y, sampledNormal.z );
+      } else {
+        // Default normal (will be computed later by geometry.computeVertexNormals if needed)
+        normals.push( 0, 0, 0 );
+      }
+    }
+    
     if( vox2world ) {
       pos.applyMatrix4( vox2world );
       position[ i * 3 ] = pos.x;

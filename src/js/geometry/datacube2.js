@@ -13,6 +13,7 @@ import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { buildKDTree } from '../Math/computeStreamlineToTargets.js'
+import { computeGradientsFromRGBA } from '../Math/computeVolumeGradients.js';
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
@@ -222,6 +223,9 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.object.material.uniformsNeedUpdate = true;
 
     this.colorTexture.needsUpdate = true;
+    
+    // Update gradient texture when color changes
+    // this._updateGradientTexture();
 
   }
   _filterDataDiscrete( selectedDataValues ) {
@@ -361,8 +365,76 @@ class DataCube2 extends AbstractThreeBrainObject {
     );
     this.object.material.uniformsNeedUpdate = true;
     this.colorTexture.needsUpdate = true;
+    
+    // Update gradient texture when color changes
+    // this._updateGradientTexture();
 
   }
+  
+  /**
+   * Compute and update gradient texture for pre-computed normals
+   * This is called after voxelColor updates (e.g., during thresholding)
+   */
+  async _updateGradientTexture() {
+    if (!this.usePrecomputedGradients) {
+      return;
+    }
+    
+    // Only compute gradients for multi-channel data (where lighting is used)
+    if (this.nColorChannels < 1) {
+      return;
+    }
+    
+    // Prepare arguments for worker
+    const voxelColor = this.voxelColor;
+    const width = this.modelShape.x;
+    const height = this.modelShape.y;
+    const depth = this.modelShape.z;
+    const nChannels = this.nColorChannels;
+    
+    try {
+      // Use app.invokeWorker to run in worker thread with fallback
+      const gradientData = await this._canvas._app.invokeWorker({
+        name: "computeVolumeGradients",
+        args: [ voxelColor, width, height, depth, nChannels ],
+        fallback: () => computeGradientsFromRGBA( voxelColor, width, height, depth, nChannels ),
+        timeOut: 60000  // 60s for large volumes
+      });
+      
+      // Create or update gradient texture
+      if (this.gradientTexture === null) {
+        this.gradientTexture = new Data3DTexture(
+          gradientData,
+          this.modelShape.x,
+          this.modelShape.y,
+          this.modelShape.z
+        );
+        this.gradientTexture.minFilter = LinearFilter;
+        this.gradientTexture.magFilter = LinearFilter;
+        this.gradientTexture.format = RGBAFormat;
+        this.gradientTexture.type = UnsignedByteType;
+        this.gradientTexture.unpackAlignment = 1;
+        
+        // Update material to use gradient texture
+        if (this.object && this.object.material) {
+          this.object.material.uniforms.gradientMap.value = this.gradientTexture;
+          this.object.material.defines.USE_GRADIENT_MAP = 1;
+          this.object.material.needsUpdate = true;
+        }
+      } else {
+        // Update existing texture data
+        this.gradientTexture.image.data = gradientData;
+      }
+      
+      this.gradientTexture.needsUpdate = true;
+      
+    } catch (error) {
+      console.warn('Failed to compute gradient texture:', error);
+      // Fallback to shader-based gradient computation
+      this.usePrecomputedGradients = false;
+    }
+  }
+  
   /*
   _computeISOSurfaceUnnormalized( lowerBound, upperBound ) {
     // This function operates on the original data, not the normalized data
@@ -441,12 +513,16 @@ class DataCube2 extends AbstractThreeBrainObject {
     // Voxel IJK index to model coordinate (not world)
     const vox2model = new Matrix4().copy( this.model2vox ).invert(); //.premultiply( this._transform );
 
+    // Get gradient data if available (for pre-computed normals)
+    const gradientData = this.gradientTexture?.image?.data ?? null;
+
     const surfaceParams = isoSurfaceFromColors({
-      colorVolume : voxelColor,
-      shape       : this.modelShape,
-      colorSize   : singleChannel ? 1 : 4,
-      vox2world   : vox2model,
-      offset      : 0
+      colorVolume    : voxelColor,
+      shape          : this.modelShape,
+      colorSize      : singleChannel ? 1 : 4,
+      vox2world      : vox2model,
+      offset         : 0,
+      volumeGradient : gradientData
     });
 
     // need at least 3 vertices to create a surface
@@ -522,7 +598,13 @@ class DataCube2 extends AbstractThreeBrainObject {
     geometry.setIndex( new BufferAttribute(index, 1, false) );
     geometry.setAttribute( 'position', new BufferAttribute(position, 3) );
     geometry.setAttribute( 'color', new BufferAttribute(color, 4, true) );
-    geometry.computeVertexNormals();
+
+    // Use pre-computed normals from gradient volume if available, otherwise compute from geometry
+    // if( surfaceParams.normal && surfaceParams.normal.length === surfaceParams.nVerts * 3 ) {
+    //   const normals = new Float32Array( surfaceParams.normal );
+    //   geometry.setAttribute( 'normal', new BufferAttribute(normals, 3) );
+    // }
+    geometry.computeVertexNormals()
 
     if( this.isoSurface ) {
       const oldGeometry = this.isoSurface.geometry;
@@ -876,6 +958,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     this.colorTexture.needsUpdate = true;
 
+    // Gradient texture - pre-computed normals for faster rendering
+    this.gradientTexture = null;
+    this.usePrecomputedGradients = true; // Can be disabled for debugging/low memory
 
     // const uniforms = UniformsUtils.clone( shader.uniforms );
     // this._uniforms = uniforms;
@@ -889,6 +974,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     // Material
     let material = new RayMarchingMaterial( {
       cmap          : this.colorTexture,
+      gradientMap   : this.gradientTexture,
       cmapShape     : this.modelShape,
       colorChannels : this.nColorChannels,
       nColors       : this.nColorChannels > 1 ? 4 : 128
@@ -912,6 +998,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // initialize voxelColor
     this.updatePalette();
+    
+    // Compute gradient texture asynchronously
+    this._updateGradientTexture();
 
     // register listeners
     this._canvas.$el.addEventListener(
@@ -1128,7 +1217,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     } else {
       this.object.material.depthWrite = true;
       this.object.material.depthTest = true;
-      this.object.material.uniforms.dithering.value = this._dithering ?? 1.0;
+      this.object.material.useDithering = this._dithering ?? true;
     }
 
     this.updateTextureFilter();
@@ -1213,7 +1302,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.colorTexture.needsUpdate = true;
 
         uniforms.cmap.value = this.colorTexture;
-        uniforms.colorChannels.value = this.nColorChannels;
+        material.colorChannels = this.nColorChannels;
 
         this.object.material.defines.N_SINGLE_CHANNEL_COLORS = nColors;
       }

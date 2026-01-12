@@ -41,8 +41,9 @@ import { exportScene } from './formats/exportScene.js'
 import { workerPool } from './core/Workers.js';
 
 // Addons
-import { RShinyDriver } from './drivers/RShinyDriver.js'
-import { DemoBackground } from './ext/DynamicBackground.js'
+import { RShinyDriver } from './drivers/RShinyDriver.js';
+import { DemoBackground } from './ext/DynamicBackground.js';
+import { renderMatCapToCanvas, createMatCapTexture, MatCapPresets } from './utils/createMatCapTexture.js';
 import css from '../css/dipterix.css';
 
 
@@ -85,6 +86,9 @@ const ExternLibs = {
 
 const DevTools = {
   getThreeBrainInstance : getThreeBrainInstance,
+  renderMatCapToCanvas  : renderMatCapToCanvas,
+  createMatCapTexture   : createMatCapTexture, 
+  MatCapPresets         : MatCapPresets,
 };
 
 const Drivers = {

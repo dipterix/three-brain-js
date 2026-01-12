@@ -152,14 +152,19 @@ class WorkerPool {
       }
     };
 
-    item.startWorker = ({ methodNames, args } = {}) => {
+    item.startWorker = ({ methodNames, args, transferables } = {}) => {
       if(!item.idle) { throw new Error("Worker is not idle"); }
       setIdle( false );
-      worker.postMessage({
+      const message = {
         methodNames: methodNames,
         args: args,
         token: uuid
-      });
+      };
+      if ( Array.isArray(transferables) && transferables.length > 0 ) {
+        worker.postMessage( message, transferables );
+      } else {
+        worker.postMessage( message );
+      }
       let timeOut = item.timeOut;
       /*
       if( isFinite( timeOut ) ) {
@@ -243,7 +248,7 @@ class WorkerPool {
     this._lastSpawnTime = now;
   }
 
-  _startWorker( uuid, methodNames, args, { onResult, onError, onProgress, timeOut, token } = {} ) {
+  _startWorker( uuid, methodNames, args, { onResult, onError, onProgress, timeOut, token, transferables } = {} ) {
     this.logger(`Starting worker ${uuid} -> threeBrain.${ methodNames.join(".") }`);
     const item = this._pool.get( uuid );
     item.onError = onError;
@@ -253,10 +258,10 @@ class WorkerPool {
       item.timeOut = timeOut;
     }
     item.token = token;
-    item.startWorker({ methodNames : methodNames, args : args });
+    item.startWorker({ methodNames : methodNames, args : args, transferables : transferables });
   }
 
-  startWorker({ methodNames, args, onProgress, token, timeOut = 15000 } = {}) {
+  startWorker({ methodNames, args, onProgress, token, timeOut = 15000, transferables } = {}) {
 
     if( !this._tokenStartTimeList ) {
       this._tokenStartTimeList = {};
@@ -304,7 +309,7 @@ class WorkerPool {
               this._startWorker( uuid, methodNames, args, {
                 onResult: resolve, onError: reject,
                 onProgress : onProgress, timeOut: timeOut,
-                token : token
+                token : token, transferables : transferables
               });
               return;
             }
@@ -348,7 +353,7 @@ class WorkerPool {
 const workerURL = [];
 const workerPool = {};
 
-async function startWorker( url, { methodNames, args, onProgress, logger, token, timeOut = 15000 } = {} ) {
+async function startWorker( url, { methodNames, args, onProgress, logger, token, timeOut = 15000, transferables } = {} ) {
   if( !useWorkerLoaders ) {
     throw new Error("Async workers disabled.");
   }
@@ -367,7 +372,8 @@ async function startWorker( url, { methodNames, args, onProgress, logger, token,
   }
   return await pool.startWorker({
     methodNames : methodNames, args : args,
-    onProgress : onProgress, timeOut : timeOut, token : token });
+    onProgress : onProgress, timeOut : timeOut, token : token,
+    transferables : transferables });
 }
 
 function stopWorker( url, token ) {

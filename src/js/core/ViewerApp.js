@@ -9,6 +9,7 @@ import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
 import { CanvasFileLoader2 } from './DataLoaders.js';
 import { FileDataHandlerFactory } from '../formats/FileDataHandlerFactory.js';
+import { asyncLoaderAvailable, startWorker } from './Workers.js';
 
 // Misc
 import { RAVELogo } from './RAVELogo.js'
@@ -211,6 +212,55 @@ class ViewerApp extends ThrottledEventDispatcher {
       try { this.controlCenter.dispose(); } catch (e) {}
       this.controlCenter = undefined;
     }
+  }
+
+  /**
+   * Invoke a worker method with fallback to synchronous execution.
+   * Uses the existing worker pool infrastructure for efficient task dispatch.
+   * 
+   * @param {Object} options
+   * @param {string} options.name - Name of the registered worker method (e.g., "computeVolumeGradients")
+   * @param {Array} options.args - Array of arguments to pass to the worker method
+   * @param {Function} [options.fallback] - Fallback function if workers unavailable: () => result
+   * @param {Array} [options.transferables] - ArrayBuffers to transfer to worker (makes them unusable in main thread)
+   * @param {Function} [options.onProgress] - Progress callback
+   * @param {string} [options.token] - Unique token for cancellation
+   * @param {number} [options.timeOut=30000] - Timeout in milliseconds
+   * @returns {Promise<any>} - Result from worker or fallback
+   */
+  async invokeWorker({ 
+    name, 
+    args, 
+    fallback, 
+    transferables,
+    onProgress, 
+    token,
+    timeOut = 30000 
+  }) {
+    const workerScript = this.settings.worker_script;
+    
+    // Check if async workers are available for this method
+    const available = asyncLoaderAvailable( name, workerScript );
+    
+    if ( available !== false ) {
+      // Workers available - use them
+      return await startWorker( workerScript, {
+        methodNames: available,
+        args: args,
+        onProgress: onProgress,
+        logger: this.debugVerbose.bind(this),
+        token: token,
+        timeOut: timeOut,
+        transferables: transferables
+      });
+    }
+    
+    // Workers unavailable - use fallback if provided
+    if ( typeof fallback === "function" ) {
+      return await Promise.resolve( fallback() );
+    }
+    
+    throw new Error( `Worker unavailable for [${ name }] and no fallback provided` );
   }
 
   setProgressBar({
