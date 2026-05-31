@@ -349,9 +349,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Set Main renderer, strongly recommend WebGL2
     // We need to use webgl2 for VolumeRenderShader1 to work
     let main_canvas_el = document.createElement('canvas'),
-        main_context = main_canvas_el.getContext( 'webgl2' );
+        main_context = main_canvas_el.getContext( 'webgl2', {preserveDrawingBuffer: true} );
   	this.main_renderer = new WebGLRenderer({
-  	  antialias: false, alpha: true, canvas: main_canvas_el, context: main_context
+  	  antialias: false, alpha: true,
+  	  canvas: main_canvas_el, context: main_context
   	});
   	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
   	this.main_renderer.setSize( width, height );

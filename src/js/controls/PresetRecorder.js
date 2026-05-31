@@ -4,6 +4,18 @@ import { PDFContext } from '../core/context.js';
 import { exportScene } from '../formats/exportScene.js'
 
 // 2. Record Videos
+function formatLocalYYMMDDTHHmmss(date) {
+    const pad = (num) => num.toString().padStart(2, '0');
+
+    const yy = date.getFullYear(); // .toString().slice(-2);
+    const mm = pad(date.getMonth() + 1);
+    const dd = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const min = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+
+    return `${yy}${mm}${dd}T${hh}${min}${ss}`;
+}
 
 function registerPresetRecorder( ViewerControlCenter ){
 
@@ -48,7 +60,10 @@ function registerPresetRecorder( ViewerControlCenter ){
             pixel_ratio : this.canvas.pixel_ratio[0]
           });
 
-          this.canvas.capturer.baseFilename = this.canvas.capturer.filename = new Date().toGMTString();
+          const subjectCode = this.canvas.get_state("target_subject", "Unknown");
+          const dateString = formatLocalYYMMDDTHHmmss(new Date());
+
+          this.canvas.capturer.baseFilename = this.canvas.capturer.filename = `sub-${subjectCode}_datetime-${dateString}_recording`;
           this.canvas.capturer.start();
           this.canvas.capturer_recording = true;
           // Force render a frame
@@ -67,8 +82,6 @@ function registerPresetRecorder( ViewerControlCenter ){
       });
 
     this.gui.addController('Screenshot', () => {
-
-      const _d = new Date().toJSON();
       // const doc = this.canvas.mapToPDF();
 
       const glCanvas = this.canvas.main_renderer.domElement,
@@ -143,8 +156,12 @@ function registerPresetRecorder( ViewerControlCenter ){
       //   this.canvas._draw_video( results, _width, _height, pdf_wrapper );
       // } catch (e) {}
 
+      const subjectCode = this.canvas.get_state("target_subject", "Unknown");
+      const dateString = formatLocalYYMMDDTHHmmss(new Date());
+      const fileName = `sub-${subjectCode}_datetime-${dateString}_screenshot.pdf`;
 
-      pdf_wrapper.renderTarget.save(`[threeBrain] ${_d}.pdf`);
+      pdf_wrapper.renderTarget.save(fileName);
+      // pdf_wrapper.renderTarget.save(`[threeBrain] ${_d}.pdf`);
     }, {folder_name: folder_name });
 
     this.gui.addController('Download GLTF', async () => {

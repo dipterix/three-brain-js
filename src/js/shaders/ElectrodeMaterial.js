@@ -84,6 +84,32 @@ function makeElectrodeMaterial(SuperClass) {
 
     }
 
+    useInactiveAlpha( enable ) {
+      if ( enable && this.defines.USE_INACTIVE_ALPHA === undefined ) {
+        this.defines.USE_INACTIVE_ALPHA = "";
+        this.needsUpdate = true;
+      } else if ( !enable && this.defines.USE_INACTIVE_ALPHA !== undefined ) {
+        delete this.defines.USE_INACTIVE_ALPHA;
+        this.needsUpdate = true;
+      }
+    }
+
+    setHideInactives( hide ) {
+      if( hide ) {
+        // Lazily enable instanceActive attribute wiring and hiding
+        this.useInactiveAlpha( true );
+        if( this.defines.HIDE_INACTIVE_CONTACTS === undefined ) {
+          this.defines.HIDE_INACTIVE_CONTACTS = "";
+          this.needsUpdate = true;
+        }
+      } else {
+        if( this.defines.HIDE_INACTIVE_CONTACTS !== undefined ) {
+          delete this.defines.HIDE_INACTIVE_CONTACTS;
+          this.needsUpdate = true;
+        }
+      }
+    }
+
     setMaxRenderLength( len ) {
       if( typeof len !== "number" ) { return; }
 
@@ -155,6 +181,13 @@ varying float reflectProd;
   varying float positionAlongTrjectory;
 
 #endif
+
+#if defined( USE_INACTIVE_ALPHA )
+
+  attribute float instanceActive;
+  varying float vInstanceActive;
+
+#endif
       `) + shader.vertexShader;
 
       // vertexShader body
@@ -200,6 +233,12 @@ if( length(tangent) > 0.5 ) {
 
 reflectProd = abs( dot( normalize( normal ), normalize( cameraRay ) ) );
 
+#if defined( USE_INACTIVE_ALPHA )
+
+  vInstanceActive = instanceActive;
+
+#endif
+
   `)
       );
 
@@ -221,6 +260,12 @@ varying float reflectProd;
   uniform float maxLength;
   varying float positionAlongTrjectory;
   varying vec2 vUv;
+
+#endif
+
+#if defined( USE_INACTIVE_ALPHA )
+
+  varying float vInstanceActive;
 
 #endif
 
@@ -255,6 +300,18 @@ varying float reflectProd;
 
 diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.0 ), ( 1.0 - reflectProd ) * darken );
 
+#if defined( USE_INACTIVE_ALPHA )
+
+  if( vInstanceActive < 0.5 ) {
+
+    #if defined( HIDE_INACTIVE_CONTACTS )
+      discard;
+    #endif
+
+  }
+
+#endif
+
 float fDepth = gl_FragCoord.z;
 
 #if defined( USE_OUTLINE )
@@ -269,7 +326,16 @@ float fDepth = gl_FragCoord.z;
 
   #endif
 
-  if( outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
+  #if defined( USE_INACTIVE_ALPHA )
+  
+    if( vInstanceActive >= 0.5 && outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
+  
+  #else
+  
+    if( outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
+
+  #endif
+  
     diffuseColor.rgb = vec3( 0.0 );
 
     #if defined ( ALWAYS_DEPTH ) || defined ( OUTLINE_ALWAYS_DEPTH )

@@ -30,6 +30,8 @@ function registerPresetBackground( ViewerControlCenter ){
       .onChange((v) => { this.canvas.setBackground({ color : v }); })
       .setValue( initialValue );
 
+
+
   }
 
   return( ViewerControlCenter );

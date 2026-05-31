@@ -1,7 +1,7 @@
 import { AbstractThreeBrainObject, ElasticGeometry, getThreeBrainInstance } from './abstract.js';
 import {
   MeshBasicMaterial, MeshPhysicalMaterial, SpriteMaterial, InterpolateDiscrete,
-  BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute,
+  BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute, InstancedBufferAttribute,
   Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
   SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth
@@ -35,15 +35,15 @@ function guessHemisphere(g) {
     if( typeof fsLabel === "string" ) {
       fsLabel = fsLabel.toLowerCase();
       if(
-        fslabel.startsWith("ctx-lh") ||
-        fslabel.startsWith("ctx_lh") ||
-        fslabel.startsWith("left")
+        fsLabel.startsWith("ctx-lh") ||
+        fsLabel.startsWith("ctx_lh") ||
+        fsLabel.startsWith("left")
       ) {
         g.hemisphere = "left";
       } else if (
-        fslabel.startsWith("ctx-rh") ||
-        fslabel.startsWith("ctx_rh") ||
-        fslabel.startsWith("right")
+        fsLabel.startsWith("ctx-rh") ||
+        fsLabel.startsWith("ctx_rh") ||
+        fsLabel.startsWith("right")
       ) {
         g.hemisphere = "right";
       }
@@ -663,6 +663,11 @@ class Electrode extends AbstractThreeBrainObject {
       this.hasInstancedMesh = true;
       const nContacts = this.contactCenter.length;
       const instancedGeometry = new SphereGeometry( 1 );
+      // Per-instance active flag: 1.0 = active (has value), 0.0 = inactive (uses default color)
+      const instanceActiveArray = new Float32Array( nContacts ).fill(1.0);
+      const instanceActiveAttr = new InstancedBufferAttribute( instanceActiveArray, 1 );
+      instancedGeometry.setAttribute( 'instanceActive', instanceActiveAttr );
+
       // materials
       const instancedMaterial = new ElectrodeBasicMaterial({
         'transparent'   : false,
@@ -670,6 +675,8 @@ class Electrode extends AbstractThreeBrainObject {
         'color'         : 0xffffff,
         'vertexColors'  : false,
       });
+      instancedMaterial.useInactiveAlpha( true );
+
       const instancedObjects = new InstancedMesh( instancedGeometry, instancedMaterial, nContacts );
       instancedObjects.renderOrder = CONSTANTS.RENDER_ORDER.InstancedElectrode;
       instancedObjects.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
@@ -1419,7 +1426,8 @@ class Electrode extends AbstractThreeBrainObject {
     const thresholdPassed = this.state.thresholdTest !== false;
     const useThresholdArray = this.state.thresholdTest === undefined;
     const thresholdTestArray = this.state.thresholdTestArray;
-    const instanceColorArray = instancedObjectVisible ? this.instancedObjects.instanceColor.array : undefined;
+    const instanceActiveAttr = instancedObjectVisible ? this.instancedObjects.geometry.getAttribute('instanceActive') : undefined;
+    const hasInstanceActiveAttr = instanceActiveAttr !== undefined;
 
     // check if fixed color
     if( this.colorNeedsUpdate ) {
@@ -1472,6 +1480,7 @@ class Electrode extends AbstractThreeBrainObject {
         const markerMapArray = useMarkerMap ? markerMap.array : [];
 
         let color; // Reused color object, used to calculate & assign color
+        let isInactive; // true when contact has no value and uses default/inactive color
 
         // For each contact
         for( let i = 0 ; i < nChannels ; i++ ) {
@@ -1479,21 +1488,26 @@ class Electrode extends AbstractThreeBrainObject {
           if( useFixedColor[ i ] ) {
             // The color should be fixed
             color = fixedColorArray[ i ];
+            isInactive = false;
           } else if ( useDefaultColor ) {
             // Using default color
             color = this.defaultColor;
+            isInactive = true;
           } else {
             if( useThresholdArray && !thresholdTestArray[ i ] ) {
               // fail the threshold, hence using default colors
               color = this.defaultColor;
+              isInactive = true;
             } else {
               const v = valueIsArray ? values[ i ] : values;
               if( v === null || v === undefined ) {
                 // No value, using default color
                 color = this.defaultColor;
+                isInactive = true;
               } else {
                 // Query the color map
                 color = cmap.getColor( v , this._tmpColor );
+                isInactive = false;
               }
             }
           }
@@ -1501,6 +1515,9 @@ class Electrode extends AbstractThreeBrainObject {
           if( instancedObjectVisible ) {
             // Do not render color on prototype, using instancedMesh anyway
             this.instancedObjects.setColorAt( i, color );
+            if( hasInstanceActiveAttr ) {
+              instanceActiveAttr.array[ i ] = isInactive ? 0.0 : 1.0;
+            }
           } else {
             // temporary variables
             let j,              // Contact location in colorArray
@@ -1573,6 +1590,7 @@ class Electrode extends AbstractThreeBrainObject {
 
         if( instancedObjectVisible ) {
           this.instancedObjects.instanceColor.needsUpdate = true;
+          if( hasInstanceActiveAttr ) { instanceActiveAttr.needsUpdate = true; }
         }
 
       } else {
@@ -1732,6 +1750,10 @@ class Electrode extends AbstractThreeBrainObject {
       if( this.defaultColor.getHex() !== defaultColorHex ) {
         this.colorNeedsUpdate = true;
       }
+    }
+    if( this.hasInstancedMesh ) {
+      const vis = this._canvas.get_state('electrode_visibility', 'all visible');
+      this.instancedObjects.material.setHideInactives( vis === 'hide inactives' );
     }
     this.updateColors();
 

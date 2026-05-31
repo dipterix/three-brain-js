@@ -47,7 +47,7 @@ class HauntedArcballControls extends EventDispatcher {
 
   	// internals
 	  this.target = new Vector3();
-    this._changed = true;
+    this._changed = false;
     this._state = STATE.NONE;
 		this._prevState = STATE.NONE;
 
@@ -231,9 +231,11 @@ class HauntedArcballControls extends EventDispatcher {
      * Set threshold here.
      */
 		if( Math.abs(angle) > EPS ) {
-	    // start event
-		  this._isRotating = true;
-		  this.dispatchEvent( _startEvent );
+	    // start event - only dispatch when transitioning from not-rotating to rotating
+		  if( !this._isRotating ) {
+		    this._isRotating = true;
+		    this.dispatchEvent( _startEvent );
+		  }
 
 			this._rotateAxis.crossVectors( this._rotateStart, this._rotateEnd ).normalize();
 
@@ -258,7 +260,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 			}
 
-			this._isRotating = true;
+			this._changed = true;
 
 		}else if ( this._isRotating ){
 		  this._isRotating = false;
@@ -275,10 +277,11 @@ class HauntedArcballControls extends EventDispatcher {
 
       if( Math.abs( factor - 1.0 ) > EPS && factor > 0.0 ){
 
-        // start event
-			  this._isZooming = true;
-			  this.dispatchEvent( _startEvent );
-
+        // start event - only dispatch when transitioning from not-zooming to zooming
+        if( !this._isZooming ) {
+			    this._isZooming = true;
+			    this.dispatchEvent( _startEvent );
+			  }
 
         this.object.zoom *= factor;
         if( this.object.zoom > this.zoomMax ) {
@@ -300,9 +303,11 @@ class HauntedArcballControls extends EventDispatcher {
 
 			if ( Math.abs( factor - 1.0 ) > EPS && factor > 0.0 ) {
 
-			  // start event
-			  this._isZooming = true;
-			  this.dispatchEvent( _startEvent );
+			  // start event - only dispatch when transitioning from not-zooming to zooming
+			  if( !this._isZooming ) {
+			    this._isZooming = true;
+			    this.dispatchEvent( _startEvent );
+			  }
 
 				this.object.zoom /= factor;
 
@@ -355,9 +360,11 @@ class HauntedArcballControls extends EventDispatcher {
 		this._panMouseChange.copy( this._panEnd ).sub( this._panStart );
 
 		if ( this._panMouseChange.lengthSq() > 0.00001 ) {
-		  // start event
-		  this._isPanning = true;
-		  this.dispatchEvent( _startEvent );
+		  // start event - only dispatch when transitioning from not-panning to panning
+		  if( !this._isPanning ) {
+		    this._isPanning = true;
+		    this.dispatchEvent( _startEvent );
+		  }
 
 			// Scale movement to keep clicked/dragged position under cursor
 			let scale_x = ( this.object.right - this.object.left ) / this.object.zoom;
