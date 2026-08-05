@@ -38,8 +38,8 @@ class ElectrodeColorMapHandler extends FileDataHandler {
       if( !row ) { return; }
 
       for( let name in row ) {
-        name = name.trim();
-        if(name === "[none]" || name === "") { continue; }
+        const name_strip = name.trim();
+        if(name_strip === "[none]" || name_strip === "") { continue; }
 
         // Make sure if the color is invalid, skip
         let str = row[ name ];
@@ -58,10 +58,10 @@ class ElectrodeColorMapHandler extends FileDataHandler {
         if( isNaN( tmpColor.r ) ) { continue; }
 
         // Add key palette
-        if(!Array.isArray(palettes[ name ])) {
-          palettes[ name ] = [];
+        if(!Array.isArray(palettes[ name_strip ])) {
+          palettes[ name_strip ] = [];
         }
-        const pal = palettes[ name ];
+        const pal = palettes[ name_strip ];
         pal.push( tmpColor.getHex() );
       }
     });

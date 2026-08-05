@@ -4,6 +4,7 @@ import { asColor } from '../utility/color.js';
 import { getThreeBrainInstance } from '../geometry/abstract.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { CONSTANTS } from '../core/constants.js';
+import { TextDecor } from '../geometry/textdecor.js';
 
 // events to $wrapper
 // "viewerApp.mouse.click"
@@ -116,6 +117,12 @@ class RShinyDriver {
           break;
         case 'set_incoming_localization_hemisphere':
           this.driveSetIncomingLocalizationHemisphere( data.value );
+          break;
+        case 'text_decoration_set':
+          this.driveTextDecorationSet( data.value );
+          break;
+        case 'text_decoration_delete':
+          this.driveTextDecorationDelete( data.value );
           break;
         default:
           // code
@@ -418,7 +425,8 @@ class RShinyDriver {
 
   driveSetElectrodeData({
     data, palettes = {}, valueRanges = {},
-    clearFirst = false, updateDisplay = true
+    clearFirst = false, updateDisplay = true,
+    override = false
   } = {}) {
     if( !data ) { return; }
     if( !Array.isArray( data ) ) {
@@ -446,6 +454,7 @@ class RShinyDriver {
       palettes : palettes,
       valueRanges : valueRanges,
       updateDisplay : updateDisplay,
+      override : override,
     });
     this.canvas.needsUpdate = true;
   }
@@ -571,6 +580,87 @@ class RShinyDriver {
     }
 
     this.enabled = true;
+  }
+
+  // ---- Text decoration helpers -------------------------------------------
+
+  /**
+   * Collect summaries of all current text decorations and push them to Shiny.
+   */
+  _syncTextDecorationsToShiny() {
+    const summaries = [];
+    this.canvas.textDecorators.forEach((inst) => {
+      summaries.push( inst.toSummary() );
+    });
+    this.dispatchToShiny( "text_decorations", summaries );
+  }
+
+  /**
+   * R → JS: create or update a text decoration.
+   * @param {object} params
+   * @param {string}   params.id         - stable decoration ID
+   * @param {string}   [params.text]     - label text
+   * @param {number[]} [params.position] - [x, y, z] in world space
+   * @param {number}   [params.font_size]- world-space height
+   * @param {string}   [params.color]    - CSS colour string
+   * @param {number|number[]} [params.layer] - camera layer(s)
+   */
+  driveTextDecorationSet({ id, text, position, font_size, color, layer } = {}) {
+    if ( typeof id !== 'string' || id.length === 0 ) { return; }
+
+    const existing = this.canvas.textDecorators.get( id );
+
+    if ( existing ) {
+      // Update in place.
+      if ( typeof text === 'string' )           { existing.setText( text ); }
+      if ( Array.isArray( position ) && position.length === 3 ) {
+        existing.setPosition( position[0], position[1], position[2] );
+      }
+      if ( typeof font_size === 'number' && font_size > 0 ) {
+        existing.setFontSize( font_size );
+      }
+      if ( typeof color === 'string' )          { existing.setColor( color ); }
+    } else {
+      // Build a minimal geometry-params object and create a new TextDecor.
+      const g = {
+        name        : `__text_decor_${id}__`,
+        type        : 'textdecor',
+        decor_id    : id,
+        text        : typeof text === 'string'   ? text      : '',
+        font_size   : typeof font_size === 'number' && font_size > 0 ? font_size : 5,
+        color       : typeof color === 'string'  ? color     : '#ffffff',
+        position    : Array.isArray( position ) && position.length === 3
+                        ? position : [0, 0, 0],
+        layer       : layer != null ? layer : [1],
+        clickable   : false,
+        subject_code: '',
+        group       : null,
+        trans_mat   : null,
+        disable_trans_mat: false,
+        render_order: 1
+      };
+      new TextDecor( g, this.canvas );
+    }
+
+    this.canvas.needsUpdate = true;
+    this._syncTextDecorationsToShiny();
+  }
+
+  /**
+   * R → JS: delete one or more text decorations by ID.
+   * @param {object} params
+   * @param {string|string[]} params.id - decoration ID or array of IDs
+   */
+  driveTextDecorationDelete({ id } = {}) {
+    const ids = Array.isArray( id ) ? id : ( typeof id === 'string' ? [id] : [] );
+    ids.forEach( (decorId) => {
+      const inst = this.canvas.textDecorators.get( decorId );
+      if ( inst ) {
+        inst.dispose();
+      }
+    });
+    this.canvas.needsUpdate = true;
+    this._syncTextDecorationsToShiny();
   }
 
 }

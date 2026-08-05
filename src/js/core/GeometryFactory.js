@@ -7,6 +7,7 @@ import { gen_free } from '../geometry/free.js';
 import { gen_streamline } from '../geometry/streamline.js';
 import { gen_linesements } from '../geometry/line.js';
 import { gen_imagesprite } from '../geometry/imagesprite.js'
+import { gen_textdecor } from '../geometry/textdecor.js'
 
 
 const GeometryFactory = {
@@ -19,6 +20,7 @@ const GeometryFactory = {
   'tube'      : gen_tube,
   'linesegments' : gen_linesements,
   'imagesprite'    : gen_imagesprite,
+  'textdecor'      : gen_textdecor,
   'blank'     : (g, canvas) => { return(null) }
 }
 

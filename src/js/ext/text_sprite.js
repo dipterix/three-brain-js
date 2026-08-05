@@ -136,7 +136,12 @@ class TextTexture extends Texture {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
     text = text ?? " ";
-    canvas.width = Math.ceil( context.measureText(text).width );
+    // Apply the intended font BEFORE measuring; otherwise measureText uses the
+    // browser default (e.g. 10px sans-serif) and the canvas is allocated far
+    // too small. draw_text() will re-measure with the same font later, but
+    // the GPU upload cache uses the FIRST allocation as a baseline.
+    context.font = `${weight} ${Math.ceil(size)}px ${font}`;
+    canvas.width = Math.max( 1, Math.ceil( context.measureText(text).width ) );
     canvas.height = size;
     super( canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy );
 
@@ -214,9 +219,11 @@ class TextTexture extends Texture {
     }
 	  this._text = this.text;
 
-	  const maxWidth = Math.ceil( this._context.measureText(this._text).width );
+	  const maxWidth = Math.max( 1, Math.ceil( this._context.measureText(this._text).width ) );
 	  this._asp = maxWidth / this._size;
 
+    const dimensionsChanged = ( this._canvas.width !== maxWidth ) ||
+                              ( this._canvas.height !== this._size );
     this._canvas.width = maxWidth
     this._canvas.height = this._size;
     // this._context.clearRect( 0 , 0 , this._canvas.width , this._canvas.height );
@@ -227,6 +234,14 @@ class TextTexture extends Texture {
     this._context.shadowBlur = this._shadow_blur || 0;
     this._context.shadowColor = this._shadow_color;
     this._context.fillText(this._text, 0, this._size * 26 / 32, maxWidth);
+    // When canvas dimensions change, the previously-uploaded GPU texture is
+    // the wrong size; texSubImage2D against it raises
+    // "Offset overflows texture dimensions". Dispose so the renderer frees
+    // the old WebGL handle and allocates a fresh one via texImage2D.
+    if( dimensionsChanged ) {
+      this.dispose();
+      if( this.source ) { this.source.needsUpdate = true; }
+    }
     this.needsUpdate = true;
 
     this.updateScale();

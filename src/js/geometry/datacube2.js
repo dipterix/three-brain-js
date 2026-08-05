@@ -223,7 +223,7 @@ class DataCube2 extends AbstractThreeBrainObject {
     this.object.material.uniformsNeedUpdate = true;
 
     this.colorTexture.needsUpdate = true;
-    
+
     // Update gradient texture when color changes
     // this._updateGradientTexture();
 
@@ -245,8 +245,12 @@ class DataCube2 extends AbstractThreeBrainObject {
         this._selectedDataValues[ dataValue ] = true;
       }
       if( this._selectedDataValues.length === 0 ) {
+        // Fix 2026-06: this used to be dataValue < this.lutMaxColorID
+        // Then the bug is the max color is never shown
+        // This is a bug, need to use `<=`
+        // For this.lutMinColorID + 1, I need to think more carefully
         for( dataValue = this.lutMinColorID + 1;
-              dataValue < this.lutMaxColorID; dataValue++ ) {
+              dataValue <= this.lutMaxColorID; dataValue++ ) {
           this._selectedDataValues[ dataValue ] = true;
         }
       }
@@ -365,12 +369,12 @@ class DataCube2 extends AbstractThreeBrainObject {
     );
     this.object.material.uniformsNeedUpdate = true;
     this.colorTexture.needsUpdate = true;
-    
+
     // Update gradient texture when color changes
     // this._updateGradientTexture();
 
   }
-  
+
   /**
    * Compute and update gradient texture for pre-computed normals
    * This is called after voxelColor updates (e.g., during thresholding)
@@ -379,19 +383,19 @@ class DataCube2 extends AbstractThreeBrainObject {
     if (!this.usePrecomputedGradients) {
       return;
     }
-    
+
     // Only compute gradients for multi-channel data (where lighting is used)
     if (this.nColorChannels < 1) {
       return;
     }
-    
+
     // Prepare arguments for worker
     const voxelColor = this.voxelColor;
     const width = this.modelShape.x;
     const height = this.modelShape.y;
     const depth = this.modelShape.z;
     const nChannels = this.nColorChannels;
-    
+
     try {
       // Use app.invokeWorker to run in worker thread with fallback
       const gradientData = await this._canvas._app.invokeWorker({
@@ -400,7 +404,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         fallback: () => computeGradientsFromRGBA( voxelColor, width, height, depth, nChannels ),
         timeOut: 60000  // 60s for large volumes
       });
-      
+
       // Create or update gradient texture
       if (this.gradientTexture === null) {
         this.gradientTexture = new Data3DTexture(
@@ -414,7 +418,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.gradientTexture.format = RGBAFormat;
         this.gradientTexture.type = UnsignedByteType;
         this.gradientTexture.unpackAlignment = 1;
-        
+
         // Update material to use gradient texture
         if (this.object && this.object.material) {
           this.object.material.uniforms.gradientMap.value = this.gradientTexture;
@@ -425,16 +429,16 @@ class DataCube2 extends AbstractThreeBrainObject {
         // Update existing texture data
         this.gradientTexture.image.data = gradientData;
       }
-      
+
       this.gradientTexture.needsUpdate = true;
-      
+
     } catch (error) {
       console.warn('Failed to compute gradient texture:', error);
       // Fallback to shader-based gradient computation
       this.usePrecomputedGradients = false;
     }
   }
-  
+
   /*
   _computeISOSurfaceUnnormalized( lowerBound, upperBound ) {
     // This function operates on the original data, not the normalized data
@@ -998,7 +1002,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // initialize voxelColor
     this.updatePalette();
-    
+
     // Compute gradient texture asynchronously
     this._updateGradientTexture();
 

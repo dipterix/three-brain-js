@@ -122,6 +122,18 @@ class ElectrodeCoordinateHandler extends FileDataHandler {
           label = `UnLabeled${channel}`;
         }
 
+        // label_prefix: prefer explicit LabelPrefix column; else strip trailing
+        // digits / separators from Label (same convention as R-side
+        // normalize_electrode_table). May still end up empty.
+        let labelPrefix = (sample['LabelPrefix'] ?? "").toString().trim();
+        if( labelPrefix === "" ) {
+          labelPrefix = label.replace(/[ 0-9_\-]+$/, "");
+        }
+
+        // device_name: optional Prototype column (e.g. "Precision33x31"); empty
+        // string if not provided.
+        const deviceName = (sample['Prototype'] ?? "").toString().trim();
+
         ras.set( parseFloat(sample[xName] ?? NaN), parseFloat(sample[yName] ?? NaN), parseFloat(sample[zName] ?? NaN) )
           .applyMatrix4(matTotkrRAS);
 
@@ -208,7 +220,11 @@ class ElectrodeCoordinateHandler extends FileDataHandler {
           fixed_color   : null,
           surface_offset: sample['DistanceToPial'] ?? sample['DistanceShifted'] ?? 0,
           MNI305_position: mni305,
-          sphere_position: [sample['Sphere_x'] ?? 0, sample['Sphere_y'] ?? 0, sample['Sphere_z'] ?? 0]
+          sphere_position: [sample['Sphere_x'] ?? 0, sample['Sphere_y'] ?? 0, sample['Sphere_z'] ?? 0],
+          additional_info: {
+            label_prefix : labelPrefix,
+            device_name  : deviceName
+          }
         };
       })
       .filter(el => {

@@ -181,6 +181,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.singletons = new Map();
     this._show_ct = false;
     this.surfaces = new Map();
+    this.textDecorators = new Map();
     this.state_data = new Map();
 
     // action event listener functions and dispose flags
@@ -1066,6 +1067,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.surfaces.clear();
     this.atlases.clear();
     this.tracts.clear();
+    this.textDecorators.clear();
 
     this.state_data.clear();
     this.shared_data.clear();

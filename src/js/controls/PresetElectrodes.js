@@ -29,24 +29,27 @@ function registerPresetElectrodes( ViewerControlCenter ){
     if(typeof args !== "object" || !args) { return; }
 
     let change_scale = false, scale = 0,
-        change_visible = false, visible = false;
+        change_type = false, labelType = "None";
 
     if(typeof args.scale === "number" && args.scale > 0) {
       change_scale = true;
       scale = args.scale;
     }
-    if( args.visible !== undefined ) {
-      change_visible = true;
-      visible = args.visible ? true: false;
+    if( typeof args.labelType === "string" ) {
+      change_type = true;
+      labelType = args.labelType;
     }
 
-    if(!change_scale && !change_visible) { return; }
+    if(!change_scale && !change_type) { return; }
+
+    const visible = labelType !== "None";
 
     // render electrode colors by subjects
     this.canvas.subject_codes.forEach((subject_code, ii) => {
       to_array( this.canvas.electrodes.get( subject_code ) ).forEach((e) => {
         if(e.isMesh && e.userData.instance && e.userData.instance.isElectrode ) {
-          if( change_visible ) {
+          if( change_type ) {
+            e.userData.instance.setLabelDisplayType( labelType );
             e.userData.instance.setLabelVisible( visible );
           }
           if( change_scale ) {
@@ -61,7 +64,8 @@ function registerPresetElectrodes( ViewerControlCenter ){
     if( change_scale ) {
       electrode_label.scale = scale;
     }
-    if( change_visible ) {
+    if( change_type ) {
+      electrode_label.labelType = labelType;
       electrode_label.visible = visible;
     }
     this.canvas.set_state('electrode_label', electrode_label);
@@ -166,8 +170,6 @@ function registerPresetElectrodes( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : ( event ) => {
-        const v = controllerElectrodeOutline.getValue();
-        controllerElectrodeTextVisible.setValue( !v );
         let selectedIndex = ( outlineOptions.indexOf( controllerElectrodeOutline.getValue() ) + 1) % outlineOptions.length;
         if( selectedIndex >= 0 ){
           controllerElectrodeOutline.setValue( outlineOptions[ selectedIndex ] );
@@ -212,7 +214,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
-    this.canvas.set_state('electrode_label', { scale : 2, visible : false });
+    this.canvas.set_state('electrode_label', { scale : 2, visible : false, labelType : "None" });
     this.gui
       .addController('Text Scale', 1.5, { folderName : folderName })
       .min( 1 ).max( 6 ).decimals( 1 )
@@ -221,10 +223,11 @@ function registerPresetElectrodes( ViewerControlCenter ){
         this.broadcast();
       });
 
-    const controllerElectrodeTextVisible = this.gui
-      .addController('Text Visibility', false, { folderName : folderName })
+    const electrodeTextOptions = ['None', 'channel_numbers', 'label_prefix', 'device_name'];
+    const controllerElectrodeText = this.gui
+      .addController('Electrode Text', 'None', { args : electrodeTextOptions, folderName : folderName })
       .onChange((v) => {
-        this.updateElectrodeText({ visible : v });
+        this.updateElectrodeText({ labelType : v });
         this.broadcast();
       });
     this.bindKeyboard({
@@ -235,12 +238,13 @@ function registerPresetElectrodes( ViewerControlCenter ){
       metaKey   : false,
       tooltip   : {
         key     : CONSTANTS.TOOLTIPS.KEY_TOGGLE_ELEC_LABEL_VISIBILITY,
-        name    : 'Text Visibility',
+        name    : 'Electrode Text',
         folderName : folderName,
       },
       callback  : ( event ) => {
-        const v = controllerElectrodeTextVisible.getValue();
-        controllerElectrodeTextVisible.setValue( !v );
+        const currentIndex = electrodeTextOptions.indexOf( controllerElectrodeText.getValue() );
+        const nextIndex = ( currentIndex + 1 ) % electrodeTextOptions.length;
+        controllerElectrodeText.setValue( electrodeTextOptions[ nextIndex ] );
       }
     });
 

@@ -149,7 +149,11 @@ class LocElectrode {
       "vertex_number": -1,
       "sub_cortical": true,
       "search_geoms": null,
-      "custom_info" : autoRefine && this._adjustRadiusBase < 1 ? `Average spacing offset ${ this._adjustRadiusBase.toFixed(4) } mm (before refining)` : ""
+      "custom_info" : autoRefine && this._adjustRadiusBase < 1 ? `Average spacing offset ${ this._adjustRadiusBase.toFixed(4) } mm (before refining)` : "",
+      "additional_info" : {
+        "label_prefix" : "",
+        "device_name"  : ""
+      }
     });
 
     this.instance = inst;
@@ -469,6 +473,18 @@ class LocElectrode {
           break;
         case 'Label':
           this.update_label( params.Label );
+          break;
+        case 'LabelPrefix':
+          if( typeof params[k] === "string" && this.instance &&
+              typeof this.instance.setAdditionalInfo === "function" ) {
+            this.instance.setAdditionalInfo({ label_prefix : params[k] });
+          }
+          break;
+        case 'Prototype':
+          if( typeof params[k] === "string" && this.instance &&
+              typeof this.instance.setAdditionalInfo === "function" ) {
+            this.instance.setAdditionalInfo({ device_name : params[k] });
+          }
           break;
         case 'SurfaceType':
           g.surface_type = params[k];
@@ -1268,6 +1284,10 @@ function register_controls_localization( ViewerControlCenter ){
       "vertex_number": -1,
       "sub_cortical": true,
       "search_geoms": null,
+      "additional_info": {
+        "label_prefix" : "",
+        "device_name"  : name
+      }
     };
 
     const inst = this.canvas.add_object( params );
@@ -1462,6 +1482,19 @@ function register_controls_localization( ViewerControlCenter ){
         })
       .onChange(v => {
         this.canvas.set_state( "auto_refine_electrodes", v );
+      })
+      .setValue( true );
+
+    this.gui
+      .addController(
+        'Electrode Decoration', false, {
+          folderName: folderName
+        })
+      .onChange(v => {
+
+        this.canvas.set_state( "textDecorVisibility", v );
+        this.canvas.needsUpdate = true;
+
       })
       .setValue( true );
 

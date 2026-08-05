@@ -90,16 +90,29 @@ class Electrode extends AbstractThreeBrainObject {
     return false;
   }
 
-  get label() {
-    if( typeof this.state.customLabel === "string" ) {
-      return this.state.customLabel;
-    }
+  _getChannelLabel () {
     const nChannels = this.numbers.length;
     if( nChannels === 0 ) { return ""; }
     if( nChannels === 1 ) {
       return `${ this.numbers[0] }`;
     }
     return `${ this.numbers[0] } - ${ this.numbers[ nChannels - 1 ] }`;
+  }
+
+  get label() {
+    if( typeof this.state.customLabel === "string" ) {
+      return this.state.customLabel;
+    }
+    switch( this.state.labelDisplayType ) {
+      case "label_prefix":
+        return this._additionalInfo.label_prefix || this._getChannelLabel();
+      case "device_name":
+        return this._additionalInfo.device_name || this._getChannelLabel();
+      case "None":
+        return "";
+      default: // "channel_numbers"
+        return this._getChannelLabel();
+    }
   }
 
   set label( name ) {
@@ -124,6 +137,36 @@ class Electrode extends AbstractThreeBrainObject {
       this._textSprite.visible = true;
     } else {
       this._textSprite.visible = false;
+    }
+  }
+
+  setLabelDisplayType ( type ) {
+    this.state.labelDisplayType = type;
+    this._textMap.draw_text( this.label );
+  }
+
+  setAdditionalInfo ( info = {} ) {
+    if( !info || typeof info !== "object" ) { return; }
+    let changed = false;
+    if( typeof info.label_prefix === "string" &&
+        this._additionalInfo.label_prefix !== info.label_prefix ) {
+      this._additionalInfo.label_prefix = info.label_prefix;
+      changed = true;
+    }
+    if( typeof info.device_name === "string" &&
+        this._additionalInfo.device_name !== info.device_name ) {
+      this._additionalInfo.device_name = info.device_name;
+      changed = true;
+    }
+    // Keep _params.additional_info in sync so re-reads / serialization see the
+    // latest values
+    if( changed ) {
+      if( typeof this._params.additional_info !== "object" || !this._params.additional_info ) {
+        this._params.additional_info = {};
+      }
+      this._params.additional_info.label_prefix = this._additionalInfo.label_prefix;
+      this._params.additional_info.device_name  = this._additionalInfo.device_name;
+      this._textMap.draw_text( this.label );
     }
   }
 
@@ -498,6 +541,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.state = {
       // For inner text
       customLabel       : undefined,
+      labelDisplayType  : "channel_numbers",
 
       // contact focused, for multi-contact electrode only
       focusedContact    : -1,
@@ -644,6 +688,13 @@ class Electrode extends AbstractThreeBrainObject {
     this.transforms.model2tkr = transform;
     this.resetBuiltinTransforms();
 
+
+    // Extract additional display info from params (may be undefined/null for backward compat)
+    const addInfo = this._params.additional_info;
+    this._additionalInfo = {
+      label_prefix : (addInfo && typeof addInfo.label_prefix === "string") ? addInfo.label_prefix : "",
+      device_name  : (addInfo && typeof addInfo.device_name  === "string") ? addInfo.device_name  : "",
+    };
 
     // Build inner text sprite (text label to electrodes); requires
     // this.state and this.numbers
@@ -962,6 +1013,13 @@ class Electrode extends AbstractThreeBrainObject {
     const electrodeLabelState = this._canvas.state_data.get("electrode_label");
     if( typeof electrodeLabelState === "object" && electrodeLabelState ) {
       this.setLabelScale( electrodeLabelState.scale || 1.5 );
+      // Sync label content (display type) only — visibility is intentionally
+      // NOT auto-applied here so newly-loaded electrodes retain the
+      // pre-existing behavior of starting hidden until updateElectrodeText
+      // is invoked explicitly.
+      if( typeof electrodeLabelState.labelType === "string" ) {
+        this.setLabelDisplayType( electrodeLabelState.labelType );
+      }
     } else {
       this.setLabelScale( 1.5 );
     }
