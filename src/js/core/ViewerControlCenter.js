@@ -776,6 +776,13 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.animClipNames = dataNames;
 
+    if ( typeof varname === "string" ) {
+      const userDataNames = dataNames.filter(v => !v.startsWith("["));
+      if ( userDataNames.length > 0 && !userDataNames.includes( varname ) ) {
+        varname = userDataNames[ 0 ];
+      }
+    }
+
     this.updateSingleSelectorOptions({
       name    : 'Display Data',
       options : dataNames,

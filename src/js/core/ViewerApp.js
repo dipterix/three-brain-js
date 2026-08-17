@@ -217,7 +217,7 @@ class ViewerApp extends ThrottledEventDispatcher {
   /**
    * Invoke a worker method with fallback to synchronous execution.
    * Uses the existing worker pool infrastructure for efficient task dispatch.
-   * 
+   *
    * @param {Object} options
    * @param {string} options.name - Name of the registered worker method (e.g., "computeVolumeGradients")
    * @param {Array} options.args - Array of arguments to pass to the worker method
@@ -228,20 +228,20 @@ class ViewerApp extends ThrottledEventDispatcher {
    * @param {number} [options.timeOut=30000] - Timeout in milliseconds
    * @returns {Promise<any>} - Result from worker or fallback
    */
-  async invokeWorker({ 
-    name, 
-    args, 
-    fallback, 
+  async invokeWorker({
+    name,
+    args,
+    fallback,
     transferables,
-    onProgress, 
+    onProgress,
     token,
-    timeOut = 30000 
+    timeOut = 30000
   }) {
     const workerScript = this.settings.worker_script;
-    
+
     // Check if async workers are available for this method
     const available = asyncLoaderAvailable( name, workerScript );
-    
+
     if ( available !== false ) {
       // Workers available - use them
       return await startWorker( workerScript, {
@@ -254,12 +254,12 @@ class ViewerApp extends ThrottledEventDispatcher {
         transferables: transferables
       });
     }
-    
+
     // Workers unavailable - use fallback if provided
     if ( typeof fallback === "function" ) {
       return await Promise.resolve( fallback() );
     }
-    
+
     throw new Error( `Worker unavailable for [${ name }] and no fallback provided` );
   }
 
@@ -918,7 +918,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     });
 
     // Create colormaps
-    let lastName;
+    let lastName = "";
     for( let name in sample ) {
       const cmapParam = colorMapParams[ name ];
       if( cmapParam ) {
@@ -955,21 +955,25 @@ class ViewerApp extends ThrottledEventDispatcher {
       }
     }
 
-    if( lastName ) {
-      this.dispatch({
-          type      : "viewerApp.electrodes.updateData",
-          immediate : true,
-          data      : keyframes,
-      });
+    this.dispatch({
+        type      : "viewerApp.electrodes.updateData",
+        immediate : true,
+        data      : keyframes,
+    });
 
-      try {
-        if( updateDisplay === true ) {
-          this.controlCenter.updateElectrodeDisplayNames( lastName );
-        } else if ( typeof updateDisplay === "string" ) {
-          this.controlCenter.updateElectrodeDisplayNames( updateDisplay );
-        }
-      } catch (e) {}
-    }
+    try {
+      if( updateDisplay === true ) {
+        this.controlCenter.updateElectrodeDisplayNames( lastName );
+      } else if ( typeof updateDisplay === "string" ) {
+        this.controlCenter.updateElectrodeDisplayNames( updateDisplay );
+      } else {
+        // Still update, since the option list needs to update
+        // When the value is `""`, the
+        // controlCenter.updateElectrodeDisplayNames will try to
+        // set a valid display name
+        this.controlCenter.updateElectrodeDisplayNames( "" );
+      }
+    } catch (e) {}
   }
 
   updateControllers( { reset = false } = {} ) {

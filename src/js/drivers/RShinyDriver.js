@@ -365,7 +365,7 @@ class RShinyDriver {
     // make sure shiny exists and is connected
     if( !this._shiny || !this._shiny.shinyapp.$socket ) { return; }
     const inputId = `${ this.containerID }_${ name }`;
-    console.debug(`Dispatching to shiny with priority ${ priority }: ${ name }`);
+    this.debugVerbose(`Dispatching to shiny with priority ${ priority }: ${ name }`);
     this._shiny.setInputValue(inputId, value, { priority : priority });
   }
 

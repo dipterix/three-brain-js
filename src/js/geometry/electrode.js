@@ -557,6 +557,7 @@ class Electrode extends AbstractThreeBrainObject {
       displayActive     : false,            // whether active keyframe is found for animation
       displayVariable   : "[None]",         // variable name used for displaying
       displayValues     : undefined,        // Array or number, electrode value(s) for displaying
+      anyContactActive  : false,            // whether any contact has a value & passes the threshold
       additionalDisplayActive   : false,
       additionalDisplayVariable : "[None]",
       additionalDisplayValues   : undefined,
@@ -1539,6 +1540,7 @@ class Electrode extends AbstractThreeBrainObject {
 
         let color; // Reused color object, used to calculate & assign color
         let isInactive; // true when contact has no value and uses default/inactive color
+        let anyContactActive = false; // true when at least one contact is active
 
         // For each contact
         for( let i = 0 ; i < nChannels ; i++ ) {
@@ -1569,6 +1571,8 @@ class Electrode extends AbstractThreeBrainObject {
               }
             }
           }
+
+          if( !isInactive ) { anyContactActive = true; }
 
           if( instancedObjectVisible ) {
             // Do not render color on prototype, using instancedMesh anyway
@@ -1641,6 +1645,8 @@ class Electrode extends AbstractThreeBrainObject {
 
         }
 
+        this.state.anyContactActive = anyContactActive;
+
         // material color needs to be set, also notify GPU to update textures
         currentMaterial.color.set(1, 1, 1);
         this._dataTexture.needsUpdate = true;
@@ -1654,6 +1660,8 @@ class Electrode extends AbstractThreeBrainObject {
       } else {
 
         this._material.useDataTexture( this._dataTexture, false );
+
+        this.state.anyContactActive = ( useFixedColor.length > 0 && useFixedColor[0] ) || !useDefaultColor;
 
         if( useFixedColor.length > 0 && useFixedColor[0] ) {
           // The color should be fixed
@@ -1673,12 +1681,17 @@ class Electrode extends AbstractThreeBrainObject {
 
     // also set clearcoat
     const outlineThreshold = this._canvas.get_state( "electrode_clearcoat", 0.0 );
+    const outlineActiveOnly = this._canvas.get_state( "electrode_outline_active_only", false ) === true;
     if( typeof outlineThreshold === "number" ) {
+      // Whole-object outline: sphere electrode, or the prototype shaft. In
+      // active-only mode the shaft is outlined iff any of its contacts is active
+      const objectOutline = ( outlineActiveOnly && !this.state.anyContactActive ) ? 0.0 : outlineThreshold;
       if( !this._fixedOutline ) {
-        this._material.useOutline( outlineThreshold );
+        this._material.useOutline( objectOutline );
       }
       if( this.isElectrodePrototype ) {
-        this.instancedObjects.material.useOutline( outlineThreshold );
+        // per-contact rule is enforced in the shader via `instanceActive`
+        this.instancedObjects.material.useOutline( outlineThreshold, outlineActiveOnly );
       }
     }
 

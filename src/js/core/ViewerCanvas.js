@@ -1918,11 +1918,20 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // set electrode outline clearcoat value
     const renderOutlines = this.get_state( "outline_state", "auto" );
     let outlineThreshold = 0.0;
+    // whether the outlines are restricted to contacts carrying values
+    let outlineActiveOnly = false;
     if ( renderOutlines === "on" ) {
       outlineThreshold = CONSTANT_GEOM_PARAMS[ "electrode-outline-threhsold" ];
     } else if ( renderOutlines === "off" ) {
       outlineThreshold = 0.0;
+    } else if ( renderOutlines === "active only" ) {
+      outlineThreshold = CONSTANT_GEOM_PARAMS[ "electrode-outline-threhsold" ];
+      outlineActiveOnly = true;
     } else {
+      // auto: the active-only rule applies as well, unless no data is displayed
+      // at all, in which case all the outlines are shown
+      outlineActiveOnly = this.get_state( 'display_variable', "[None]" ) !== "[None]";
+
       const left_opacity = this.get_state( "surface_opacity_left", 1.0 );
       const right_opacity = this.get_state( "surface_opacity_right", 1.0 );
       const left_mtype = this.get_state( "material_type_left", "normal" );
@@ -1939,6 +1948,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
     }
     this.set_state( "electrode_clearcoat", outlineThreshold );
+    this.set_state( "electrode_outline_active_only", outlineActiveOnly );
 
     // Pre render all meshes
     this.mesh.forEach((m) => {

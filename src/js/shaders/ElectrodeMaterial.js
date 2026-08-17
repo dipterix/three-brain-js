@@ -36,7 +36,7 @@ function makeElectrodeMaterial(SuperClass) {
 
     }
 
-    useOutline( outlineThreshold ) {
+    useOutline( outlineThreshold, activeOnly = false ) {
       if( outlineThreshold > 0.01 ) {
         this.uniforms.outlineThreshold.value = outlineThreshold;
         if( this.defines.USE_OUTLINE === undefined ) {
@@ -46,6 +46,20 @@ function makeElectrodeMaterial(SuperClass) {
       } else {
         if( this.defines.USE_OUTLINE !== undefined ) {
           delete this.defines.USE_OUTLINE;
+          this.needsUpdate = true;
+        }
+      }
+
+      // Only outline contacts that have values (requires `instanceActive`,
+      // hence a no-op unless `USE_INACTIVE_ALPHA` is also defined)
+      if( activeOnly ) {
+        if( this.defines.OUTLINE_ACTIVE_ONLY === undefined ) {
+          this.defines.OUTLINE_ACTIVE_ONLY = "";
+          this.needsUpdate = true;
+        }
+      } else {
+        if( this.defines.OUTLINE_ACTIVE_ONLY !== undefined ) {
+          delete this.defines.OUTLINE_ACTIVE_ONLY;
           this.needsUpdate = true;
         }
       }
@@ -326,10 +340,10 @@ float fDepth = gl_FragCoord.z;
 
   #endif
 
-  #if defined( USE_INACTIVE_ALPHA )
-  
+  #if defined( USE_INACTIVE_ALPHA ) && defined( OUTLINE_ACTIVE_ONLY )
+
     if( vInstanceActive >= 0.5 && outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
-  
+
   #else
   
     if( outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {

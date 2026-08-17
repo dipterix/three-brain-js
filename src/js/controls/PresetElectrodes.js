@@ -150,7 +150,7 @@ function registerPresetElectrodes( ViewerControlCenter ){
       .setValue(70);
 
     this.canvas.set_state("outline_state", "auto");
-    const outlineOptions = ["auto", "on", "off"];
+    const outlineOptions = ["auto", "on", "active only", "off"];
     const controllerElectrodeOutline = this.gui.addController( 'Outlines', "auto",
                       { args : outlineOptions, folderName : folderName } )
       .onChange(( v ) => {
