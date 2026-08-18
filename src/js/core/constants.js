@@ -252,7 +252,7 @@ CONSTANTS.GEOMETRY = {
   "crosshair-gap-half" : 0,
   "electrode-outline-threhsold" : 0.7,
   "streamline-retention-count": 200,
-  "streamline-linewidth-factor": 1.2,
+  "streamline-linewidth-factor": 0.5,
 };
 
 
