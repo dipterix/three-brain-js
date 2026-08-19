@@ -265,7 +265,24 @@ class Streamline extends AbstractThreeBrainObject {
     this.type = 'Streamline';
     this.isStreamline = true;
 
+    // `imageObject` is set by the drag & drop handlers, which parse the file
+    // themselves. Streamlines declared from R only carry a file path: the file
+    // is registered as cached group data and loaded by the group loader, so ask
+    // the group for it.
     let fiber = g.imageObject;
+    if( !fiber && typeof g.streamline_name === "string" && g.group ) {
+      fiber = canvas.get_data(
+        `streamline_data_${ g.streamline_name }`, g.name, g.group.group_name );
+    }
+
+    if( !fiber || fiber.isInvalid || !fiber.points || !fiber.pointOffset ) {
+      // The file is missing or could not be parsed. Stay inert instead of
+      // throwing: one bad tract file must not take down the whole viewer.
+      this.isInvalid = true;
+      console.warn(`Streamline: unable to load streamline data for [${ this.name }]`);
+      return;
+    }
+
     const geometry = new StreamlineGeometry( fiber.points, fiber.pointOffset );
     // geometry.workerScript = this._canvas.workerScript;
     geometry.setWeights( fiber.lengthPerStreamline );
@@ -303,6 +320,8 @@ class Streamline extends AbstractThreeBrainObject {
   }
 
   finish_init(){
+    if( this.isInvalid ) { return; }
+
     // Finalize setups
     super.finish_init();
 
@@ -316,6 +335,7 @@ class Streamline extends AbstractThreeBrainObject {
 
   dispose(){
     super.dispose();
+    if( this.isInvalid ) { return; }
     this.object.removeFromParent();
     const trackList = this._canvas.tracts.get( this.subject_code )
     if( trackList[ this.name ] === this ) {
@@ -335,6 +355,7 @@ class Streamline extends AbstractThreeBrainObject {
   }
 
   setHighlightMode({ mode, distanceToTargetsThreshold, fadedLinewidth, forceUpdate = false } = {}) {
+    if( this.isInvalid ) { return; }
     let targetsNeedsUpdate = forceUpdate;
     if( typeof mode === 'string' && this.highlightConfig.mode !== mode ) {
       this.highlightConfig.mode = mode;
@@ -518,27 +539,34 @@ class Streamline extends AbstractThreeBrainObject {
   }
 
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
+    if( this.isInvalid ) { return; }
     super.pre_render({ target : target });
-    const lineOpacity = this._canvas.get_state("streamline_opacity", 1.0);
-    let linewidth = this._canvas.get_state("streamline_linewidth", 0.0);
-    let shadowStrengh = 0.0;
-    if( linewidth <= 0.0 ) {
-      // automatically adjust linewidth such that linewidth * camera zoom level is 1.5
-      if ( target === CONSTANTS.RENDER_CANVAS.main ) {
-        const zoomLevel = this._canvas.mainCamera.zoom;
-        const linewidthFactor = CONSTANTS.GEOMETRY["streamline-linewidth-factor"];
-        linewidth = linewidthFactor / zoomLevel;
-        if ( linewidth > linewidthFactor ) {
-          shadowStrengh = - linewidth / linewidthFactor + 1;
-          linewidth = linewidthFactor;
-        }
-      } else {
-        linewidth = 0.5;
-      }
+
+    // Which cameras to render to. Re-applied only when the choice changes, and
+    // ahead of the visibility guard below so a hidden bundle still carries the
+    // right layer once it is shown again.
+    const displayLayer = this._canvas.get_state(
+      "streamline_display", CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
+    if( this._displayLayer !== displayLayer ) {
+      this._displayLayer = displayLayer;
+      this._params.layer = displayLayer;
+      // via `setLayers` so the raycaster layer is preserved
+      this.setLayers();
     }
+
+    const lineOpacity = this._canvas.get_state("streamline_opacity", 1.0);
+
+    // The shader divides by the camera's own zoom, so no CPU correction here.
+    // This also fixes the side panels, which used to be pinned to a constant
+    // because only `mainCamera.zoom` was available at this point.
+    const defaultLinewidth = CONSTANTS.GEOMETRY["streamline-linewidth-factor"];
+    let linewidth = this._canvas.get_state("streamline_linewidth", defaultLinewidth);
+    if( typeof linewidth !== "number" || linewidth <= 0.0 ) {
+      linewidth = defaultLinewidth;
+    }
+
     this.object.material.linewidth = linewidth;
     this.object.material.lineOpacity = lineOpacity;
-    this.object.material.shadowStrengh = shadowStrengh;
 
     if( !this.object.visible ) { return; }
 

@@ -38,6 +38,7 @@ varying vec3 worldStart;
 varying vec3 worldEnd;
 varying vec3 worldUp;
 varying float vWeight;
+varying float vLineWidth;
 
 #ifdef USE_DISTANCE_THRESHOLD
 
@@ -83,7 +84,17 @@ void main() {
 	worldPos = position.y < 0.5 ? start: end;
 
 	// height offset
-	float hw = linewidth * 0.5;
+	// The line is expanded in view space, so a fixed linewidth would thicken on
+	// screen as the camera zooms in. For an orthographic camera
+	// projectionMatrix[0][0] is 2 * zoom / (right - left); the main camera keeps
+	// right - left pinned at 300, so projectionMatrix[0][0] * 150 is exactly
+	// camera.zoom. Dividing by it holds the on-screen width steady, per camera --
+	// side panels included, which zoom through setViewOffset and used to be
+	// ignored entirely.
+	float zoomScale = max( projectionMatrix[0][0] * 150.0, 1e-6 );
+	vLineWidth = linewidth / zoomScale;
+
+	float hw = vLineWidth * 0.5;
 
 	#ifdef USE_DISTANCE_THRESHOLD
 
@@ -124,7 +135,6 @@ void main() {
 const StreamlineFragmentShader = /* glsl */`
 uniform vec3 diffuse;
 uniform float opacity;
-uniform float linewidth;
 uniform float shadowStrengh;
 uniform float distanceThreshold;
 
@@ -133,6 +143,7 @@ varying vec3 worldStart;
 varying vec3 worldEnd;
 varying vec3 worldUp;
 varying float vWeight;
+varying float vLineWidth;
 
 #ifdef USE_DISTANCE_THRESHOLD
 
@@ -166,7 +177,7 @@ void main() {
 	delta.z = 0.0;
 
 	float len = length( delta );
-	float norm = len / linewidth;
+	float norm = len / vLineWidth;
 
 	// Only apply shading to the sides (not endcaps/joints)
 	// Check if we're on the main body of the line (not endcaps)
@@ -174,6 +185,15 @@ void main() {
 	if( shadowStrengh < 0.2 ) {
 	  interpMax = 1.2 - shadowStrengh;
 	}
+
+	// norm runs 0 at the axis to 0.5 at the edge, so its screen-space derivative is
+	// roughly 1 / width-in-pixels. Once a line is down to a pixel or two there is no
+	// bright core left to see and the edge ramp just darkens the whole thing, so fade
+	// the shading out and let thin tracts keep their true colour. Note fwidth is
+	// |dFdx| + |dFdy|, which under-reports a diagonal line by up to sqrt(2); the band
+	// below is chosen against measured widths rather than derived.
+	float pixelWidth = 1.0 / max( fwidth( norm ), 1e-5 );
+	float shadeAmount = smoothstep( 1.5, 4.5, pixelWidth );
 
 	#ifdef USE_DISTANCE_THRESHOLD
 
@@ -183,13 +203,13 @@ void main() {
 
     } else {
 
-      shade = 1.0 - smoothstep(0.0, interpMax, norm);
+      shade = 1.0 - shadeAmount * smoothstep(0.0, interpMax, norm);
 
     }
 
   #else
 
-    shade = 1.0 - smoothstep(0.0, interpMax, norm);
+    shade = 1.0 - shadeAmount * smoothstep(0.0, interpMax, norm);
 
   #endif
 

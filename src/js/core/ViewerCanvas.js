@@ -1955,7 +1955,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const inst = m.userData.instance;
       if( inst && typeof inst === "object" && inst.isThreeBrainObject ) {
         try {
-          inst.pre_render({ target : CONSTANTS.RENDER_CANVAS.main, mainCameraPositionNormalized : this._mainCameraPositionNormalized });
+          inst.pre_render({
+            target : CONSTANTS.RENDER_CANVAS.main,
+            mainCameraPositionNormalized : this._mainCameraPositionNormalized,
+          });
         } catch (e) {
           if( !this.__render_error ) {
             console.warn(e);
@@ -2583,7 +2586,19 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const scan2tkrElement = scan2tkr.elements;
 
 
-      this._addBasicGroup({
+      // These groups back the drag & drop handlers. R-declared objects may
+      // already have created a group under the same name (for example a
+      // streamline circuit literally named `Custom`), and `_addBasicGroup`
+      // replaces whatever `this.group` holds, discarding the `group_data` that
+      // points at the cached files. Only fill in what is missing, which also
+      // means the hard-coded transform below is a fallback: when R defines the
+      // group, R's `trans_mat` wins.
+      const addGroupIfMissing = ( g ) => {
+        if( this.group.has( g.name ) ) { return; }
+        this._addBasicGroup( g );
+      };
+
+      addGroupIfMissing({
         cache_name: `${ subject_code }/mri`,
         cached_items: [],
         disable_trans_mat: false,
@@ -2596,7 +2611,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         trans_mat: null,
       });
 
-      this._addBasicGroup({
+      addGroupIfMissing({
         cache_name: `${ subject_code }/surf`,
         cached_items: [],
         disable_trans_mat: false,
@@ -2609,7 +2624,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         trans_mat: null,
       });
 
-      this._addBasicGroup({
+      addGroupIfMissing({
         cache_name: `${ subject_code }/track`,
         cached_items: [],
         disable_trans_mat: false,
