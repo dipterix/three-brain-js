@@ -11,6 +11,7 @@ import { STLMesh } from '../formats/STLMesh.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { FreeSurferNodeValues } from '../formats/FreeSurferNodeValues.js';
 import { FreeSurferAnnot } from '../formats/FreeSurferAnnot.js';
+import { NIMLDset } from '../formats/NIMLDset.js';
 import { TrkTract } from '../formats/TrkTract.js';
 import { TTTract } from '../formats/TTTract.js';
 import { TckTract } from '../formats/TckTract.js';
@@ -412,6 +413,14 @@ class FreeSurferAnnotLoader extends TypedLoader {
   classType = FreeSurferAnnot;
 }
 
+// arraybuffer (not text): a NIML dataset may be gzip-compressed and may carry
+// binary or base64 payloads
+class NIMLDsetLoader extends TypedLoader {
+  responseType = "arraybuffer";
+  loaderName = "NIMLDsetLoader";
+  classType = NIMLDset;
+}
+
 const loaderClasses = {
   "JSONLoader"  : JSONLoader,
   "CSVLoader"   : CSVLoader,
@@ -422,6 +431,7 @@ const loaderClasses = {
   "FreeSurferMeshLoader": FreeSurferMeshLoader,
   "FreeSurferNodeLoader": FreeSurferNodeLoader,
   "FreeSurferAnnotLoader": FreeSurferAnnotLoader,
+  "NIMLDsetLoader": NIMLDsetLoader,
   "TrkLoader"   : TrkLoader,
   "TTLoader"    : TTLoader,
   'TckLoader'   : TckLoader,
@@ -453,6 +463,8 @@ function guessLoaderType( url ) {
     loaderType = "FreeSurferNodeLoader";
   } else if ( urlLowerCase.endsWith("annot") ) {
     loaderType = "FreeSurferAnnotLoader";
+  } else if ( urlLowerCase.endsWith("niml.dset") || urlLowerCase.endsWith("niml.dset.gz") ) {
+    loaderType = "NIMLDsetLoader";
   } else if ( urlLowerCase.endsWith("json") ) {
     loaderType = "JSONLoader";
   } else if ( urlLowerCase.endsWith("csv") || urlLowerCase.endsWith("tsv") ) {

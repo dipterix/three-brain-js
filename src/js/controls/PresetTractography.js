@@ -179,6 +179,13 @@ function registerPresetTractography( ViewerControlCenter ){
     // `StreamlineHandler`, under "Custom Geometry Settings". Streamlines
     // declared from R are grouped by brain circuit and only expose visibility:
     // their colors are set in R, so no color pickers here.
+    //
+    // The circuit is the top-level folder under `fs/streamline`; a bundle name
+    // carries whatever sub-folders it sits in (`stn/dlPFC_L`). Controllers are
+    // named by the full `circuit/bundle` key rather than the bundle alone,
+    // because `getController` falls back to a recursive search by name, so two
+    // circuits owning a `dlPFC_L` would otherwise be indistinguishable to
+    // `threejs_brain(controllers = ...)`.
     const streamlineCircuits = new Map();
     this.canvas.threebrain_instances.forEach(( inst ) => {
       if( !inst || !inst.isStreamline || !inst.object ) { return; }
@@ -204,8 +211,10 @@ function registerPresetTractography( ViewerControlCenter ){
 
       instances.forEach(( inst ) => {
         const bundleName = inst._params.streamline_name;
+        // matches `BrainStreamline$streamline_type` in R, i.e. the very key
+        // `add_streamline()` was given
         const ctrl = this.gui
-          .addController( `Show: ${ bundleName }`, true, { folderName : circuitFolderName } )
+          .addController( `Show: ${ circuitName }/${ bundleName }`, true, { folderName : circuitFolderName } )
           .onChange(v => {
             inst.set_visibility( v ? true : false );
             this.broadcast();

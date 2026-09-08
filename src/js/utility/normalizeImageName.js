@@ -2,7 +2,7 @@ import { randomColor, testColorString } from './color.js';
 
 function normalizeImageName( fileName ) {
   return fileName.toLowerCase()
-    .replaceAll(/\.(nii|nii\.gz|mgz|mgh|stl|gii|tck|trk|trk\.gz|tt|tt\.gz|vtk|vtp)$/g, "")
+    .replaceAll(/\.(nii|nii\.gz|mgz|mgh|stl|gii|tck|trk|trk\.gz|tt|tt\.gz|vtk|vtp|niml\.dset|niml\.dset\.gz)$/g, "")
     .replaceAll(/[ \(\)+\-\:]+/g, "_")
     .replaceAll(/[_]+$/g, "");
 }

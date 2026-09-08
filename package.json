@@ -13,7 +13,7 @@
     "fflate": "^0.7.4",
     "gifti-reader-js": "^0.4.6",
     "gl-matrix": "^3.4.3",
-    "json-2-csv": "^3.14.1",
+    "json-2-csv": "^3.14.4",
     "jspdf": "^4.2.0",
     "lil-gui": "^0.18.2",
     "nifti-reader-js": "^0.5.4",
@@ -50,5 +50,8 @@
   "bugs": {
     "url": "https://github.com/dipterix/three-brain-js/issues"
   },
-  "homepage": "https://github.com/dipterix/three-brain-js#readme"
+  "homepage": "https://github.com/dipterix/three-brain-js#readme",
+  "allowScripts": {
+    "core-js": false
+  }
 }

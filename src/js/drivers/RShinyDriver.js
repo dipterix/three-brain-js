@@ -267,6 +267,9 @@ class RShinyDriver {
       "viewerApp.controller.change" , this._onControllersUpdated )
     this.app.controlCenter.addEventListener(
       "viewerApp.controller.broadcastData" , this._onControllersBroadcast );
+    
+    // Make sure dispatch to shiny to initialize controller values
+    this._onControllersUpdated({ priority : "deferred" });
   }
 
   _onControllersUpdated = async ( event ) => {
@@ -363,6 +366,8 @@ class RShinyDriver {
 
     this.debugVerbose(`Sending data [${name}] to shiny app...`)
     // make sure shiny exists and is connected
+    // We need to rethink this._shiny.shinyapp.$socket...
+    // If shiny is not connected, we should queue the data and send it when it connects.
     if( !this._shiny || !this._shiny.shinyapp.$socket ) { return; }
     const inputId = `${ this.containerID }_${ name }`;
     this.debugVerbose(`Dispatching to shiny with priority ${ priority }: ${ name }`);
