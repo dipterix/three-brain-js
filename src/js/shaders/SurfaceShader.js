@@ -486,17 +486,29 @@ shader.fragmentShader = shader.fragmentShader.replace(
 
 	vec4 vColor2 = vec4( vUnderlayColor.rgb , 1.0 );
 
+  // A masked-out fragment ends up with the underlay color no matter what the
+  // mapping produces, so the volume / electrode sampling below is pure waste
+  // for it. Must be the exact complement of the step() used further down, or
+  // the rendered result would shift.
+  #if defined( USE_SURFACE_OVERLAY_MASK )
+    bool overlayVisible = vOverlayMask >= 0.5;
+  #else
+    bool overlayVisible = true;
+  #endif
+
   #if defined( USE_CUSTOM_MAPPING_0 )
 
     vColor2.rgb = vOverlayColor.rgb;
 
   #elif defined( USE_CUSTOM_MAPPING_1 )
 
-    vColor2.rgb = sample1( vPosition + vec3(0.5,-0.5,0.5) ).rgb;
+    if( overlayVisible ) {
+      vColor2.rgb = sample1( vPosition + vec3(0.5,-0.5,0.5) ).rgb;
+    }
 
   #elif defined( USE_CUSTOM_MAPPING_2 )
 
-    if( elec_active_size > 0.0 ){
+    if( overlayVisible && elec_active_size > 0.0 ){
       vColor2.rgb = sample2( vPosition + shift ).rgb;
     }
 

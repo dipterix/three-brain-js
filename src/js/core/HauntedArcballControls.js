@@ -262,7 +262,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 			this._changed = true;
 
-		}else if ( this._isRotating ){
+		} else if ( this._isRotating ){
 		  this._isRotating = false;
 		  this.dispatchEvent( _endEvent );
 		}

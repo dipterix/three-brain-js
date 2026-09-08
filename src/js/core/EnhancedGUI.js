@@ -404,7 +404,7 @@ class EnhancedGUI extends GUI {
       "Left Mesh Clipping", "Right Mesh Clipping",
       "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
-      "Vertex Data", "Surface Threshold Data", "Surface Threshold Method",
+      "Vertex Data", "Surface Color Data", "Surface Threshold Data", "Surface Threshold Method",
       "Surface Threshold Range",
 
       "Map Electrodes", "Surface Mapping", "Volume Mapping",
@@ -419,6 +419,10 @@ class EnhancedGUI extends GUI {
       "Edit Mode", "Auto Refine", "Brain Shift", "Max Shift"
     ];
     const data = to_dict( args );
+
+    // Backward compatibility
+    data["Surface Color Data"] = data["Surface Color Data"] ?? data["Vertex Data"];
+
     keys.forEach((k) => {
       const value = data[k];
       delete data[k];

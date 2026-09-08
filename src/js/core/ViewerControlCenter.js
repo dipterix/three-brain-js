@@ -1214,7 +1214,7 @@ class ViewerControlCenter extends EventDispatcher {
             inst._materialColor.set( "#FFFFFF" );
             inst.object.material.vertexColors = true;
 
-            this.gui.getController("Vertex Data").setValue("[custom measurement]");
+            this.gui.getController("Surface Color Data").setValue("[custom measurement]");
 
           } catch (e) {}
           colorSettings.continuous = v;

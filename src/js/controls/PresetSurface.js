@@ -433,16 +433,16 @@ function registerPresetSurface( ViewerControlCenter ){
         switch (v) {
           case "sync from voxels":
             this.gui.showControllers(['Sigma', 'Blend Factor', ...thresholdControllers], folderName );
-            this.gui.hideControllers(['Decay', 'Range Limit', 'Vertex Data'], folderName );
+            this.gui.hideControllers(['Decay', 'Range Limit', "Surface Color Data"], folderName );
             break;
 
           case "sync from electrodes":
             this.gui.showControllers(['Decay', 'Range Limit', 'Blend Factor', ...thresholdControllers], folderName );
-            this.gui.hideControllers(['Sigma', 'Vertex Data'], folderName );
+            this.gui.hideControllers(['Sigma', "Surface Color Data"], folderName );
             break;
 
           case "vertices":
-            this.gui.showControllers(['Blend Factor', 'Vertex Data', ...thresholdControllers], folderName );
+            this.gui.showControllers(['Blend Factor', "Surface Color Data", ...thresholdControllers], folderName );
             this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit'], folderName );
             break;
 
@@ -450,7 +450,7 @@ function registerPresetSurface( ViewerControlCenter ){
             // none
             v = "none";
             this.gui.hideControllers([
-              'Blend Factor', 'Sigma', 'Decay', 'Range Limit', 'Vertex Data',
+              'Blend Factor', 'Sigma', 'Decay', 'Range Limit', "Surface Color Data",
               ...thresholdControllers
             ], folderName );
         }
@@ -499,7 +499,7 @@ function registerPresetSurface( ViewerControlCenter ){
     annotationList.push("[custom annotation]");
 
     const ctrlVertAnnot = this.gui
-      .addController("Vertex Data", '[none]', {
+      .addController("Surface Color Data", '[none]', {
         args: annotationList,
         folderName : folderName })
       .onChange((v) => {
@@ -515,7 +515,7 @@ function registerPresetSurface( ViewerControlCenter ){
       metaKey   : false,
       tooltip   : {
         key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_SURFACE_COLOR,
-        name    : 'Vertex Data',
+        name    : "Surface Color Data",
         folderName : folderName,
       },
       callback  : ( event ) => {

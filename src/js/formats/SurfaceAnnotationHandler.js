@@ -59,11 +59,11 @@ class SurfaceAnnotationHandler extends FileDataHandler {
         dataName: "[custom annotation]",
       });
 
-      app.controllerGUI.getController("Vertex Data").setValue("[custom annotation]");
+      app.controllerGUI.getController("Surface Color Data").setValue("[custom annotation]");
 
       // Make sure the vertex data can be properly disposed
       const disposeItem = () => {
-        const crtlVertData = app.controllerGUI.getController('Vertex Data');
+        const crtlVertData = app.controllerGUI.getController("Surface Color Data");
         const currentDataName = crtlVertData.isfake ? "[none]" : crtlVertData.getValue();
 
         // make sure the pial surface is back to vertex color

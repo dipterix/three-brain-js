@@ -69,13 +69,13 @@ class SurfaceMeasurementHandler extends FileDataHandler {
       // Colors
       app.controlCenter.dragdropAddColorController( inst, surfaceName, "continuous" );
 
-      app.controllerGUI.getController("Vertex Data").setValue("[custom measurement]");
+      app.controllerGUI.getController("Surface Color Data").setValue("[custom measurement]");
 
       app.controlCenter.dragdropAddValueClippingController( inst, surfaceName );
 
       // Make sure the vertex data can be properly disposed
       const disposeItem = () => {
-        const crtlVertData = app.controllerGUI.getController('Vertex Data');
+        const crtlVertData = app.controllerGUI.getController("Surface Color Data");
         const currentDataName = crtlVertData.isfake ? "[none]" : crtlVertData.getValue();
 
         // make sure the pial surface is back to vertex color
