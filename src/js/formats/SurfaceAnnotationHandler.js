@@ -78,6 +78,13 @@ class SurfaceAnnotationHandler extends FileDataHandler {
 
         // make sure the data is set back to previous
         crtlVertData.setValue( currentDataName === "[custom annotation]" ? "[none]" : currentDataName );
+
+        // the threshold may point at the data being disposed
+        const ctrlThresholdData = app.controllerGUI.getController('Surface Threshold Data');
+        if( !ctrlThresholdData.isfake && ctrlThresholdData.getValue() === "[custom annotation]" ) {
+          ctrlThresholdData.setValue("[none]");
+        }
+
         app.controlCenter.removeEventListener( "viewerApp.dragdrop.clearAllSurfaces", disposeItem );
       };
 

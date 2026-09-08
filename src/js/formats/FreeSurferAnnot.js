@@ -19,7 +19,10 @@ function decimateLayerVertices(nVertLayer, nVertMesh) {
   return nVertMesh;
 }
 
-function readANNOT(buffer, n_vert, isReadColortables = false) {
+// Returns `{ rgba32, vertexKeys, labels }`. `vertexKeys` (per-vertex colortable
+// index) and `labels` (key -> name) are only available when the file embeds an
+// old-style colortable; without one only the vertex colors can be recovered.
+function readANNOT(buffer, n_vert) {
   const view = new DataView(buffer) // ArrayBuffer to dataview
   // ALWAYS big endian
   const n_vertex = view.getUint32(0, false);
@@ -40,25 +43,24 @@ function readANNOT(buffer, n_vert, isReadColortables = false) {
     const idx = view.getUint32((pos += 4), false);
     rgba32[idx] = view.getUint32((pos += 4), false);
   }
-  if (!isReadColortables) {
-    // only read label colors, ignore labels
-    return rgba32;
-  }
+  // colors only; no label keys can be derived
+  const colorsOnly = { rgba32 : rgba32 };
+
   let tag = 0;
   try {
     tag = view.getInt32((pos += 4), false);
   } catch (error) {
-    return rgba32;
+    return colorsOnly;
   }
   const TAG_OLD_COLORTABLE = 1;
   if (tag !== TAG_OLD_COLORTABLE) {
     // undocumented old format
-    return rgba32;
+    return colorsOnly;
   }
   const ctabversion = view.getInt32((pos += 4), false);
   if (ctabversion > 0) {
     // undocumented old format
-    return rgba32;
+    return colorsOnly;
   }
   const maxstruc = view.getInt32((pos += 4), false);
   const len = view.getInt32((pos += 4), false);
@@ -66,7 +68,7 @@ function readANNOT(buffer, n_vert, isReadColortables = false) {
   const num_entries = view.getInt32((pos += 4), false);
   if (num_entries < 1) {
     // undocumented old format
-    return rgba32;
+    return colorsOnly;
   }
   // preallocate lookuptable
   const LUT = {
@@ -95,7 +97,7 @@ function readANNOT(buffer, n_vert, isReadColortables = false) {
     const B = view.getInt32((pos += 4), false);
     const A = view.getInt32((pos += 4), false);
     if (struc < 0 || struc >= maxstruc) {
-      connsole.warn('annot entry out of range');
+      console.warn('annot entry out of range');
       continue;
     }
     LUT.R[struc] = R;
@@ -105,32 +107,43 @@ function readANNOT(buffer, n_vert, isReadColortables = false) {
     LUT.I[struc] = (A << 24) + (B << 16) + (G << 8) + R;
     LUT.labels[struc] = txt;
   }
-  const scalars = new Float32Array(n_vertex);
-  scalars.fill(-1);
+
+  // reverse lookup: packed color -> colortable index. A linear scan per vertex
+  // would be O(nVertices x maxstruc) on ~150k vertices per hemisphere.
+  const colorToStruct = new Map();
+  for (let c = 0; c < maxstruc; c++) {
+    if (!colorToStruct.has(LUT.I[c])) {
+      colorToStruct.set(LUT.I[c], c);
+    }
+  }
+
+  const vertexKeys = new Int32Array(n_vertex);
+  const labels = new Map();
   let nError = 0;
   for (let i = 0; i < n_vert; i++) {
-    const RGB = rgba32[i];
-    for (let c = 0; c < maxstruc; c++) {
-      if (LUT.I[c] === RGB) {
-        scalars[i] = c;
-        break;
-      }
-    } // for c
-    if (scalars[i] < 0) {
+    const struc = colorToStruct.get(rgba32[i]);
+    if (struc === undefined) {
       nError++;
-      scalars[i] = 0;
+      vertexKeys[i] = 0;
+    } else {
+      vertexKeys[i] = struc;
+    }
+    const key = vertexKeys[i];
+    if (!labels.has(key)) {
+      labels.set(key, LUT.labels[key] || String(key));
     }
   }
   if (nError > 0) {
-    console.error(`annot vertex colors do not match ${nError} of ${n_vertex} vertices.`);
+    // normal for a standard parcellation: the medial wall and any other
+    // unlabeled vertex carries a color that is absent from the color table
+    console.debug(`annot: ${nError} of ${n_vertex} vertices carry no color table entry; treated as unlabeled.`);
   }
-  for (let i = 0; i < maxstruc; i++) {
-    LUT.I[i] = i;
-  }
-  // const colormapLabel = cmapper.makeLabelLut(LUT);
+
   return {
-    scalars: scalars,
-    colormapLabel: LUT
+    rgba32      : rgba32,
+    vertexKeys  : vertexKeys,
+    labels      : labels,
+    colormapLabel : LUT
   };
 } // readANNOT()
 
@@ -144,12 +157,17 @@ class FreeSurferAnnot {
     const raw = data;
 
     // Uint32 but should be used as uint8 RGBA
-    const rgba32 = readANNOT(data);
+    const parsed = readANNOT(data);
+    const rgba32 = parsed.rgba32;
 
     this.nVertices = rgba32.length;
     // this.nFrames = 1;
 
     this.vertexColor = new Uint8Array( rgba32.buffer );
+
+    // only available when the file embeds a colortable
+    this.vertexKeys = parsed.vertexKeys;
+    this.labels = parsed.labels;
 
     this.isFreeSurferAnnot = true;
     this.isSurfaceAnnotation = true;
@@ -160,6 +178,7 @@ class FreeSurferAnnot {
 
   dispose() {
     this.vertexColor = NaN;
+    this.vertexKeys = NaN;
   }
 
   copy( el ) {
@@ -168,6 +187,8 @@ class FreeSurferAnnot {
     // this.nFrames = el.nFrames;
 
     this.vertexColor = el.vertexColor;
+    this.vertexKeys = el.vertexKeys;
+    this.labels = el.labels;
 
     this.isFreeSurferAnnot = true;
     this.isSurfaceAnnotation = true;

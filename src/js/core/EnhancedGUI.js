@@ -404,6 +404,8 @@ class EnhancedGUI extends GUI {
       "Left Mesh Clipping", "Right Mesh Clipping",
       "Subcortical Surface", "Sub-Left Opacity", "Sub-Right Opacity",
       "Surface Color", "Blend Factor", "Sigma", "Decay", "Range Limit",
+      "Vertex Data", "Surface Threshold Data", "Surface Threshold Method",
+      "Surface Threshold Range",
 
       "Map Electrodes", "Surface Mapping", "Volume Mapping",
       "Visibility", "Electrode Shape", "Outlines", "Text Scale","Text Visibility",

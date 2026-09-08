@@ -737,6 +737,7 @@ class NIMLDset {
     const keys = table.columns[ 0 ];
 
     const vertexColor = new Uint8Array( nVertices * 4 );
+    const vertexKeys = new Int32Array( nVertices );
     const labels = new Map();
 
     for( let r = 0; r < table.nrow; r++ ) {
@@ -745,6 +746,7 @@ class NIMLDset {
       const key = Math.trunc( Number( keys[ r ] ) );
       const entry = labelTable ? labelTable.get( key ) : undefined;
       const at = target * 4;
+      vertexKeys[ target ] = key;
       if( entry ) {
         vertexColor[ at ] = entry.r;
         vertexColor[ at + 1 ] = entry.g;
@@ -759,6 +761,7 @@ class NIMLDset {
     }
 
     this.vertexColor = vertexColor;
+    this.vertexKeys = vertexKeys;
     this.labels = labels;
     this.isSurfaceAnnotation = true;
   }
@@ -779,6 +782,7 @@ class NIMLDset {
     this.vertexData = NaN;
     this._frameData = NaN;
     this.vertexColor = NaN;
+    this.vertexKeys = NaN;
   }
 
   copy( el ) {
@@ -789,6 +793,7 @@ class NIMLDset {
 
     if( el.isSurfaceAnnotation ) {
       this.vertexColor = el.vertexColor;
+      this.vertexKeys = el.vertexKeys;
       this.labels = el.labels;
       this.isSurfaceAnnotation = true;
     } else {

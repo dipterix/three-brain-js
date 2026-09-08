@@ -90,6 +90,13 @@ class SurfaceMeasurementHandler extends FileDataHandler {
 
         // make sure the data is set back to previous
         crtlVertData.setValue( currentDataName === "[custom measurement]" ? "[none]" : currentDataName );
+
+        // the threshold may point at the data being disposed
+        const ctrlThresholdData = app.controllerGUI.getController('Surface Threshold Data');
+        if( !ctrlThresholdData.isfake && ctrlThresholdData.getValue() === "[custom measurement]" ) {
+          ctrlThresholdData.setValue("[none]");
+        }
+
         try {
           const folder = app.controllerGUI.getFolder( innerFolderName );
           if( folder ) { folder.destroy(); }

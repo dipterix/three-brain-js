@@ -48,6 +48,24 @@ const compile_free_material = ( material, options ) => {
     return true;
   };
 
+  /**
+   * Toggles the per-vertex overlay threshold mask (`overlayMask` attribute).
+   * The attribute is only declared when this define is set, so a geometry
+   * without the attribute can never be masked by a default attribute value.
+   */
+  material.setOverlayMaskEnabled = ( enabled ) => {
+    const materialDefines = material.defines;
+    const currentlyEnabled = materialDefines.USE_SURFACE_OVERLAY_MASK !== undefined;
+    if( currentlyEnabled === ( enabled ? true : false ) ) { return false; }
+    if( enabled ) {
+      materialDefines.USE_SURFACE_OVERLAY_MASK = "";
+    } else {
+      delete materialDefines.USE_SURFACE_OVERLAY_MASK;
+    }
+    material.needsUpdate = true;
+    return true;
+  };
+
 
   material.setClippingPlaneFromDataCube = ( datacube, normal ) => {
     if( !datacube ) {
@@ -141,6 +159,13 @@ const compile_free_material = ( material, options ) => {
 
 #endif
 
+#if defined( USE_SURFACE_OVERLAY_MASK )
+
+  attribute float overlayMask;
+  varying float vOverlayMask;
+
+#endif
+
 #if defined( USE_CLIPPING_SLICE )
 
   uniform vec3 clippingThrough;
@@ -192,6 +217,12 @@ vec3 cameraRay = normalize( transformed.xyz - cameraPosition.xyz );
     vPosition = position;
 
   #endif
+
+#endif
+
+#if defined( USE_SURFACE_OVERLAY_MASK )
+
+  vOverlayMask = overlayMask;
 
 #endif
 
@@ -255,6 +286,12 @@ uniform float mask_threshold;
     varying vec3 vPosition;
 
   #endif
+
+#endif
+
+#if defined( USE_SURFACE_OVERLAY_MASK )
+
+  varying float vOverlayMask;
 
 #endif
 
@@ -465,6 +502,12 @@ shader.fragmentShader = shader.fragmentShader.replace(
 
   #endif
 
+  // vertices failing the overlay threshold fall back to the underlay color
+  #if defined( USE_SURFACE_OVERLAY_MASK )
+
+    vColor2.rgb = mix( vUnderlayColor.rgb, vColor2.rgb, step( 0.5, vOverlayMask ) );
+
+  #endif
 
 #endif
 

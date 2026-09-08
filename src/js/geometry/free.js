@@ -5,6 +5,7 @@ import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          Data3DTexture, Color, Vector4 } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
+import { asArray } from '../utility/asArray.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
 import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
@@ -274,6 +275,210 @@ class FreeMesh extends AbstractThreeBrainObject {
     return this._materials.MeshPhysicalMaterial.getMappingType();
   }
 
+  setOverlayMaskEnabled( enabled ) {
+    let changed = false;
+    for ( let materialType in this._materials ) {
+      const material = this._materials[ materialType ];
+      changed = material.setOverlayMaskEnabled( enabled ) || changed;
+    }
+    return changed;
+  }
+
+  /**
+   * Resolves a vertex-data name (annotation or measurement) into its metadata.
+   * Returns `undefined` when the data is absent, still loading, or does not
+   * match this surface. Used by the surface controllers to decide whether a
+   * threshold is continuous or discrete.
+   */
+  getVertexDataInfo( dataName ) {
+    if( typeof dataName !== "string" || dataName === "[none]" ) { return; }
+
+    const dataObject = this._canvas.get_data(
+      `${ this._hemispherePrefix }h_annotation_${ dataName }`,
+      this.name, this.group_name );
+
+    if( !dataObject || dataObject.isInvalid ) { return; }
+    if( dataObject.nVertices !== this.__nvertices ) { return; }
+
+    if( dataObject.isSurfaceMeasurement ) {
+      return {
+        isContinuous  : true,
+        min           : dataObject.min,
+        max           : dataObject.max,
+        nVertices     : dataObject.nVertices,
+      };
+    }
+
+    if( dataObject.isSurfaceAnnotation ) {
+      // annotations without an embedded color table carry no label keys and
+      // hence cannot be thresholded
+      if( !dataObject.vertexKeys || !dataObject.labels ) { return; }
+      return {
+        isContinuous  : false,
+        labels        : dataObject.labels,
+        nVertices     : dataObject.nVertices,
+      };
+    }
+
+    return;
+  }
+
+  /**
+   * Recomputes `overlayMaskArray` from the surface threshold controllers.
+   * Called on every render, so it exits early unless the inputs changed.
+   */
+  updateOverlayMask() {
+
+    const thresholdState = this.state.threshold;
+    const dataName = this._canvas.get_state( "surfaceThresholdData", "[none]" );
+    const thresholdValues = asArray( this._canvas.get_state( "surfaceThresholdValues" ) );
+    const operator = this._canvas.get_state( "surfaceThresholdMethod" );
+
+    const signature = `${ dataName }|${ thresholdValues.join(",") }|${ operator }`;
+    if( thresholdState.signature === signature ) { return; }
+
+    const maskArray = this.overlayMaskArray;
+    const maskAttribute = this._geometry.attributes.overlayMask;
+
+    // resets the mask so every vertex passes; `resolved` marks whether the
+    // reason is final (vs. data that has not finished loading, in which case
+    // the signature is not stored and the next render retries)
+    const disableThreshold = ( resolved ) => {
+      if( thresholdState.active ) {
+        maskArray.fill( 255 );
+        maskAttribute.needsUpdate = true;
+      }
+      thresholdState.active = false;
+      thresholdState.dataName = "[none]";
+      thresholdState.signature = resolved ? signature : null;
+      this.setOverlayMaskEnabled( false );
+    };
+
+    if( dataName === "[none]" || thresholdValues.length === 0 ) {
+      disableThreshold( true );
+      return;
+    }
+
+    const dataObject = this._canvas.get_data(
+      `${ this._hemispherePrefix }h_annotation_${ dataName }`,
+      this.name, this.group_name );
+
+    if( !dataObject || dataObject.isInvalid ) {
+      // possibly still loading: retry on the next render
+      disableThreshold( false );
+      return;
+    }
+
+    if( dataObject.nVertices !== this.__nvertices ) {
+      // e.g. the threshold data belongs to the other hemisphere
+      disableThreshold( true );
+      return;
+    }
+
+    let isPassed;
+
+    if( dataObject.isSurfaceMeasurement ) {
+
+      // '|v| < T1', '|v| >= T1', 'v < T1', 'v >= T1',
+      // 'v in [T1, T2]', 'v not in [T1,T2]'
+      if(
+        !( operator >= 0 && operator < CONSTANTS.THRESHOLD_OPERATORS.length )
+      ) {
+        disableThreshold( true );
+        return;
+      }
+      const opstr = CONSTANTS.THRESHOLD_OPERATORS[ operator ];
+      let t1 = thresholdValues[ 0 ];
+      if( typeof t1 !== "number" || isNaN( t1 ) ) {
+        disableThreshold( true );
+        return;
+      }
+
+      switch ( opstr ) {
+        case 'v = T1':
+          isPassed = ( v ) => { return v == t1; };
+          break;
+
+        case '|v| < T1':
+          isPassed = ( v ) => { return Math.abs( v ) < t1; };
+          break;
+
+        case '|v| >= T1':
+          isPassed = ( v ) => { return Math.abs( v ) >= t1; };
+          break;
+
+        case 'v < T1':
+          isPassed = ( v ) => { return v < t1; };
+          break;
+
+        case 'v >= T1':
+          isPassed = ( v ) => { return v >= t1; };
+          break;
+
+        default:
+          // 'v in [T1, T2]' or 'v not in [T1,T2]'
+          let t2 = Math.abs(t1);
+          if( thresholdValues.length === 1 ){
+            t1 = -t2;
+          } else {
+            t2 = thresholdValues[1];
+            if( t1 > t2 ){
+              t2 = t1;
+              t1 = thresholdValues[1];
+            }
+          }
+          if( opstr === 'v in [T1, T2]' ) {
+            isPassed = ( v ) => { return (v <= t2 && v >= t1); };
+          } else {
+            // 'v not in [T1,T2]'
+            isPassed = ( v ) => { return (v > t2 || v < t1); };
+          }
+      };
+
+      // only the first frame is used, matching how the color path consumes
+      // `vertexData`
+      const values = dataObject.vertexData;
+      for( let ii = 0; ii < this.__nvertices; ii++ ) {
+        maskArray[ ii ] = isPassed( values[ ii ] ) ? 255 : 0;
+      }
+
+    } else if ( dataObject.isSurfaceAnnotation ) {
+
+      const vertexKeys = dataObject.vertexKeys,
+            labels = dataObject.labels;
+      if( !vertexKeys || !labels ) {
+        disableThreshold( true );
+        return;
+      }
+
+      // resolve the selected label names into the set of passing keys once
+      const selectedNames = new Set(
+        thresholdValues.map( v => { return `${ v }`.trim(); } )
+      );
+      const passingKeys = new Set();
+      labels.forEach(( labelName, key ) => {
+        if( selectedNames.has( `${ labelName }`.trim() ) ) {
+          passingKeys.add( key );
+        }
+      });
+
+      for( let ii = 0; ii < this.__nvertices; ii++ ) {
+        maskArray[ ii ] = passingKeys.has( vertexKeys[ ii ] ) ? 255 : 0;
+      }
+
+    } else {
+      disableThreshold( true );
+      return;
+    }
+
+    maskAttribute.needsUpdate = true;
+    thresholdState.active = true;
+    thresholdState.dataName = dataName;
+    thresholdState.signature = signature;
+    this.setOverlayMaskEnabled( true );
+
+  }
+
   _set_color_from_datacube2( m, bias = 3.0 ){
     // console.debug("Generating surface colors from volume data...");
 
@@ -466,19 +671,32 @@ class FreeMesh extends AbstractThreeBrainObject {
     const blendFactor = this._canvas.get_state("surface_color_blend", 1) * 0.5;
     const underlayArray = this.underlayArray;
     const overlayArray = this.overlayArray;
+    const maskArray = this.overlayMaskArray;
+    const maskActive = this.state.threshold.active;
     const blendArray = new Uint8Array( this.__nvertices * 4 ).fill(255);
 
     for( let ii = 0 ; ii < this.__nvertices; ii++ ) {
+      const ii3 = ii * 3;
+      // masked-out vertices display the underlay color (see SurfaceShader.js)
+      const overlaySource = ( maskActive && maskArray[ ii ] < 128 ) ? underlayArray : overlayArray;
+
       // gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
-      blendArray[ ii * 4 ] = underlayArray[ ii * 3 ] * (1 - blendFactor) + overlayArray[ ii * 3 ] * blendFactor;
-      blendArray[ ii * 4 + 1 ] = underlayArray[ ii * 3 + 1 ] * (1 - blendFactor) + overlayArray[ ii * 3 + 1 ] * blendFactor;
-      blendArray[ ii * 4 + 2 ] = underlayArray[ ii * 3 + 2 ] * (1 - blendFactor) + overlayArray[ ii * 3 + 2 ] * blendFactor;
+      blendArray[ ii * 4 ] = underlayArray[ ii3 ] * (1 - blendFactor) + overlaySource[ ii3 ] * blendFactor;
+      blendArray[ ii * 4 + 1 ] = underlayArray[ ii3 + 1 ] * (1 - blendFactor) + overlaySource[ ii3 + 1 ] * blendFactor;
+      blendArray[ ii * 4 + 2 ] = underlayArray[ ii3 + 2 ] * (1 - blendFactor) + overlaySource[ ii3 + 2 ] * blendFactor;
     }
     geometry.deleteAttribute("overlayColor");
+    geometry.deleteAttribute("overlayMask");
     geometry.deleteAttribute("color");
     geometry.setAttribute( 'color', new BufferAttribute( blendArray, 4, true ) );
 
     const currentMaterial = Object.assign(this.object.material.clone(), materialModifier);
+    // the mask has been baked into `blendArray`; the cloned geometry no longer
+    // carries the attribute. `Material.clone()` copies `defines` by value, so
+    // this does not affect the live material.
+    if( currentMaterial.defines ) {
+      delete currentMaterial.defines.USE_SURFACE_OVERLAY_MASK;
+    }
 
     const mesh = new Mesh(geometry, currentMaterial);
 
@@ -816,6 +1034,10 @@ class FreeMesh extends AbstractThreeBrainObject {
         col_code = CONSTANTS.DEFAULT_COLOR;
     };
 
+    // the threshold mask gates whichever overlay is active, so it is computed
+    // outside the color-type switch
+    this.updateOverlayMask();
+
     material_needs_update = this.setMappingType( col_code );
     if( this._material_options.blend_factor.value !== blend ){
       this._material_options.blend_factor.value = blend;
@@ -980,8 +1202,18 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.overlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
     this._geometry.setAttribute( 'overlayColor', new BufferAttribute( this.overlayArray, 3, true ) );
 
+    // overlay threshold mask: 255 = pass (show overlay), 0 = masked out (show underlay)
+    this.overlayMaskArray = new Uint8Array( this.__nvertices ).fill(255);
+    this._geometry.setAttribute( 'overlayMask', new BufferAttribute( this.overlayMaskArray, 1, true ) );
+
     this.state = {
       defaultColorMap : "BlueRed",
+      threshold : {
+        // change-detection key; null forces a recompute on the next render
+        signature     : null,
+        dataName      : "[none]",
+        active        : false,
+      },
       overlay : {
         dataName      : "[none]",
         dataArray     : undefined,

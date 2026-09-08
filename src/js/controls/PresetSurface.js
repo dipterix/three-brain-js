@@ -424,26 +424,40 @@ function registerPresetSurface( ViewerControlCenter ){
       .addController('Surface Color', "none", {args : options, folderName : folderName })
       .onChange((v) => {
 
+        // the threshold mask gates any overlay, hence it is available in every
+        // mode but `none`
+        const thresholdControllers = [
+          'Surface Threshold Data', 'Surface Threshold Range', 'Surface Threshold Method'
+        ];
+
         switch (v) {
           case "sync from voxels":
-            this.gui.showControllers(['Sigma', 'Blend Factor'], folderName );
+            this.gui.showControllers(['Sigma', 'Blend Factor', ...thresholdControllers], folderName );
             this.gui.hideControllers(['Decay', 'Range Limit', 'Vertex Data'], folderName );
             break;
 
           case "sync from electrodes":
-            this.gui.showControllers(['Decay', 'Range Limit', 'Blend Factor'], folderName );
+            this.gui.showControllers(['Decay', 'Range Limit', 'Blend Factor', ...thresholdControllers], folderName );
             this.gui.hideControllers(['Sigma', 'Vertex Data'], folderName );
             break;
 
           case "vertices":
-            this.gui.showControllers(['Blend Factor', 'Vertex Data'], folderName );
+            this.gui.showControllers(['Blend Factor', 'Vertex Data', ...thresholdControllers], folderName );
             this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit'], folderName );
             break;
 
           default:
             // none
             v = "none";
-            this.gui.hideControllers(['Blend Factor', 'Sigma', 'Decay', 'Range Limit', 'Vertex Data'], folderName );
+            this.gui.hideControllers([
+              'Blend Factor', 'Sigma', 'Decay', 'Range Limit', 'Vertex Data',
+              ...thresholdControllers
+            ], folderName );
+        }
+
+        if( v !== "none" && this.canvas.get_state( "surfaceThresholdType", "discrete" ) !== "continuous" ) {
+          // the method only applies to continuous thresholds
+          this.gui.hideControllers( 'Surface Threshold Method', folderName );
         }
 
         this.canvas.set_state( "surface_color_type", v);
@@ -513,6 +527,104 @@ function registerPresetSurface( ViewerControlCenter ){
       }
     });
 
+    // ---------- for node-threshold -------------------------------------------
+
+    // Collects the metadata of a vertex data across every surface of the
+    // current subject; hemispheres share the same annotation labels, so the
+    // label sets are unioned.
+    const collectVertexDataInfo = ( dataName ) => {
+      let isContinuous, min = Infinity, max = -Infinity;
+      const labels = new Set();
+      let found = false;
+
+      this.canvas.threebrain_instances.forEach( inst => {
+        if( !inst || !inst.isFreeMesh ) { return; }
+        if( typeof inst.getVertexDataInfo !== "function" ) { return; }
+        const info = inst.getVertexDataInfo( dataName );
+        if( !info ) { return; }
+        found = true;
+        isContinuous = info.isContinuous;
+        if( info.isContinuous ) {
+          if( info.min < min ) { min = info.min; }
+          if( info.max > max ) { max = info.max; }
+        } else if ( info.labels ) {
+          info.labels.forEach( labelName => { labels.add( `${ labelName }` ); } );
+        }
+      });
+
+      if( !found ) { return; }
+      return {
+        isContinuous  : isContinuous,
+        min           : min,
+        max           : max,
+        labels        : [ ...labels ],
+      };
+    };
+
+    // remembers the continuous range so it survives a round-trip through a
+    // discrete threshold data
+    let continuousThresholdRange = '';
+
+    const ctrlSurfaceThresholdData = this.gui
+      .addController("Surface Threshold Data", '[none]', {
+        args: annotationList,
+        folderName : folderName })
+      .onChange((v) => {
+        const info = collectVertexDataInfo( v );
+
+        if( !info ) {
+          // [none], or a data that cannot be thresholded
+          this.canvas.set_state("surfaceThresholdData", "[none]");
+          this.canvas.set_state("surfaceThresholdType", "continuous");
+          this.gui.hideControllers( 'Surface Threshold Method', folderName );
+          ctrlSurfaceThresholdRange.setValue('');
+        } else if ( info.isContinuous ) {
+          this.canvas.set_state("surfaceThresholdType", "continuous");
+          this.canvas.set_state("surfaceThresholdData", v);
+          this.gui.showControllers( 'Surface Threshold Method', folderName );
+          ctrlSurfaceThresholdRange.setValue( continuousThresholdRange );
+        } else {
+          this.canvas.set_state("surfaceThresholdType", "discrete");
+          this.canvas.set_state("surfaceThresholdData", v);
+          this.gui.hideControllers( 'Surface Threshold Method', folderName );
+          // default to every label, i.e. nothing is masked out
+          ctrlSurfaceThresholdRange.setValue( info.labels.join('|') );
+        }
+
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    const ctrlSurfaceThresholdRange = this.gui
+      .addController("Surface Threshold Range", '', { folderName : folderName })
+      .onChange((v) => {
+        const isContinuous = this.canvas.get_state( "surfaceThresholdType", "discrete" ) === "continuous";
+        v = `${ v }`;
+        let candidates = v.split(/[\|,]/).map((x) => { return(x.trim()); });
+
+        if( isContinuous ) {
+          candidates = candidates.map(x => { return(parseFloat(x)); })
+                                 .filter(x => { return(!isNaN(x)); });
+          continuousThresholdRange = v;
+        }
+
+        this.canvas.set_state("surfaceThresholdValues", candidates);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+
+    this.gui
+      .addController("Surface Threshold Method", '|v| >= T1', {
+        args : CONSTANTS.THRESHOLD_OPERATORS, folderName : folderName })
+      .onChange((v) => {
+        const op = CONSTANTS.THRESHOLD_OPERATORS.indexOf(v);
+        if( op < 0 ) { return; }
+        this.canvas.set_state("surfaceThresholdMethod", op);
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.canvas.set_state("surfaceThresholdMethod", 2);
+
     // ---------- for voxel-color ----------------------------------------------
 
     const map_delta = this.gui
@@ -553,7 +665,9 @@ function registerPresetSurface( ViewerControlCenter ){
     // 'blend_factor'      : { value : 0.4 }
 
 
-    this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit'], folderName);
+    // `Surface Threshold Method` only applies to continuous thresholds, and the
+    // threshold data defaults to `[none]`
+    this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit', 'Surface Threshold Method'], folderName);
   };
 
   return( ViewerControlCenter );
