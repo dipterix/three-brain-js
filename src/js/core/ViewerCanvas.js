@@ -448,19 +448,27 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.$mainCanvas.addEventListener( 'mousemove', this._onMouseMove );
   }
 
+  /**
+   * These three bracket a camera motion, not a mouse gesture: the trackball
+   * damps, so it keeps moving the camera for a dozen or so frames after the
+   * pointer is released, and it holds `start`..`end` open for exactly that
+   * span. Rendering must follow the camera rather than the pointer, otherwise
+   * the picture freezes at release while the camera drifts on, and the next
+   * unrelated repaint jumps.
+   *
+   * Neither of the first two may test `activated`: pointer capture keeps a
+   * drag alive outside the viewer, where `viewerApp.mouse.leaveViewer` has
+   * already cleared that flag, and the camera moving is on its own reason
+   * enough to paint.
+   */
   _onTrackballStarted = ( event ) => {
-    if( !this.activated ) { return; }
     this._trackballStarted = true;
     this.setRenderFlag( CanvasState.RenderOnce, "|", "Trackball started" );
   }
 
   _onTrackballChanged = ( event ) => {
-    if( !this.activated ) {
-      // this.activated = true;
-      // this.setRenderFlag( CanvasState.RenderOnce, "|", "Trackball (inactive) changed" );
-      // this._renderFlag = this._renderFlag | CanvasState.RenderOnce;
-      return;
-    }
+    // ignores the bare `change` from `trackball.reset()`, which arrives outside
+    // a motion and is covered by `needsUpdate` at its call sites
     if( !this._trackballStarted ) { return; }
     this.setRenderFlag( CanvasState.TrackballChange, "|", "Trackball changed" );
     // this._renderFlag = this._renderFlag | CanvasState.TrackballChange;
@@ -470,6 +478,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._trackballStarted = false;
     // this._renderFlag = this._renderFlag & (CanvasState.TrackballChange ^ CanvasState.Mask);
     this.setRenderFlag( CanvasState.TrackballChange ^ CanvasState.Mask, "&", "Trackball ended" );
+    // fires once the camera has come to rest, so what is broadcast is the
+    // settled position rather than the one at pointer release
     this.dispatch( _mainCameraUpdatedEvent );
   }
 

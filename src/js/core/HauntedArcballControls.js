@@ -118,6 +118,10 @@ class HauntedArcballControls extends Controls {
 		// pan
 		this._isPanning = false;
 
+		// whether a `start` has been dispatched without its matching `end`;
+		// see `_beginMotion()` / `_maybeEndMotion()`
+		this._motionActive = false;
+
 		// pointers
 		this._pointers = [];
 		this._pointerPositions = {};
@@ -189,6 +193,7 @@ class HauntedArcballControls extends Controls {
 
     this._pointers.length = 0;
     this._pointerPositions = {};
+    this._motionActive = false;
 
   }
 
@@ -354,11 +359,51 @@ class HauntedArcballControls extends Controls {
     return clamped;
   }
 
+  /**
+   * `start` and `end` bracket a *motion*, not an input.
+   *
+   * Damping keeps moving the camera for a dozen or so frames after the pointer
+   * is released, and the viewer renders on demand: it only paints while it
+   * believes the camera is moving. Ending the gesture at `pointerup` would
+   * therefore freeze the picture while the camera kept drifting, so the frame
+   * on screen no longer matches the camera. `end` instead waits until every
+   * damper has settled and no pointer is left down - a condition
+   * `rotateCamera()` / `zoomCamera()` / `panCamera()` already compute.
+   */
+  _beginMotion() {
+
+    if ( this._motionActive ) { return; }
+
+    this._motionActive = true;
+    this.dispatchEvent( _startEvent );
+
+  }
+
+  _maybeEndMotion() {
+
+    if ( !this._motionActive ) { return; }
+    if ( this._pointers.length > 0 ) { return; }
+    if ( this._isRotating || this._isZooming || this._isPanning ) { return; }
+
+    this._motionActive = false;
+    this.dispatchEvent( _endEvent );
+
+  }
+
   rotateCamera() {
 
+    /**
+     * `angleTo()` reports PI/2 when either vector is zero-length, which is
+     * exactly the state the constructor's first `update()` runs in - no pointer
+     * has seeded `_rotateStart`/`_rotateEnd` yet. Taking that for a rotation
+     * raises `_isRotating` forever: the axis is degenerate, so nothing moves and
+     * the angle never shrinks below EPS. That would hold the motion open and
+     * keep the canvas rendering every frame. Degenerate input is no rotation.
+     */
     // Use angleTo to avoid floating errors
     // Math.acos( this._rotateStart.dot( this._rotateEnd ) / this._rotateStart.length() / this._rotateEnd.length() );
-		let angle = this._rotateStart.angleTo( this._rotateEnd );
+		let angle = ( this._rotateStart.lengthSq() === 0 || this._rotateEnd.lengthSq() === 0 ) ?
+		  0 : this._rotateStart.angleTo( this._rotateEnd );
 
     /**
      * In some cases (for example, promise), `angle` can be very small number
@@ -369,7 +414,7 @@ class HauntedArcballControls extends Controls {
 	    // start event - only dispatch when transitioning from not-rotating to rotating
 		  if( !this._isRotating ) {
 		    this._isRotating = true;
-		    this.dispatchEvent( _startEvent );
+		    this._beginMotion();
 		  }
 
 			_rotateAxis.crossVectors( this._rotateStart, this._rotateEnd ).normalize();
@@ -398,8 +443,8 @@ class HauntedArcballControls extends Controls {
 			this._changed = true;
 
 		} else if ( this._isRotating ){
+		  // settled; `update()` dispatches `end` once every axis has come to rest
 		  this._isRotating = false;
-		  this.dispatchEvent( _endEvent );
 		}
   }
 
@@ -415,16 +460,15 @@ class HauntedArcballControls extends Controls {
         // start event - only dispatch when transitioning from not-zooming to zooming
         if( !this._isZooming ) {
 			    this._isZooming = true;
-			    this.dispatchEvent( _startEvent );
+			    this._beginMotion();
 			  }
 
         this._applyZoom( this.object.zoom * factor );
 
         this._changed = true;
       }else if( this._isZooming ){
-			  // stop event
+			  // settled; `update()` dispatches `end` once every axis has come to rest
 			  this._isZooming = false;
-			  this.dispatchEvent( _endEvent );
 			}
 
 		} else {
@@ -436,7 +480,7 @@ class HauntedArcballControls extends Controls {
 			  // start event - only dispatch when transitioning from not-zooming to zooming
 			  if( !this._isZooming ) {
 			    this._isZooming = true;
-			    this.dispatchEvent( _startEvent );
+			    this._beginMotion();
 			  }
 
 				const clamped = this._applyZoom( this.object.zoom / factor );
@@ -455,9 +499,8 @@ class HauntedArcballControls extends Controls {
 				this._changed = true;
 
 			}else if( this._isZooming ){
-			  // stop event
+			  // settled; `update()` dispatches `end` once every axis has come to rest
 			  this._isZooming = false;
-			  this.dispatchEvent( _endEvent );
 			}
 
 		}
@@ -482,7 +525,7 @@ class HauntedArcballControls extends Controls {
 		  // start event - only dispatch when transitioning from not-panning to panning
 		  if( !this._isPanning ) {
 		    this._isPanning = true;
-		    this.dispatchEvent( _startEvent );
+		    this._beginMotion();
 		  }
 
 			// Scale movement to keep clicked/dragged position under cursor
@@ -510,8 +553,8 @@ class HauntedArcballControls extends Controls {
 			this._changed = true;
 
 		}else if (this._isPanning){
+		  // settled; `update()` dispatches `end` once every axis has come to rest
 		  this._isPanning = false;
-		  this.dispatchEvent( _endEvent );
 		}
 
   }
@@ -519,9 +562,19 @@ class HauntedArcballControls extends Controls {
   update() {
     this._eye.subVectors( this.object.position, this.target );
 
+		/**
+		 * Disabling an axis mid-damp skips its camera function, so its
+		 * `_is*` flag has to be cleared here or it would stay raised forever and
+		 * `_maybeEndMotion()` could never fire - pinning the canvas into
+		 * rendering every frame, the exact opposite of what this viewer wants.
+		 */
 		if ( ! this.noRotate ) {
 
 			this.rotateCamera();
+
+		} else {
+
+		  this._isRotating = false;
 
 		}
 
@@ -529,11 +582,19 @@ class HauntedArcballControls extends Controls {
 
 			this.zoomCamera();
 
+		} else {
+
+		  this._isZooming = false;
+
 		}
 
 		if ( ! this.noPan ) {
 
 			this.panCamera();
+
+		} else {
+
+		  this._isPanning = false;
 
 		}
 
@@ -550,6 +611,13 @@ class HauntedArcballControls extends Controls {
 			this._changed = false;
 
 		}
+
+		/**
+		 * Never reached in the same frame as the `change` above: every branch
+		 * that sets `_changed` also raises its own `_is*` flag, which makes
+		 * `_maybeEndMotion()` bail out.
+		 */
+		this._maybeEndMotion();
   }
 
   lookAt({ x , y , z , remember = false } = {}) {
@@ -739,7 +807,8 @@ function onPointerCancel( event ) {
     this.domElement.ownerDocument.removeEventListener( 'pointermove', this._onPointerMove );
     this.domElement.ownerDocument.removeEventListener( 'pointerup', this._onPointerUp );
 
-    this.dispatchEvent( _endEvent );
+    // a cancelled drag coasts to rest like a released one
+    this._maybeEndMotion();
 
   }
 
@@ -795,7 +864,7 @@ function onMouseDown( event ) {
 
 	}
 
-  this.dispatchEvent( _startEvent );
+  this._beginMotion();
 
 }
 
@@ -821,7 +890,9 @@ function onMouseUp() {
 
 	this.state = STATE.NONE;
 
-	this.dispatchEvent( _endEvent );
+	// `onPointerUp` already dropped the pointer, so a click that moved nothing
+	// still ends in this tick; a drag with damping left ends once it settles
+	this._maybeEndMotion();
 
 }
 
@@ -839,8 +910,10 @@ function onMouseWheel( event ) {
 
 	this._zoomStart.y += event.deltaY * ( WHEEL_SCALE[ event.deltaMode ] ?? WHEEL_SCALE[ 0 ] );
 
-	this.dispatchEvent( _startEvent );
-	this.dispatchEvent( _endEvent );
+	// no `end` here: the zoom damper runs for several frames after the notch,
+	// and `update()` ends the motion once it settles. A delta too small for
+	// `zoomCamera()` to register ends on the very next `update()` instead.
+	this._beginMotion();
 
 }
 
@@ -872,7 +945,7 @@ function onTouchStart() {
 
 	}
 
-	this.dispatchEvent( _startEvent );
+	this._beginMotion();
 
 }
 
@@ -937,7 +1010,9 @@ function onTouchEnd() {
 
 	}
 
-	this.dispatchEvent( _endEvent );
+	// fingers still down keep the gesture open, so a pinch degrading into a
+	// single-finger rotation is not cut in half
+	this._maybeEndMotion();
 
 }
 
