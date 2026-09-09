@@ -1,4 +1,4 @@
-import { EventDispatcher, Vector2, Vector3, Quaternion } from 'three';
+import { Controls, MathUtils, MOUSE, Vector2, Vector3, Quaternion } from 'three';
 import { CONSTANTS } from './constants.js';
 
 const STATE = {
@@ -11,45 +11,84 @@ const STATE = {
 };
 const EPS = 0.000001;
 
+/**
+ * Wheel `deltaY` is reported in different units depending on the browser:
+ * Chrome/Safari report pixels (`deltaMode = 0`, ~100 per notch) while Firefox
+ * reports lines (`deltaMode = 1`, ~3 per notch). The pixel factor keeps the
+ * historical feel of this viewer; the other two follow the ratios three.js
+ * uses in `TrackballControls` (1 line = 40 pixels, 1 page = 2.5 lines).
+ */
+const WHEEL_SCALE = {
+  0 : 0.01,   // DOM_DELTA_PIXEL
+  1 : 0.4,    // DOM_DELTA_LINE
+  2 : 1.0     // DOM_DELTA_PAGE
+};
+
 // events
 const _changeEvent = { type: 'change' };
 const _startEvent = { type: 'start' };
 const _endEvent = { type: 'end' };
 
-class HauntedArcballControls extends EventDispatcher {
+// module-level scratch objects, shared by all instances (three.js convention)
+const _mouseChange = new Vector2();
+const _mouseOnBall = new Vector3();
+const _projectedOnBall = new Vector3();
+const _objectUp = new Vector3();
+const _eyeDirection = new Vector3();
+const _rotateAxis = new Vector3();
+const _rotateQuaternion = new Quaternion();
+
+/**
+ * Translates the modifier keys held during a rotation into a constrained
+ * rotation axis. Precedence is explicit so that combinations such as
+ * `alt+shift` resolve to a defined value instead of falling through.
+ */
+function axisFixFromEvent( event ) {
+  if ( event.altKey ) { return 3; }
+  if ( event.ctrlKey || event.metaKey ) { return 2; }
+  if ( event.shiftKey ) { return 1; }
+  return 0;
+}
+
+class HauntedArcballControls extends Controls {
   constructor( canvas ) {
-    super();
+
+    super( canvas.mainCamera, null );
 
     this._canvas = canvas;
-    this.object = this._canvas.mainCamera;
-  	this.domElement = this._canvas.main_canvas;
 
   	// API
-
-  	this.enabled = true;
 
   	this.screen = { left: 0, top: 0, width: 0, height: 0 };
 
   	this.radius = 0;
 
   	this.rotateSpeed = 1.0;
-  	this.zoomSpeed = 1.2;
+  	this.zoomSpeed = 0.02;
 
   	this.noRotate = false;
   	this.noZoom = false;
   	this.noPan = false;
-  	this.noRoll = false;
 
   	this.staticMoving = false;
-  	this.dynamicDampingFactor = 0.2;
+  	this.dynamicDampingFactor = 0.5;
 
-  	this.keys = [ 65 /*A*/, 83 /*S*/, 68 /*D*/ ];
+  	this.minZoom = 0.5;
+  	this.maxZoom = CONSTANTS.MAIN_CAMERA_MAX_ZOOM;
+
+  	// Zoom towards the cursor instead of the center of the viewport
+  	this.cursorZoom = true;
+
+  	this.mouseButtons = {
+  	  LEFT   : MOUSE.ROTATE,
+  	  MIDDLE : MOUSE.DOLLY,
+  	  RIGHT  : MOUSE.PAN
+  	};
 
   	// internals
 	  this.target = new Vector3();
     this._changed = false;
-    this._state = STATE.NONE;
-		this._prevState = STATE.NONE;
+    this.state = STATE.NONE;
 
 		this._eye = new Vector3();
 
@@ -66,25 +105,30 @@ class HauntedArcballControls extends EventDispatcher {
 		this._panEnd = new Vector2();
 		this._mouseOnScreen = new Vector2();
 
-		// project mouse to trackball
-		this._projectedOnBall = new Vector3();
-		this._objectUp = new Vector3();
-		this._mouseOnBall = new Vector3();
-
 		// rotation
-		this._rotateAxis = new Vector3();
-		this._rotateQuaternion = new Quaternion();
 		this._isRotating = false;
 		// fix axis? altKey -> 3, ctrl -> 2, shift -> 1, 0 for nothing
 		this._rotationAxisFixed = 0;
 
 		// zoom
 		this._isZooming = false;
+		// anchor of the next zoom step, in normalized device coordinates
+		this._zoomPointNDC = new Vector2();
 
 		// pan
-		this._panMouseChange = new Vector2(),
-		this._panDirection = new Vector3(),
 		this._isPanning = false;
+
+		// pointers
+		this._pointers = [];
+		this._pointerPositions = {};
+
+		// event listeners
+		this._onPointerDown = onPointerDown.bind( this );
+		this._onPointerMove = onPointerMove.bind( this );
+		this._onPointerUp = onPointerUp.bind( this );
+		this._onPointerCancel = onPointerCancel.bind( this );
+		this._onMouseWheel = onMouseWheel.bind( this );
+		this._onContextMenu = onContextMenu.bind( this );
 
 		// for reset
 
@@ -101,35 +145,8 @@ class HauntedArcballControls extends EventDispatcher {
   	this.top0 = this.object.top;
   	this.bottom0 = this.object.bottom;
 
-  	// Specialized for threeBrain
-  	this.zoomSpeed = 0.02;
-  	this.noPan = false;
-  	this.zoomMax = CONSTANTS.MAIN_CAMERA_MAX_ZOOM;
-  	this.zoomMin = 0.5;
-
-  	// Initial radius is 500
-  	// orthographic.radius = 400;
-  	this.dynamicDampingFactor=0.5;
-
     // finalize
-    /**
-     * Chrome will complain that these are not passive, ignore that, I have
-     * tried twice because of their warning, each time ended up with the
-     * same conclusion: ignore that warning.
-     *
-     * We want the blobking effect: (do not show context menu, do not scroll
-     * page when users want to zoom in)
-    */
-    this.domElement.addEventListener( 'contextmenu', this.onContextmenu, false );
-  	this.domElement.addEventListener( 'mousedown', this.onMousedown, false );
-  	this.domElement.addEventListener( 'wheel', this.onMousewheel, false );
-
-  	this.domElement.addEventListener( 'touchstart', this.onTouchstart, false );
-  	this.domElement.addEventListener( 'touchend', this.onTouchend, false );
-  	this.domElement.addEventListener( 'touchmove', this.onTouchmove, false );
-
-  	window.addEventListener( 'keydown', this.onKeydown, false );
-  	window.addEventListener( 'keyup', this.onKeyup, false );
+    this.connect( canvas.main_canvas );
 
   	this.handleResize();
 
@@ -138,28 +155,72 @@ class HauntedArcballControls extends EventDispatcher {
 
   }
 
-  handleResize = () => {
+  connect( element ) {
 
-    if ( this.domElement === document ) {
+    super.connect( element );
 
-			this.screen.left = 0;
-			this.screen.top = 0;
-			this.screen.width = window.innerWidth;
-			this.screen.height = window.innerHeight;
+    this.domElement.addEventListener( 'pointerdown', this._onPointerDown );
+    this.domElement.addEventListener( 'pointercancel', this._onPointerCancel );
+    // `passive: false` is required: this listener calls `preventDefault()` so
+    // the page does not scroll while the user zooms the viewer.
+  	this.domElement.addEventListener( 'wheel', this._onMouseWheel, { passive : false } );
+    this.domElement.addEventListener( 'contextmenu', this._onContextMenu );
 
-		} else {
+    // replaces the `preventDefault()` calls the mouse/touch handlers used to make
+    this.domElement.style.touchAction = 'none';
+    this.domElement.style.userSelect = 'none';
 
-			const box = this.domElement.getBoundingClientRect();
-			// adjustments come from similar code in the jquery offset() function
-			const d = this.domElement.ownerDocument.documentElement;
-			this.screen.left = box.left + window.pageXOffset - d.clientLeft;
-			this.screen.top = box.top + window.pageYOffset - d.clientTop;
-			this.screen.width = box.width;
-			this.screen.height = box.height;
+  }
 
-		}
+  disconnect() {
 
-		this.radius = 0.5 * Math.max( this.screen.width, this.screen.height );
+    if( !this.domElement ) { return; }
+
+    this.domElement.removeEventListener( 'pointerdown', this._onPointerDown );
+    this.domElement.removeEventListener( 'pointercancel', this._onPointerCancel );
+    this.domElement.removeEventListener( 'wheel', this._onMouseWheel );
+    this.domElement.removeEventListener( 'contextmenu', this._onContextMenu );
+
+    this.domElement.ownerDocument.removeEventListener( 'pointermove', this._onPointerMove );
+    this.domElement.ownerDocument.removeEventListener( 'pointerup', this._onPointerUp );
+
+    this.domElement.style.touchAction = '';
+    this.domElement.style.userSelect = '';
+
+    this._pointers.length = 0;
+    this._pointerPositions = {};
+
+  }
+
+  dispose() {
+    this.disconnect();
+  }
+
+  /**
+   * Caches the viewport rectangle in client coordinates. Bails out when the
+   * element has no layout (a hidden Shiny tab, `display: none`, ...): keeping
+   * the previous values avoids dividing by a zero `radius` and poisoning the
+   * camera with `NaN`.
+   */
+  _updateScreen() {
+
+    const box = this.domElement.getBoundingClientRect();
+
+    if( box.width <= 0 || box.height <= 0 ) { return false; }
+
+    this.screen.left = box.left;
+    this.screen.top = box.top;
+    this.screen.width = box.width;
+    this.screen.height = box.height;
+
+    this.radius = 0.5 * Math.max( this.screen.width, this.screen.height );
+
+    return true;
+  }
+
+  handleResize() {
+
+    this._updateScreen();
 
 		this.left0 = this.object.left;
 		this.right0 = this.object.right;
@@ -168,58 +229,132 @@ class HauntedArcballControls extends EventDispatcher {
 
   }
 
-  getMouseOnScreen = ( pageX, pageY ) => {
+  getMouseOnScreen( clientX, clientY ) {
+    if( this.screen.width <= 0 || this.screen.height <= 0 ) {
+      // no valid layout; a constant keeps pan/zoom deltas at zero
+      return this._mouseOnScreen.set( 0, 0 );
+    }
     this._mouseOnScreen.set(
-      ( pageX - this.screen.left ) / this.screen.width,
-			( pageY - this.screen.top ) / this.screen.height
+      ( clientX - this.screen.left ) / this.screen.width,
+			( clientY - this.screen.top ) / this.screen.height
     );
     return this._mouseOnScreen;
   }
 
-  getMouseProjectionOnBall = ( pageX, pageY, fixAxis = 0 ) => {
-		this._mouseOnBall.set(
-			( pageX - this.screen.width * 0.5 - this.screen.left ) / this.radius,
-			( this.screen.height * 0.5 + this.screen.top - pageY ) / this.radius,
+  getMouseProjectionOnBall( clientX, clientY, fixAxis = 0 ) {
+
+    if( this.radius <= 0 ) {
+      // no valid layout; return a constant so the rotation angle stays 0
+      return _projectedOnBall.set( 0, 0, 1 );
+    }
+
+		_mouseOnBall.set(
+			( clientX - this.screen.width * 0.5 - this.screen.left ) / this.radius,
+			( this.screen.height * 0.5 + this.screen.top - clientY ) / this.radius,
 			0.0
 		);
-		let length = this._mouseOnBall.length();
+		let length = _mouseOnBall.length();
 
 		if( this._rotationAxisFixed > 0 ) {
 		  fixAxis = this._rotationAxisFixed;
 		}
 		if( fixAxis === 1 ){
 		  // Fix x
-		  this._mouseOnBall.x = 0;
-		  length = Math.abs( this._mouseOnBall.y );
+		  _mouseOnBall.x = 0;
+		  length = Math.abs( _mouseOnBall.y );
 		}else if ( fixAxis === 2 ){
-		  this._mouseOnBall.y = 0;
-		  length = Math.abs( this._mouseOnBall.x );
+		  _mouseOnBall.y = 0;
+		  length = Math.abs( _mouseOnBall.x );
 		}else if ( fixAxis === 3 ){
-		  this._mouseOnBall.normalize();
+		  if( length === 0 ) {
+		    return _projectedOnBall.set( 0, 0, 1 );
+		  }
+		  _mouseOnBall.normalize();
 		  length = 1;
 		}
 
-		if ( this.noRoll ) {
-			if ( length < Math.SQRT1_2 ) {
-				this._mouseOnBall.z = Math.sqrt( 1.0 - length * length );
-			} else {
-				this._mouseOnBall.z = 0.5 / length;
-			}
-		} else if ( length > 1.0 ) {
-			this._mouseOnBall.normalize();
+		if ( length > 1.0 ) {
+			_mouseOnBall.normalize();
 		} else {
-			this._mouseOnBall.z = Math.sqrt( 1.0 - length * length );
+			_mouseOnBall.z = Math.sqrt( 1.0 - length * length );
 		}
-		this._eye.copy( this.object.position ).sub( this.target );
 
-		this._projectedOnBall.copy( this.object.up ).setLength( this._mouseOnBall.y );
-		this._projectedOnBall.add( this._objectUp.copy( this.object.up ).cross( this._eye ).setLength( this._mouseOnBall.x ) );
-		this._projectedOnBall.add( this._eye.setLength( this._mouseOnBall.z ) );
-		return this._projectedOnBall;
+		_eyeDirection.subVectors( this.object.position, this.target );
+
+		_projectedOnBall.copy( this.object.up ).setLength( _mouseOnBall.y );
+		_projectedOnBall.add( _objectUp.copy( this.object.up ).cross( _eyeDirection ).setLength( _mouseOnBall.x ) );
+		_projectedOnBall.add( _eyeDirection.setLength( _mouseOnBall.z ) );
+		return _projectedOnBall;
 
   }
 
-  rotateCamera = () => {
+  /**
+   * Records where the next zoom step should be anchored. `(0, 0)` is the
+   * center of the viewport, i.e. the classic "zoom to center" behavior.
+   */
+  _setZoomPoint( clientX, clientY ) {
+    if( this.screen.width <= 0 || this.screen.height <= 0 ) { return; }
+    this._zoomPointNDC.set(
+      ( clientX - this.screen.left ) / this.screen.width * 2 - 1,
+      1 - ( clientY - this.screen.top ) / this.screen.height * 2
+    );
+  }
+
+  /**
+   * Shifts the camera frustum without resizing it. This viewer pans by moving
+   * the frustum rather than the camera so that rotation stays centered on
+   * `target` (the crosshair). `right - left` and `top - bottom` are invariant
+   * here, which is what lets pan and cursor-anchored zoom compose.
+   */
+  _offsetFrustum( dx, dy ) {
+
+    this.object.left += dx;
+		this.object.right += dx;
+		this.object.top += dy;
+		this.object.bottom += dy;
+
+		this.left0 = this.object.left;
+		this.right0 = this.object.right;
+		this.top0 = this.object.top;
+		this.bottom0 = this.object.bottom;
+
+  }
+
+  /**
+   * Applies (and clamps) a new zoom level, compensating the frustum so the
+   * anchored point stays put when `cursorZoom` is on.
+   *
+   * @returns {boolean} whether the requested zoom had to be clamped
+   */
+  _applyZoom( zoom ) {
+
+    const previousZoom = this.object.zoom;
+    const nextZoom = MathUtils.clamp( zoom, this.minZoom, this.maxZoom );
+    const clamped = nextZoom !== zoom;
+
+    if( nextZoom === previousZoom ) { return clamped; }
+
+    this.object.zoom = nextZoom;
+
+    if( this.cursorZoom ) {
+      /**
+       * An orthographic projection maps NDC `u` to the camera-space coordinate
+       * `center + u * ( right - left ) / ( 2 * zoom )`. Holding that coordinate
+       * fixed while `zoom` goes from `z0` to `z1` means shifting the frustum
+       * center by `u * ( right - left ) / 2 * ( 1 / z0 - 1 / z1 )`. Using the
+       * clamped zooms keeps this exact at the zoom limits and under damping.
+       */
+      const k = 1 / previousZoom - 1 / nextZoom;
+      this._offsetFrustum(
+        this._zoomPointNDC.x * ( this.object.right - this.object.left ) * 0.5 * k,
+        this._zoomPointNDC.y * ( this.object.top - this.object.bottom ) * 0.5 * k
+      );
+    }
+
+    return clamped;
+  }
+
+  rotateCamera() {
 
     // Use angleTo to avoid floating errors
     // Math.acos( this._rotateStart.dot( this._rotateEnd ) / this._rotateStart.length() / this._rotateEnd.length() );
@@ -237,17 +372,17 @@ class HauntedArcballControls extends EventDispatcher {
 		    this.dispatchEvent( _startEvent );
 		  }
 
-			this._rotateAxis.crossVectors( this._rotateStart, this._rotateEnd ).normalize();
+			_rotateAxis.crossVectors( this._rotateStart, this._rotateEnd ).normalize();
 
 			angle *= this.rotateSpeed;
 
-			this._rotateQuaternion.setFromAxisAngle( this._rotateAxis, - angle );
+			_rotateQuaternion.setFromAxisAngle( _rotateAxis, - angle );
 
-			this._eye.applyQuaternion( this._rotateQuaternion );
+			this._eye.applyQuaternion( _rotateQuaternion );
 
-			this.object.up.applyQuaternion( this._rotateQuaternion );
+			this.object.up.applyQuaternion( _rotateQuaternion );
 
-			this._rotateEnd.applyQuaternion( this._rotateQuaternion );
+			this._rotateEnd.applyQuaternion( _rotateQuaternion );
 
 			if ( this.staticMoving ) {
 
@@ -255,8 +390,8 @@ class HauntedArcballControls extends EventDispatcher {
 
 			} else {
 
-				this._rotateQuaternion.setFromAxisAngle( this._rotateAxis, angle * ( this.dynamicDampingFactor - 1.0 ) );
-				this._rotateStart.applyQuaternion( this._rotateQuaternion );
+				_rotateQuaternion.setFromAxisAngle( _rotateAxis, angle * ( this.dynamicDampingFactor - 1.0 ) );
+				this._rotateStart.applyQuaternion( _rotateQuaternion );
 
 			}
 
@@ -268,11 +403,11 @@ class HauntedArcballControls extends EventDispatcher {
 		}
   }
 
-  zoomCamera = () => {
+  zoomCamera() {
 
-    if ( this._state === STATE.TOUCH_ZOOM_PAN ) {
+    if ( this.state === STATE.TOUCH_ZOOM_PAN ) {
 
-			let factor = this._touchZoomDistanceEnd / this._touchZoomDistanceStart;
+			const factor = this._touchZoomDistanceEnd / this._touchZoomDistanceStart;
 			this._touchZoomDistanceStart = this._touchZoomDistanceEnd;
 
       if( Math.abs( factor - 1.0 ) > EPS && factor > 0.0 ){
@@ -283,12 +418,7 @@ class HauntedArcballControls extends EventDispatcher {
 			    this.dispatchEvent( _startEvent );
 			  }
 
-        this.object.zoom *= factor;
-        if( this.object.zoom > this.zoomMax ) {
-          this.object.zoom = this.zoomMax;
-        } else if ( this.object.zoom < this.zoomMin ) {
-          this.object.zoom = this.zoomMin;
-        }
+        this._applyZoom( this.object.zoom * factor );
 
         this._changed = true;
       }else if( this._isZooming ){
@@ -299,7 +429,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 		} else {
 
-			let factor = 1.0 + ( this._zoomEnd.y - this._zoomStart.y ) * this.zoomSpeed;
+			const factor = 1.0 + ( this._zoomEnd.y - this._zoomStart.y ) * this.zoomSpeed;
 
 			if ( Math.abs( factor - 1.0 ) > EPS && factor > 0.0 ) {
 
@@ -309,20 +439,11 @@ class HauntedArcballControls extends EventDispatcher {
 			    this.dispatchEvent( _startEvent );
 			  }
 
-				this.object.zoom /= factor;
+				const clamped = this._applyZoom( this.object.zoom / factor );
 
-				if( this.object.zoom > this.zoomMax ) {
+				if( clamped || this.staticMoving ) {
 
-          this.object.zoom = this.zoomMax;
-          this._zoomStart.copy( this._zoomEnd );
-
-        } else if ( this.object.zoom < this.zoomMin ) {
-
-          this.object.zoom = this.zoomMin;
-          this._zoomStart.copy( this._zoomEnd );
-
-        } else if ( this.staticMoving ) {
-
+				  // drop the pending delta so it cannot pile up against the limit
 					this._zoomStart.copy( this._zoomEnd );
 
 				} else {
@@ -342,24 +463,22 @@ class HauntedArcballControls extends EventDispatcher {
 		}
   }
 
-  enableZoom = () => {
+  enableZoom() {
     this.noZoom = false;
-    this.domElement.addEventListener( 'wheel', this.onMousewheel, false );
+    // discard any delta accumulated while zooming was off
+    this._zoomStart.copy( this._zoomEnd );
   }
 
-  disableZoom = () => {
+  disableZoom() {
     this.noZoom = true;
-    this.domElement.removeEventListener( 'wheel', this.onMousewheel, false );
+    this._zoomStart.copy( this._zoomEnd );
   }
 
-  panCamera = () => {
-    // this._panMouseChange = new Vector2(),
-		// this._panDirection = new Vector3(),
-		// this._isPanning = false;
-		// this._objectUp
-		this._panMouseChange.copy( this._panEnd ).sub( this._panStart );
+  panCamera() {
 
-		if ( this._panMouseChange.lengthSq() > 0.00001 ) {
+		_mouseChange.copy( this._panEnd ).sub( this._panStart );
+
+		if ( _mouseChange.lengthSq() > 0.00001 ) {
 		  // start event - only dispatch when transitioning from not-panning to panning
 		  if( !this._isPanning ) {
 		    this._isPanning = true;
@@ -367,24 +486,16 @@ class HauntedArcballControls extends EventDispatcher {
 		  }
 
 			// Scale movement to keep clicked/dragged position under cursor
-			let scale_x = ( this.object.right - this.object.left ) / this.object.zoom;
-			let scale_y = ( this.object.top - this.object.bottom ) / this.object.zoom;
-			this._panMouseChange.x *= scale_x;
-			this._panMouseChange.y *= scale_y;
+			_mouseChange.x *= ( this.object.right - this.object.left ) / this.object.zoom;
+			_mouseChange.y *= ( this.object.top - this.object.bottom ) / this.object.zoom;
 
-			this._panDirection.copy( this._eye )
-			  .cross( this.object.up ).setLength( this._panMouseChange.x );
-			this._panDirection.add( this._objectUp.copy( this.object.up ).setLength( this._panMouseChange.y ) );
-
-			this.object.right = this.object.right - this._panMouseChange.x / 2;
-			this.object.left = this.object.left - this._panMouseChange.x / 2;
-			this.object.top = this.object.top + this._panMouseChange.y / 2;
-			this.object.bottom = this.object.bottom + this._panMouseChange.y / 2;
-
-			this.left0 = this.object.left;
-  		this.right0 = this.object.right;
-  		this.top0 = this.object.top;
-  		this.bottom0 = this.object.bottom;
+			/**
+			 * The halving is deliberate, not a scaling mistake: `_panStart` chases
+			 * `_panEnd` by `dynamicDampingFactor` every frame, so for the default
+			 * 0.5 the applied series 0.5 * ( d + d/2 + d/4 + ... ) sums to exactly
+			 * `d`, i.e. the grabbed point tracks the cursor 1:1.
+			 */
+			this._offsetFrustum( - _mouseChange.x / 2, _mouseChange.y / 2 );
 
 			if ( this.staticMoving ) {
 
@@ -392,7 +503,7 @@ class HauntedArcballControls extends EventDispatcher {
 
 			} else {
 
-				this._panStart.add( this._panMouseChange.subVectors( this._panEnd, this._panStart ).multiplyScalar( this.dynamicDampingFactor ) );
+				this._panStart.add( _mouseChange.subVectors( this._panEnd, this._panStart ).multiplyScalar( this.dynamicDampingFactor ) );
 
 			}
 
@@ -405,7 +516,7 @@ class HauntedArcballControls extends EventDispatcher {
 
   }
 
-  update = () => {
+  update() {
     this._eye.subVectors( this.object.position, this.target );
 
 		if ( ! this.noRotate ) {
@@ -418,23 +529,11 @@ class HauntedArcballControls extends EventDispatcher {
 
 			this.zoomCamera();
 
-			if ( this._changed ) {
-
-				this.object.updateProjectionMatrix();
-
-			}
-
 		}
 
 		if ( ! this.noPan ) {
 
 			this.panCamera();
-
-			if ( this._changed ) {
-
-				this.object.updateProjectionMatrix();
-
-			}
 
 		}
 
@@ -444,6 +543,8 @@ class HauntedArcballControls extends EventDispatcher {
 
 		if ( this._changed ) {
 
+		  this.object.updateProjectionMatrix();
+
 			this.dispatchEvent( _changeEvent );
 
 			this._changed = false;
@@ -451,7 +552,7 @@ class HauntedArcballControls extends EventDispatcher {
 		}
   }
 
-  lookAt = ({ x , y , z , remember = false } = {}) => {
+  lookAt({ x , y , z , remember = false } = {}) {
     if( typeof x === "number" ) { this.target.x = x; }
     if( typeof y === "number" ) { this.target.y = y; }
     if( typeof z === "number" ) { this.target.z = z; }
@@ -461,9 +562,21 @@ class HauntedArcballControls extends EventDispatcher {
     }
   }
 
-  reset = () => {
-    this._state = STATE.NONE;
-		this._prevState = STATE.NONE;
+  reset() {
+    this.state = STATE.NONE;
+
+		/**
+		 * Drop any interaction still in flight. Damping means a wheel tick or a
+		 * drag keeps being applied for a few frames after the input ended, so
+		 * without this the tail lands *after* the reset and nudges the camera
+		 * back off its initial state. Zeroing the deltas (rather than the
+		 * `_isRotating`/`_isZooming`/`_isPanning` flags) lets the next `update()`
+		 * dispatch the usual `end` events.
+		 */
+		this._rotateStart.copy( this._rotateEnd );
+		this._zoomStart.copy( this._zoomEnd );
+		this._panStart.copy( this._panEnd );
+		this._touchZoomDistanceStart = this._touchZoomDistanceEnd;
 
 		this.target.copy( this.target0 );
 		this.object.position.copy( this.position0 );
@@ -477,237 +590,361 @@ class HauntedArcballControls extends EventDispatcher {
 		this.object.bottom = this.bottom0;
 
 		this.object.lookAt( this.target );
+		this.object.updateProjectionMatrix();
 
 		this.dispatchEvent( _changeEvent );
 
 		this._changed = false;
   }
 
-  // listeners
-  onKeydown = ( event ) => {
-    if ( this.enabled === false ) return;
-    window.removeEventListener( 'keydown', this.onKeydown );
-    this._prevState = this._state;
+  // ---- pointer bookkeeping (see three.js TrackballControls) ----------------
 
-		if ( this._state !== STATE.NONE ) {
-			return;
-		} else if ( event.keyCode === this.keys[ STATE.ROTATE ] && ! this.noRotate ) {
-
-			this._state = STATE.ROTATE;
-
-		} else if ( event.keyCode === this.keys[ STATE.ZOOM ] && ! this.noZoom ) {
-
-			this._state = STATE.ZOOM;
-
-		} else if ( event.keyCode === this.keys[ STATE.PAN ] && ! this.noPan ) {
-
-			this._state = STATE.PAN;
-
-		}
+  _pointerIndex( pointerId ) {
+    for ( let i = 0; i < this._pointers.length; i ++ ) {
+      if ( this._pointers[ i ].pointerId === pointerId ) { return i; }
+    }
+    return - 1;
   }
 
-  onKeyup = ( event ) => {
-    if ( this.enabled === false ) return;
-
-    this._state = this._prevState;
-
-		window.addEventListener( 'keydown', this.onKeydown, false );
+  _addPointer( event ) {
+    this._pointers.push( event );
+    this._trackPointer( event );
   }
 
-  onMousedown = ( event ) => {
-    if ( this.enabled === false ) return;
-    event.preventDefault();
-		event.stopPropagation();
+  _removePointer( event ) {
+    delete this._pointerPositions[ event.pointerId ];
 
-		if ( this._state === STATE.NONE ) {
-		  const box = this.domElement.getBoundingClientRect();
-			// adjustments come from similar code in the jquery offset() function
-			const d = this.domElement.ownerDocument.documentElement;
-			this.screen.left = box.left + window.pageXOffset - d.clientLeft;
-			this.screen.top = box.top + window.pageYOffset - d.clientTop;
-			this.screen.width = box.width;
-			this.screen.height = box.height;
-			this._state = event.button;
-		}
-		if ( this._state === STATE.ROTATE && ! this.noRotate ) {
-		  // fix axis? altKey -> 3, ctrl -> 2, shift -> 1
+    const index = this._pointerIndex( event.pointerId );
+    if( index >= 0 ) {
+      this._pointers.splice( index, 1 );
+    }
+  }
 
-			this._rotateStart.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + (event.ctrlKey | event.metaKey) * 2 + event.shiftKey ) );
+  _trackPointer( event ) {
+    let position = this._pointerPositions[ event.pointerId ];
+
+    if ( position === undefined ) {
+      position = new Vector2();
+      this._pointerPositions[ event.pointerId ] = position;
+    }
+
+    position.set( event.clientX, event.clientY );
+  }
+
+  _getPointerPosition( index ) {
+    return this._pointerPositions[ this._pointers[ index ].pointerId ];
+  }
+
+  _getSecondPointerPosition( event ) {
+    const pointer = ( event.pointerId === this._pointers[ 0 ].pointerId ) ?
+      this._pointers[ 1 ] : this._pointers[ 0 ];
+    return this._pointerPositions[ pointer.pointerId ];
+  }
+
+}
+
+// ---- listeners -------------------------------------------------------------
+
+function onPointerDown( event ) {
+
+  if ( this.enabled === false ) { return; }
+
+  // A mouse fires one `pointerdown` per button, all sharing the same
+  // `pointerId`; only the first one starts an interaction.
+  if ( this._pointerIndex( event.pointerId ) >= 0 ) { return; }
+
+  if ( this._pointers.length === 0 ) {
+
+    /**
+     * `setPointerCapture` throws `NotFoundError` when the pointer is no longer
+     * active (a pointer that was already released, a synthesized event, ...).
+     * Losing capture only costs us the guarantee that moves outside the
+     * element keep arriving, so never let it abort the interaction.
+     */
+    try {
+      this.domElement.setPointerCapture( event.pointerId );
+    } catch ( e ) {}
+
+    this.domElement.ownerDocument.addEventListener( 'pointermove', this._onPointerMove );
+    this.domElement.ownerDocument.addEventListener( 'pointerup', this._onPointerUp );
+
+  }
+
+  this._addPointer( event );
+
+  this._updateScreen();
+
+  if ( event.pointerType === 'touch' ) {
+    onTouchStart.call( this, event );
+  } else {
+    onMouseDown.call( this, event );
+  }
+
+}
+
+function onPointerMove( event ) {
+
+  if ( this.enabled === false ) { return; }
+  if ( this._pointerIndex( event.pointerId ) < 0 ) { return; }
+
+  if ( event.pointerType === 'touch' ) {
+    onTouchMove.call( this, event );
+  } else {
+    onMouseMove.call( this, event );
+  }
+
+}
+
+function onPointerUp( event ) {
+
+  if ( this._pointerIndex( event.pointerId ) < 0 ) { return; }
+
+  /**
+   * The lifted pointer is dropped *before* the state is recomputed so that
+   * `this._pointers.length` reflects what is still touching the screen: going
+   * from two fingers to one resumes rotation, and the last finger up returns
+   * the controls to `NONE`.
+   */
+  this._removePointer( event );
+
+  if ( event.pointerType === 'touch' ) {
+    onTouchEnd.call( this, event );
+  } else {
+    onMouseUp.call( this );
+  }
+
+  if ( this._pointers.length === 0 ) {
+
+    try {
+      if ( this.domElement.hasPointerCapture( event.pointerId ) ) {
+        this.domElement.releasePointerCapture( event.pointerId );
+      }
+    } catch ( e ) {}
+
+    this.domElement.ownerDocument.removeEventListener( 'pointermove', this._onPointerMove );
+    this.domElement.ownerDocument.removeEventListener( 'pointerup', this._onPointerUp );
+
+  }
+
+}
+
+function onPointerCancel( event ) {
+
+  this._removePointer( event );
+
+  if ( this._pointers.length === 0 ) {
+
+    this.state = STATE.NONE;
+
+    this.domElement.ownerDocument.removeEventListener( 'pointermove', this._onPointerMove );
+    this.domElement.ownerDocument.removeEventListener( 'pointerup', this._onPointerUp );
+
+    this.dispatchEvent( _endEvent );
+
+  }
+
+}
+
+function onMouseDown( event ) {
+
+  let mouseAction;
+
+  switch ( event.button ) {
+    case 0:
+      mouseAction = this.mouseButtons.LEFT;
+      break;
+    case 1:
+      mouseAction = this.mouseButtons.MIDDLE;
+      break;
+    case 2:
+      mouseAction = this.mouseButtons.RIGHT;
+      break;
+    default:
+      mouseAction = - 1;
+  }
+
+  switch ( mouseAction ) {
+    case MOUSE.ROTATE:
+      this.state = STATE.ROTATE;
+      break;
+    case MOUSE.DOLLY:
+      this.state = STATE.ZOOM;
+      break;
+    case MOUSE.PAN:
+      this.state = STATE.PAN;
+      break;
+    default:
+      this.state = STATE.NONE;
+  }
+
+	if ( this.state === STATE.ROTATE && ! this.noRotate ) {
+
+		this._rotateStart.copy( this.getMouseProjectionOnBall( event.clientX, event.clientY, axisFixFromEvent( event ) ) );
+		this._rotateEnd.copy( this._rotateStart );
+
+	} else if ( this.state === STATE.ZOOM && ! this.noZoom ) {
+
+	  this._zoomStart.copy( this.getMouseOnScreen( event.clientX, event.clientY ) );
+		this._zoomEnd.copy( this._zoomStart );
+		this._setZoomPoint( event.clientX, event.clientY );
+
+	} else if ( this.state === STATE.PAN && ! this.noPan ) {
+
+		this._panStart.copy( this.getMouseOnScreen( event.clientX, event.clientY ) );
+		this._panEnd.copy( this._panStart );
+
+	}
+
+  this.dispatchEvent( _startEvent );
+
+}
+
+function onMouseMove( event ) {
+
+	if ( this.state === STATE.ROTATE && ! this.noRotate ) {
+
+		this._rotateEnd.copy( this.getMouseProjectionOnBall( event.clientX, event.clientY, axisFixFromEvent( event ) ) );
+
+	} else if ( this.state === STATE.ZOOM && ! this.noZoom ) {
+
+		this._zoomEnd.copy( this.getMouseOnScreen( event.clientX, event.clientY ) );
+
+	} else if ( this.state === STATE.PAN && ! this.noPan ) {
+
+		this._panEnd.copy( this.getMouseOnScreen( event.clientX, event.clientY ) );
+
+	}
+
+}
+
+function onMouseUp() {
+
+	this.state = STATE.NONE;
+
+	this.dispatchEvent( _endEvent );
+
+}
+
+function onMouseWheel( event ) {
+
+	if ( this.enabled === false ) { return; }
+	if ( this.noZoom === true ) { return; }
+
+	event.preventDefault();
+	event.stopPropagation();
+
+	// the cached rect goes stale when the surrounding page scrolls
+	this._updateScreen();
+	this._setZoomPoint( event.clientX, event.clientY );
+
+	this._zoomStart.y += event.deltaY * ( WHEEL_SCALE[ event.deltaMode ] ?? WHEEL_SCALE[ 0 ] );
+
+	this.dispatchEvent( _startEvent );
+	this.dispatchEvent( _endEvent );
+
+}
+
+function onTouchStart() {
+
+	switch ( this._pointers.length ) {
+
+		case 1: {
+			this.state = STATE.TOUCH_ROTATE;
+			const p = this._getPointerPosition( 0 );
+			this._rotateStart.copy( this.getMouseProjectionOnBall( p.x, p.y ) );
 			this._rotateEnd.copy( this._rotateStart );
-		} else if ( this._state === STATE.ZOOM && ! this.noZoom ) {
-		  this._zoomStart.copy( this.getMouseOnScreen( event.pageX, event.pageY ) );
-			this._zoomEnd.copy( this._zoomStart );
-		} else if ( this._state === STATE.PAN && ! this.noPan ) {
+			break;
+		}
 
-			this._panStart.copy( this.getMouseOnScreen( event.pageX, event.pageY ) );
+		default: {
+			this.state = STATE.TOUCH_ZOOM_PAN;
+			const p0 = this._getPointerPosition( 0 );
+			const p1 = this._getPointerPosition( 1 );
+			this._touchZoomDistanceEnd = this._touchZoomDistanceStart = p0.distanceTo( p1 );
+
+			const x = ( p0.x + p1.x ) / 2;
+			const y = ( p0.y + p1.y ) / 2;
+			this._panStart.copy( this.getMouseOnScreen( x, y ) );
 			this._panEnd.copy( this._panStart );
-
-		}
-
-		document.addEventListener( 'mousemove', this.onMousemove, false );
-		document.addEventListener( 'mouseup', this.onMouseup, false );
-    this.dispatchEvent( _startEvent );
-  }
-
-  onMousemove = ( event ) => {
-    if ( this.enabled === false ) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-
-		if ( this._state === STATE.ROTATE && ! this.noRotate ) {
-
-			this._rotateEnd.copy( this.getMouseProjectionOnBall( event.pageX, event.pageY, event.altKey * 3 + (event.ctrlKey | event.metaKey) * 2 + event.shiftKey ) );
-
-		} else if ( this._state === STATE.ZOOM && ! this.noZoom ) {
-
-			this._zoomEnd.copy( this.getMouseOnScreen( event.pageX, event.pageY ) );
-
-		} else if ( this._state === STATE.PAN && ! this.noPan ) {
-
-			this._panEnd.copy( this.getMouseOnScreen( event.pageX, event.pageY ) );
-
-		}
-  }
-
-  onMouseup = ( event ) => {
-
-		if ( this.enabled === false ) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-
-		this._state = STATE.NONE;
-
-		document.removeEventListener( 'mousemove', this.onMousemove );
-		document.removeEventListener( 'mouseup', this.onMouseup );
-		this.dispatchEvent( _endEvent );
-
-	}
-
-	onMousewheel = ( event ) => {
-
-		if ( this.enabled === false ) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-
-		this._zoomStart.y += event.deltaY * 0.01;
-		this.dispatchEvent( _startEvent );
-		this.dispatchEvent( _endEvent );
-
-	}
-
-	onTouchstart = ( event ) => {
-
-		if ( this.enabled === false ) return;
-
-		switch ( event.touches.length ) {
-
-			case 1:
-				this._state = STATE.TOUCH_ROTATE;
-				this._rotateStart.copy( this.getMouseProjectionOnBall( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ) );
-				this._rotateEnd.copy( this._rotateStart );
-				break;
-
-			case 2:
-				this._state = STATE.TOUCH_ZOOM_PAN;
-				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
-				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
-				this._touchZoomDistanceEnd = this._touchZoomDistanceStart = Math.sqrt( dx * dx + dy * dy );
-
-				var x = ( event.touches[ 0 ].pageX + event.touches[ 1 ].pageX ) / 2;
-				var y = ( event.touches[ 0 ].pageY + event.touches[ 1 ].pageY ) / 2;
-				this._panStart.copy( this.getMouseOnScreen( x, y ) );
-				this._panEnd.copy( this._panStart );
-				break;
-
-			default:
-				this._state = STATE.NONE;
-
-		}
-		this.dispatchEvent( _startEvent );
-
-	}
-
-	onTouchmove = ( event ) => {
-
-		if ( this.enabled === false ) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-
-		switch ( event.touches.length ) {
-
-			case 1:
-				this._rotateEnd.copy( this.getMouseProjectionOnBall( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ) );
-				break;
-
-			case 2:
-				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
-				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
-				this._touchZoomDistanceEnd = Math.sqrt( dx * dx + dy * dy );
-
-				var x = ( event.touches[ 0 ].pageX + event.touches[ 1 ].pageX ) / 2;
-				var y = ( event.touches[ 0 ].pageY + event.touches[ 1 ].pageY ) / 2;
-				this._panEnd.copy( this.getMouseOnScreen( x, y ) );
-				break;
-
-			default:
-				this._state = STATE.NONE;
-
+			this._setZoomPoint( x, y );
+			break;
 		}
 
 	}
 
-	onTouchend = ( event ) => {
+	this.dispatchEvent( _startEvent );
 
-		if ( this.enabled === false ) return;
+}
 
-		switch ( event.touches.length ) {
+function onTouchMove( event ) {
 
-			case 1:
-				this._rotateEnd.copy( this.getMouseProjectionOnBall( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ) );
-				this._rotateStart.copy( this._rotateEnd );
-				break;
+	this._trackPointer( event );
 
-			case 2:
-				this._touchZoomDistanceStart = this._touchZoomDistanceEnd = 0;
+	switch ( this._pointers.length ) {
 
-				var x = ( event.touches[ 0 ].pageX + event.touches[ 1 ].pageX ) / 2;
-				var y = ( event.touches[ 0 ].pageY + event.touches[ 1 ].pageY ) / 2;
-				this._panEnd.copy( this.getMouseOnScreen( x, y ) );
-				this._panStart.copy( this._panEnd );
-				break;
+		case 1:
+			this._rotateEnd.copy( this.getMouseProjectionOnBall( event.clientX, event.clientY ) );
+			break;
 
+		default: {
+			const position = this._getSecondPointerPosition( event );
+
+			const dx = event.clientX - position.x;
+			const dy = event.clientY - position.y;
+			this._touchZoomDistanceEnd = Math.sqrt( dx * dx + dy * dy );
+
+			const x = ( event.clientX + position.x ) / 2;
+			const y = ( event.clientY + position.y ) / 2;
+			this._panEnd.copy( this.getMouseOnScreen( x, y ) );
+			this._setZoomPoint( x, y );
+			break;
 		}
 
-		this._state = STATE.NONE;
-		this.dispatchEvent( _endEvent );
+	}
+
+}
+
+function onTouchEnd() {
+
+	switch ( this._pointers.length ) {
+
+		case 0:
+			this.state = STATE.NONE;
+			break;
+
+		case 1: {
+			// a pinch degraded into a single-finger rotation; re-seed it
+			this.state = STATE.TOUCH_ROTATE;
+			const p = this._getPointerPosition( 0 );
+			this._rotateEnd.copy( this.getMouseProjectionOnBall( p.x, p.y ) );
+			this._rotateStart.copy( this._rotateEnd );
+			break;
+		}
+
+		default: {
+			this.state = STATE.TOUCH_ZOOM_PAN;
+			const p0 = this._getPointerPosition( 0 );
+			const p1 = this._getPointerPosition( 1 );
+			this._touchZoomDistanceEnd = this._touchZoomDistanceStart = p0.distanceTo( p1 );
+
+			const x = ( p0.x + p1.x ) / 2;
+			const y = ( p0.y + p1.y ) / 2;
+			this._panEnd.copy( this.getMouseOnScreen( x, y ) );
+			this._panStart.copy( this._panEnd );
+			this._setZoomPoint( x, y );
+			break;
+		}
 
 	}
 
-	onContextmenu = ( event ) => {
+	this.dispatchEvent( _endEvent );
 
-		event.preventDefault();
+}
 
-	}
+function onContextMenu( event ) {
 
-  dispose = () => {
-    this.domElement.removeEventListener( 'contextmenu', this.onContextmenu, false );
-		this.domElement.removeEventListener( 'mousedown', this.onMousedown, false );
-		this.domElement.removeEventListener( 'wheel', this.onMousewheel, false );
+	event.preventDefault();
 
-		this.domElement.removeEventListener( 'touchstart', this.onTouchstart, false );
-		this.domElement.removeEventListener( 'touchend', this.onTouchend, false );
-		this.domElement.removeEventListener( 'touchmove', this.onTouchmove, false );
-
-		document.removeEventListener( 'mousemove', this.onMousemove, false );
-		document.removeEventListener( 'mouseup', this.onMouseup, false );
-
-		window.removeEventListener( 'keydown', this.onKeydown, false );
-		window.removeEventListener( 'keyup', this.onKeyup, false );
-  }
 }
 
 export { HauntedArcballControls };

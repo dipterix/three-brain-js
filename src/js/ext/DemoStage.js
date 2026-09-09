@@ -235,7 +235,7 @@ class DemoStage {
     if( this.onMobile ) { return; }
 
     // rotate camera
-    if( [0, 3].includes( this.app.canvas.trackball._state ) ) {
+    if( [0, 3].includes( this.app.canvas.trackball.state ) ) {
       // user is rotating
       this.autoRotate = false;
       this._rotationDelay = this.autoSwitchPeriod;

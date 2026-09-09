@@ -16,7 +16,6 @@ import download from 'downloadjs';
 
 // Core
 import { ThrottledEventDispatcher } from './ThrottledEventDispatcher.js';
-// import { OrthographicTrackballControls } from './OrthographicTrackballControls.js';
 import { HauntedArcballControls } from './HauntedArcballControls.js';
 import { HauntedOrthographicCamera } from './HauntedOrthographicCamera.js';
 import { AnimationParameters } from './AnimationParameters.js';
