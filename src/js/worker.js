@@ -7,6 +7,9 @@
 // Formats
 import { workerLoaders } from './core/DataLoaders.js';
 import { computeGradientsFromRGBA } from './Math/computeVolumeGradients.js';
+import { MeshBVH } from 'three-mesh-bvh';
+import { buildBoundsTreeSync } from './Math/meshBVH.js';
+import { buildFlatKDTree } from './Math/computeStreamlineToTargets.js';
 
 /**
  * Wraps a function to be callable from the worker pool.
@@ -56,6 +59,52 @@ workerLoaders.computeVolumeGradients = workerWrapper(
     const gradients = computeGradientsFromRGBA( voxelColor, width, height, depth, nChannels );
     // Transfer the gradient buffer back to main thread (zero-copy)
     return { result: gradients, transferables: [ gradients.buffer ] };
+  }
+);
+
+// Register surface BVH construction as worker-callable.
+//
+// Building a bounds tree for a dense FreeSurfer surface takes ~80ms
+// single-threaded, which is a visible hitch if it lands on the main thread. The
+// serialized form is a handful of ArrayBuffers, so the result transfers back
+// zero-copy.
+workerLoaders.buildSurfaceBVH = workerWrapper(
+  ( positionArray, indexArray ) => {
+    const bvh = buildBoundsTreeSync( positionArray, indexArray );
+
+    // `cloneBuffers: false` hands back the live buffers rather than copies --
+    // nothing in the worker outlives this call, so there is nothing to protect.
+    const serialized = MeshBVH.serialize( bvh, { cloneBuffers : false } );
+
+    // The main thread already holds the index; echoing it back would put
+    // several megabytes on the wire for nothing. `deserialize` is called with
+    // `setIndex: false` there, so this field is never read.
+    serialized.index = null;
+
+    const transferables = [ ...serialized.roots ];
+    if( serialized.indirectBuffer ) {
+      transferables.push( serialized.indirectBuffer.buffer );
+    }
+
+    return { result : serialized, transferables : transferables };
+  }
+);
+
+// Register the streamline distance tree as worker-callable.
+//
+// The build is O(n log n) over every above-threshold voxel of the active
+// volume -- seconds of frozen UI at 400k points when it ran inline. Both arrays
+// transfer back zero-copy.
+workerLoaders.buildPointKDTree = workerWrapper(
+  ( points ) => {
+    const tree = buildFlatKDTree( points );
+    if( !tree ) {
+      return { result : { points : null, order : null } };
+    }
+    return {
+      result : { points : tree.points, order : tree.order },
+      transferables : [ tree.points.buffer, tree.order.buffer ],
+    };
   }
 );
 

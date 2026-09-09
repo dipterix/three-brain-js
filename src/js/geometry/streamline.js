@@ -13,7 +13,7 @@ import { StreamlineMaterial } from '../shaders/StreamlineMaterial.js';
 import { Line2 }from 'three/addons/lines/Line2.js';
 import { LineMaterial }from '../shaders/LineMaterial.js';
 import { mulberry32 } from '../utility/mulberry32.js'
-import { computeStreamlineToTargets } from '../Math/computeStreamlineToTargets.js';
+import { computeStreamlineToTargets, makeSinglePointTree } from '../Math/computeStreamlineToTargets.js';
 import { startWorker, stopWorker } from '../core/Workers.js';
 import { CONSTANTS } from '../core/constants.js';
 
@@ -412,22 +412,11 @@ class Streamline extends AbstractThreeBrainObject {
     if( targetsNeedsUpdate ) {
       switch ( this.highlightConfig.mode ) {
         case 'crosshair':
-          kdtree = {
-            isKDTree: true,
-            point: this._canvas.crosshairGroup.position,
-            left: null,
-            right: null,
-            axis: 'x'
-          };
+          // held by reference: the crosshair moves and the tree must follow
+          kdtree = makeSinglePointTree( this._canvas.crosshairGroup.position );
           break;
         case 'electrode':
-          kdtree = {
-            isKDTree: true,
-            point: this._canvas.highlightTarget.position,
-            left: null,
-            right: null,
-            axis: 'x'
-          };
+          kdtree = makeSinglePointTree( this._canvas.highlightTarget.position );
           break;
         case 'active volume':
           const datacube2Instance = this._canvas.get_state( "activeDataCube2Instance" );

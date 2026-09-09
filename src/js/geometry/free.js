@@ -9,6 +9,17 @@ import { asArray } from '../utility/asArray.js';
 import { compile_free_material } from '../shaders/SurfaceShader.js';
 import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
+import { buildBoundsTreeAsync } from '../Math/meshBVH.js';
+
+// Cache key for the un-morphed surface.
+const BASE_MORPH_KEY = "__base__";
+
+// How many bounds trees to keep per surface. The base tree is never evicted, so
+// this bounds the extra cost at (limit - 1) morph states. At std.141 pial
+// density each tree is ~3MB, so 3 caps a hemisphere at ~9MB -- roughly half what
+// the morph position/normal arrays already cost.
+// pial, white, smoothwm, inflated, sphere.reg
+const BOUNDS_TREE_CACHE_LIMIT = 6;
 
 const MATERIAL_PARAMS_BASIC = {
   'transparent' : true,
@@ -785,6 +796,140 @@ class FreeMesh extends AbstractThreeBrainObject {
 
   }
 
+  /**
+   * Cache key naming the geometry currently on screen.
+   *
+   * Morphing animates `morphTargetInfluences`, but it always settles on an
+   * endpoint: `pre_render` snaps every influence to its target once the
+   * animation finishes, and `PresetSurface` only ever drives a single target to
+   * full. Every resting state is therefore a static point set that can own its
+   * own bounds tree.
+   *
+   * @returns {string|null} The cache key, or `null` partway through a morph,
+   *   where the displayed geometry is a blend no prebuilt tree describes.
+   */
+  activeMorphKey() {
+    const influences = this.object.morphTargetInfluences;
+    if( !Array.isArray( influences ) || influences.length === 0 ) {
+      return BASE_MORPH_KEY;
+    }
+    const morphPositions = this._geometry.morphAttributes.position;
+    if( !Array.isArray( morphPositions ) ) { return BASE_MORPH_KEY; }
+
+    let activeIndex = -1;
+    for( let ii = 0; ii < influences.length; ii++ ) {
+      const influence = influences[ ii ];
+      if( influence <= 1e-4 ) { continue; }
+      // partway through a morph, or two targets blended at once
+      if( influence < 1 - 1e-4 || activeIndex >= 0 ) { return null; }
+      activeIndex = ii;
+    }
+    if( activeIndex < 0 ) { return BASE_MORPH_KEY; }
+    if( !morphPositions[ activeIndex ] ) { return null; }
+    return this.morphState.targets[ activeIndex ] ?? `__morph_${ activeIndex }__`;
+  }
+
+  /**
+   * Vertex positions backing a given cache key. Morph target positions are
+   * already baked into this mesh's local space by `useMorphTarget`, so they can
+   * be indexed by the shared index buffer exactly like the base positions.
+   */
+  _boundsTreePositions( key ) {
+    if( key === BASE_MORPH_KEY ) {
+      const attribute = this._geometry.getAttribute( 'position' );
+      return attribute ? attribute.array : null;
+    }
+    const activeIndex = this.morphState.targets.indexOf( key );
+    if( activeIndex < 0 ) { return null; }
+    const attribute = this._geometry.morphAttributes.position[ activeIndex ];
+    return attribute ? attribute.array : null;
+  }
+
+  _touchBoundsTreeKey( key ) {
+    const idx = this._boundsTreeKeyOrder.indexOf( key );
+    if( idx >= 0 ) { this._boundsTreeKeyOrder.splice( idx, 1 ); }
+    this._boundsTreeKeyOrder.push( key );
+  }
+
+  // The base tree is never evicted: it is the state the viewer returns to.
+  _evictBoundsTrees() {
+    while( this._boundsTreeCache.size > BOUNDS_TREE_CACHE_LIMIT ) {
+      const victim = this._boundsTreeKeyOrder.find( ( k ) => { return k !== BASE_MORPH_KEY; });
+      if( victim === undefined ) { break; }
+      this._boundsTreeKeyOrder.splice( this._boundsTreeKeyOrder.indexOf( victim ), 1 );
+      this._boundsTreeCache.delete( victim );
+    }
+  }
+
+  // Fire and forget: callers do not await this, so it must never reject.
+  async _buildBoundsTree( key ) {
+    try {
+      if( this._boundsTreeDisposed ) { return; }
+      if( this._boundsTreePending.has( key ) ) { return; }
+      if( this._boundsTreeCache.has( key ) ) { return; }
+
+      const positionArray = this._boundsTreePositions( key );
+      if( !positionArray || !this._geometry || !this._geometry.index ) { return; }
+
+      this._boundsTreePending.add( key );
+      try {
+        const boundsTree = await buildBoundsTreeAsync({
+          positionArray : positionArray,
+          indexArray    : this._geometry.index.array,
+          app           : this._canvas._app,
+        });
+        if( this._boundsTreeDisposed ) { return; }
+        this._boundsTreeCache.set( key, boundsTree );
+        this._touchBoundsTreeKey( key );
+        this._evictBoundsTrees();
+      } finally {
+        this._boundsTreePending.delete( key );
+      }
+    } catch (e) {
+      // Picking still works without a tree, so a failure here is not fatal.
+      console.warn( `FreeMesh: could not build a bounds tree for [${ this.name }] (${ key }).`, e );
+    }
+  }
+
+  /**
+   * Point `geometry.boundsTree` at the tree matching what is on screen, building
+   * one in the background if there is none yet.
+   *
+   * Called by `ViewerCanvas.raycastObjects` immediately before intersecting.
+   * When no tree is available the property is cleared and `acceleratedRaycast`
+   * falls through to the stock three.js implementation -- slower, never wrong.
+   */
+  prepareForRaycast() {
+    const geometry = this._geometry;
+    if( !geometry || !geometry.index ) { return; }
+
+    const key = this.activeMorphKey();
+    if( key === null ) {
+      // mid-morph: never pick against a pose that is not being displayed
+      geometry.boundsTree = null;
+      return;
+    }
+
+    const boundsTree = this._boundsTreeCache.get( key );
+    if( boundsTree ) {
+      geometry.boundsTree = boundsTree;
+      this._touchBoundsTreeKey( key );
+      return;
+    }
+
+    geometry.boundsTree = null;
+    this._buildBoundsTree( key );
+  }
+
+  disposeBoundsTrees() {
+    this._boundsTreeDisposed = true;
+    this._boundsTreeCache.clear();
+    this._boundsTreeKeyOrder.length = 0;
+    if( this._geometry ) {
+      this._geometry.boundsTree = null;
+    }
+  }
+
   finish_init(){
 
     super.finish_init();
@@ -792,6 +937,10 @@ class FreeMesh extends AbstractThreeBrainObject {
     // Need to registr surface
     // instead of using surface name, use
     this.registerToMap( ['surfaces'] );
+
+    // Warm the un-morphed tree now so the first pick is already fast. Runs in a
+    // worker, so this does not delay initialization.
+    this._buildBoundsTree( BASE_MORPH_KEY );
 
     this._material_options.shift.value.copy( this._mesh.parent.position );
 
@@ -821,6 +970,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
   dispose(){
     super.dispose();
+    this.disposeBoundsTrees();
     try {
       this.object.removeFromParent();
       const surfaceList = this._canvas.surfaces.get( this.subject_code )
@@ -1117,6 +1267,14 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._tmpVec3 = new Vector3();
     this._tmpVec3A = new Vector3();
     this._tmpMat4 = new Matrix4();
+
+    // Bounds trees for picking, keyed by morph state (see `prepareForRaycast`).
+    // `_boundsTreeCache` holds only resolved trees; keys still being built are
+    // tracked separately so a second pick does not queue a duplicate build.
+    this._boundsTreeCache = new Map();
+    this._boundsTreeKeyOrder = [];
+    this._boundsTreePending = new Set();
+    this._boundsTreeDisposed = false;
 
     // STEP 1: initial settings
     // when subject brain is messing, subject_code will be template subject such as N27,

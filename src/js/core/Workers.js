@@ -1,4 +1,5 @@
 import { EventDispatcher } from 'three';
+import { workerMethodNames } from './workerMethodNames.js';
 const workerLoaders = {};
 let useWorkerLoaders = true;
 
@@ -8,7 +9,10 @@ function asyncLoaderAvailable( name, workerScript ) {
   if( typeof name !== "string") { return false; }
   if(!window) { return false; }
   if(!window.Worker) { return false; }
-  if(!workerLoaders[ name ]) { return false; }
+  // `workerLoaders` only carries the loaders registered by `DataLoaders.js`,
+  // which both bundles import. Compute methods are registered in `worker.js`,
+  // which the main bundle never loads, so fall back to the shared name manifest.
+  if(!workerLoaders[ name ] && !workerMethodNames.includes( name )) { return false; }
   return ["workerLoaders", name];
 }
 

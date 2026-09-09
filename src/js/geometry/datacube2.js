@@ -12,7 +12,7 @@ import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
-import { buildKDTree } from '../Math/computeStreamlineToTargets.js'
+import { buildFlatKDTree } from '../Math/computeStreamlineToTargets.js'
 import { computeGradientsFromRGBA } from '../Math/computeVolumeGradients.js';
 
 const tmpVec3 = new Vector3();
@@ -459,31 +459,85 @@ class DataCube2 extends AbstractThreeBrainObject {
   }
   */
 
-  updatedKDTree() {
-    const points = [];
+  /**
+   * Rebuild the nearest-point tree over every above-threshold voxel, used to
+   * colour streamlines by their distance to this volume.
+   *
+   * Asynchronous: the tree build is O(n log n) and used to run inline, freezing
+   * the viewer for seconds on a large ROI (2.3s at 400k points). The voxel scan
+   * still happens here -- it needs the volume, which is far too large to ship to
+   * a worker -- but it now fills a packed `Float32Array` instead of allocating a
+   * `Vector3` per hit, and only the build crosses the thread boundary.
+   *
+   * @returns {Promise<Object|null>} The tree, or `null` when nothing passes.
+   */
+  async updatedKDTree() {
     const colorNChannel = this.colorFormat === RedFormat ? 1 : 4;
     const modelShape = this.modelShape;
     const voxelColor = this.voxelColor;
+    const nVoxels = modelShape.x * modelShape.y * modelShape.z;
+
+    // Count before allocating: a growable array would churn tens of megabytes
+    // on a large ROI, which is most of what this method used to cost.
+    let nPoints = 0;
+    for( let idx = 0; idx < nVoxels; idx++ ) {
+      if( voxelColor[ (idx + 1) * colorNChannel - 1 ] > 0 ) { nPoints++; }
+    }
+
+    // Guards against an older, slower build landing after a newer one.
+    const generation = ( this._kdtreeGeneration ?? 0 ) + 1;
+    this._kdtreeGeneration = generation;
+
+    if( nPoints === 0 ) {
+      this._kdtree = null;
+      return this._kdtree;
+    }
+
     const vox2world = new Matrix4()
       .copy( this.model2vox ).invert()
       .premultiply( this._transform );
 
+    const points = new Float32Array( nPoints * 3 );
+    let ptr = 0;
     for( let k = 0; k < modelShape.z; k++ ) {
       for( let j = 0; j < modelShape.y; j++ ) {
         for( let i = 0; i < modelShape.x; i++ ) {
           const idx = i + modelShape.x * (j + modelShape.y * k);
           if( voxelColor[ (idx + 1) * colorNChannel - 1 ] > 0 ) {
-            points.push(
-              tmpVec3.set(i, j, k)
-                .applyMatrix4( vox2world )
-                .clone()
-            );
+            tmpVec3.set(i, j, k).applyMatrix4( vox2world ).toArray( points, ptr );
+            ptr += 3;
           }
         }
       }
     }
 
-    this._kdtree = buildKDTree( points );
+    const buildLocally = () => {
+      const tree = buildFlatKDTree( points );
+      return { points : tree.points, order : tree.order };
+    };
+
+    let built;
+    const app = this._canvas._app;
+    if( app && typeof app.invokeWorker === "function" ) {
+      try {
+        built = await app.invokeWorker({
+          name : "buildPointKDTree",
+          args : [ points ],
+          fallback : buildLocally,
+          timeOut : 60000,
+        });
+      } catch (e) {
+        console.warn( `DataCube2: worker build of the distance tree failed for [${ this.name }]; building on the main thread.`, e );
+        built = buildLocally();
+      }
+    } else {
+      built = buildLocally();
+    }
+
+    // a newer build started while this one was in flight
+    if( this._kdtreeGeneration !== generation ) { return this._kdtree; }
+
+    this._kdtree = buildFlatKDTree( built.points, built.order );
     return this._kdtree;
   }
 
@@ -1025,6 +1079,8 @@ class DataCube2 extends AbstractThreeBrainObject {
     super.dispose();
 
     this._kdtree = null;
+    // bump the generation so an in-flight worker build cannot resurrect it
+    this._kdtreeGeneration = ( this._kdtreeGeneration ?? 0 ) + 1;
 
     try {
       this.object.removeFromParent();

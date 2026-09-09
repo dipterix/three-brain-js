@@ -36,6 +36,12 @@ import { asColor, invertColor, colorLuma } from '../utility/color.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
+import { installAcceleratedRaycast } from '../Math/meshBVH.js';
+
+// Route `Mesh.raycast` through the BVH-aware implementation. Meshes without a
+// bounds tree keep the stock three.js behaviour, so this is inert until a
+// geometry opts in.
+installAcceleratedRaycast();
 
 const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
@@ -411,6 +417,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Mouse helpers
     this.mousePositionOnScreen = new Vector2();
     this.mouseRaycaster = new Raycaster();
+    // Every consumer of this raycaster takes `items[0]` and discards the rest,
+    // so there is nothing to gain from collecting hits behind the nearest one.
+    // Meshes carrying a bounds tree read this and take the `raycastFirst` path,
+    // which stops descending as soon as the closest hit is proven.
+    this.mouseRaycaster.firstHitOnly = true;
     this._mouseEvent = undefined;
 
     this.highlightBox = new BoxHelper();
@@ -578,6 +589,23 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
+  /**
+   * Give each pick target a chance to attach an acceleration structure before
+   * the ray is cast.
+   *
+   * Dense surfaces keep a bounds tree per morph state and only know which one
+   * applies at pick time, so the swap has to happen here rather than at render
+   * time. Objects without the hook are left alone and use the stock raycast.
+   */
+  _prepareRaycastTargets( objects ) {
+    for( let ii = 0; ii < objects.length; ii++ ) {
+      const inst = getThreeBrainInstance( objects[ ii ] );
+      if( inst && typeof inst.prepareForRaycast === "function" ) {
+        inst.prepareForRaycast();
+      }
+    }
+  }
+
   raycastObjects() {
     const raycaster = this.updateRaycast();
     if( !raycaster ) { return; }
@@ -599,15 +627,15 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         }
       }
 
+      this._prepareRaycastTargets( visibleObjects );
       items = raycaster.intersectObjects( visibleObjects );
     } else {
       // where clickable objects stay
       raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
       // Only raycast with visible
-      items = raycaster.intersectObjects(
-        // asArray( this.clickable )
-        this.clickableArray.filter((e) => { return( e.visible ) })
-      );
+      const clickableObjects = this.clickableArray.filter((e) => { return( e.visible ) });
+      this._prepareRaycastTargets( clickableObjects );
+      items = raycaster.intersectObjects( clickableObjects );
     }
 
     if( !items || items.length === 0 ) {

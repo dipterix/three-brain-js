@@ -102,12 +102,14 @@ function registerPresetTractography( ViewerControlCenter ){
     };
     this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
 
-    const updateTargets = () => {
+    // Resolves once the distance tree is ready. Only 'active volume' needs one;
+    // every other mode resolves immediately.
+    const updateTargets = async () => {
 
       if( highlightStreamlineConfig.mode === 'active volume' ) {
         const datacube2Instance = this.canvas.get_state( "activeDataCube2Instance" );
         if( datacube2Instance ) {
-          datacube2Instance.updatedKDTree();
+          await datacube2Instance.updatedKDTree();
         }
       }
 
@@ -123,21 +125,25 @@ function registerPresetTractography( ViewerControlCenter ){
       .onChange(v => {
         if( typeof v !== 'string' ) { return; }
         highlightStreamlineConfig.mode = v;
-        updateTargets();
         this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
-        this.canvas.setStreamlineHighlight();
-        this.canvas.needsUpdate = true;
         this.broadcast();
+        // the distance tree is built off the main thread, so refresh the
+        // highlight once it exists rather than against a stale/absent one
+        updateTargets().then(() => {
+          this.canvas.setStreamlineHighlight();
+          this.canvas.needsUpdate = true;
+        });
       });
 
     const ctrlUpdateCache = this.gui
       .addController(
         "Update Distance Tree",
         () => {
-          updateTargets();
           this.canvas.set_state('streamline_highlight', highlightStreamlineConfig);
-          this.canvas.setStreamlineHighlight({ forceUpdate : true });
-          this.canvas.needsUpdate = true;
+          updateTargets().then(() => {
+            this.canvas.setStreamlineHighlight({ forceUpdate : true });
+            this.canvas.needsUpdate = true;
+          });
         }, {
           folderName: folderName
         }
