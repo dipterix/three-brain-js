@@ -17,6 +17,14 @@ import { RAVELogo } from './RAVELogo.js'
 import { DemoStage } from '../ext/DemoStage.js'
 import { StageTransition } from './StageTransition.js'
 
+const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
+
+/**
+ * How long the pointer must sit outside the viewer before anything still
+ * holding the canvas open is treated as a leak. See `updateIdleWatchdog()`.
+ */
+const IDLE_RENDER_TIMEOUT_SEC = 0.5;
+
 const _updateDataStartEvent = {
   type      : "viewerApp.updateData.start",
   immediate : true
@@ -56,6 +64,8 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
+    // timer reading when the pointer left the viewer; undefined = clock stopped
+    this._idleRenderSince = undefined;
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
 
     // Shared timebase for everything in this viewer. Advanced exactly once per frame in
@@ -1207,11 +1217,57 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.controlCenter.update();
     }
 
+    this.updateIdleWatchdog();
+
     this.canvas.render();
 
     this.canvas.rendering = false;
 
 	}
+
+  /**
+   * Safety net for render-on-demand. With the pointer outside the viewer
+   * entirely and no trackball motion in flight, nothing on screen is waiting on
+   * a repaint, so anything still holding a *persistent* render bit is a leak.
+   * Give it `IDLE_RENDER_TIMEOUT_SEC`, then clear it.
+   *
+   * Only `TrackballChange` is cleared, deliberately:
+   *
+   * - `RenderOnce` must survive. A repaint asked for through `needsUpdate` -
+   *   Shiny pushing data, an async load finishing, a transition stepping -
+   *   lands as `RenderOnce` back in `canvas.update()`, before this runs.
+   *   Clearing it would swallow those updates while the mouse is away.
+   * - `Animate` must survive, so playback keeps running unattended.
+   *
+   * The exemption is `_motionActive` rather than "a pointer is down", because
+   * that also covers the damping tail after the release: it is the same gesture
+   * the user started, and on a slow display it can outlast the timeout. The
+   * tail is bounded, so this cannot defer the watchdog indefinitely.
+   */
+  updateIdleWatchdog() {
+
+    const pointerInside = this.mouseLocation !== MouseKeyboard.OFF_VIEWER;
+
+    if( pointerInside || this.canvas.trackball._motionActive ) {
+      this._idleRenderSince = undefined;
+      return;
+    }
+
+    const now = this.timer.getElapsed();
+
+    if( this._idleRenderSince === undefined ) {
+      this._idleRenderSince = now;
+      return;
+    }
+
+    if( now - this._idleRenderSince < IDLE_RENDER_TIMEOUT_SEC ) { return; }
+
+    // left armed, so the clamp re-applies every frame the condition holds
+    this.canvas.setRenderFlag(
+      CanvasState.TrackballChange ^ CanvasState.Mask, "&",
+      "Pointer idle outside the viewer" );
+
+  }
 
 	// For demo use
   updateDemo() {

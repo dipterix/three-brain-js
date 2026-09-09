@@ -259,10 +259,15 @@ CONSTANTS.GEOMETRY = {
 /**
  * Instructs whether canvas should be rendered continuously
  *
- * this.canvas.render() only resets the last bit,
- * trackball end resets the second bit
- * playback button (pause) resets the first bit
+ * this.canvas.render() only resets the last bit, so `RenderOnce` means exactly
+ * one frame and anything above it keeps the canvas rendering across frames.
+ * Playback (pause) resets the first bit.
  *
+ * `TrackballChange` is no longer raised by anything: the trackball asks for one
+ * frame at a time through `RenderOnce`, so a frame is painted only when the
+ * camera actually moved on it. The bit is kept because it is still the thing
+ * `ViewerCanvas._onTrackballEnded()` and `ViewerApp.updateIdleWatchdog()` clear
+ * defensively, and because `render()` masks against it.
  */
 CONSTANTS.CANVAS_RENDER_STATE = {
   "Animate" : 0b100,

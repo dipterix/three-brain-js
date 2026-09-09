@@ -460,6 +460,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
    * drag alive outside the viewer, where `viewerApp.mouse.leaveViewer` has
    * already cleared that flag, and the camera moving is on its own reason
    * enough to paint.
+   *
+   * What they raise is `RenderOnce`, never a persistent bit: `render()` clears
+   * it every frame, so a frame is painted only when the camera actually moved
+   * on it. Holding the pointer still - anywhere - stops the rendering on the
+   * next frame, and a `pointerup` that never arrives cannot pin the canvas open.
    */
   _onTrackballStarted = ( event ) => {
     this._trackballStarted = true;
@@ -470,13 +475,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // ignores the bare `change` from `trackball.reset()`, which arrives outside
     // a motion and is covered by `needsUpdate` at its call sites
     if( !this._trackballStarted ) { return; }
-    this.setRenderFlag( CanvasState.TrackballChange, "|", "Trackball changed" );
-    // this._renderFlag = this._renderFlag | CanvasState.TrackballChange;
+    this.setRenderFlag( CanvasState.RenderOnce, "|", "Trackball changed" );
   }
 
   _onTrackballEnded = () => {
     this._trackballStarted = false;
-    // this._renderFlag = this._renderFlag & (CanvasState.TrackballChange ^ CanvasState.Mask);
+    // nothing raises `TrackballChange` any more; cleared defensively, the same
+    // way `ViewerApp.updateIdleWatchdog()` does
     this.setRenderFlag( CanvasState.TrackballChange ^ CanvasState.Mask, "&", "Trackball ended" );
     // fires once the camera has come to rest, so what is broadcast is the
     // settled position rather than the one at pointer release
