@@ -1,5 +1,6 @@
-import { Color, Clock } from 'three';
+import { Color } from 'three';
 import { DemoBackground } from './DynamicBackground.js'
+import { Stopwatch } from '../core/Stopwatch.js'
 
 function mobileCheck () {
   let check = false;
@@ -64,7 +65,7 @@ class DemoStage {
     this.app = app;
     this.canvas = null;
 
-    this.clock = new Clock( false );
+    this.clock = new Stopwatch( app.timer, false );
     this.currentStage = undefined;
 
     // whether this.switchStage( name ) `name` needs to be valid

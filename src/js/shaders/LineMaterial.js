@@ -10,7 +10,7 @@ UniformsLib.line = {
 
 	worldUnits: { value: 1 },
 	linewidth: { value: 1 },
-	resolution: { value: new Vector2( 1, 1 ) },
+	resolution: { value: new Vector2() },
 	dashOffset: { value: 0 },
 	dashScale: { value: 1 },
 	dashSize: { value: 1 },
@@ -18,7 +18,12 @@ UniformsLib.line = {
 
 };
 
-ShaderLib[ 'line' ] = {
+// `LineSegments2` and `Line2` pull in the upstream `three/addons/lines/LineMaterial.js`,
+// which registers its own shader under `ShaderLib[ 'line' ]`. Both modules end up in the
+// bundle, so whichever evaluates last would win that key and could silently replace this
+// fork's shader. Keep the fork's shader in a module-local binding and publish it under a
+// private key so the two can coexist regardless of module evaluation order.
+const lineShader = {
 
 	uniforms: UniformsUtils.merge( [
 		UniformsLib.common,
@@ -72,18 +77,20 @@ ShaderLib[ 'line' ] = {
 
 		#endif
 
-		void trimSegment( const in vec4 start, inout vec4 end ) {
+		float trimSegmentAlpha( const in vec4 start, const in vec4 end ) {
 
-			// trim end segment so it terminates between the camera plane and the near plane
+			// compute the interpolation factor needed to trim the segment so it terminates
+			// between the camera plane and the near plane
 
 			// conservative estimate of the near plane
 			float a = projectionMatrix[ 2 ][ 2 ]; // 3nd entry in 3th column
 			float b = projectionMatrix[ 3 ][ 2 ]; // 3nd entry in 4th column
-			float nearEstimate = - 0.5 * b / a;
 
-			float alpha = ( nearEstimate - start.z ) / ( end.z - start.z );
+			// we need different nearEstimate formula for reversed and default depth buffer
+			// a is positive with a reversed depth buffer so it can be used for controlling the code flow
+			float nearEstimate = ( a > 0.0 ) ? ( - b / ( a + 1.0 ) ) : ( - 0.5 * b / a );
 
-			end.xyz = mix( start.xyz, end.xyz, alpha );
+			return ( nearEstimate - start.z ) / ( end.z - start.z );
 
 		}
 
@@ -95,18 +102,18 @@ ShaderLib[ 'line' ] = {
 
 			#endif
 
-			#ifdef USE_DASH
-
-				vLineDistance = ( position.y < 0.5 ) ? dashScale * instanceDistanceStart : dashScale * instanceDistanceEnd;
-				vUv = uv;
-
-			#endif
-
 			float aspect = resolution.x / resolution.y;
 
 			// camera space
 			vec4 start = modelViewMatrix * vec4( instanceStart, 1.0 );
 			vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );
+
+			#ifdef USE_DASH
+
+				float lineDistanceStart = dashScale * instanceDistanceStart;
+				float lineDistanceEnd = dashScale * instanceDistanceEnd;
+
+			#endif
 
 			#ifdef WORLD_UNITS
 
@@ -132,11 +139,25 @@ ShaderLib[ 'line' ] = {
 
 				if ( start.z < 0.0 && end.z >= 0.0 ) {
 
-					trimSegment( start, end );
+					float alpha = trimSegmentAlpha( start, end );
+					end.xyz = mix( start.xyz, end.xyz, alpha );
+
+					#ifdef USE_DASH
+
+						lineDistanceEnd = mix( lineDistanceStart, lineDistanceEnd, alpha );
+
+					#endif
 
 				} else if ( end.z < 0.0 && start.z >= 0.0 ) {
 
-					trimSegment( end, start );
+					float alpha = trimSegmentAlpha( end, start );
+					start.xyz = mix( end.xyz, start.xyz, alpha );
+
+					#ifdef USE_DASH
+
+						lineDistanceStart = mix( lineDistanceEnd, lineDistanceStart, alpha );
+
+					#endif
 
 				}
 
@@ -145,6 +166,13 @@ ShaderLib[ 'line' ] = {
 				perspective = 0.0;
 
 			}
+
+			#ifdef USE_DASH
+
+				vLineDistance = ( position.y < 0.5 ) ? lineDistanceStart : lineDistanceEnd;
+				vUv = uv;
+
+			#endif
 
 			// clip space
 			vec4 clipStart = projectionMatrix * start;
@@ -429,6 +457,8 @@ ShaderLib[ 'line' ] = {
 		`
 };
 
+ShaderLib[ 'streamline' ] = lineShader;
+
 /**
  * A material for drawing wireframe-style geometries.
  *
@@ -457,10 +487,10 @@ class LineMaterial extends ShaderMaterial {
 		super( {
 
 			type: 'LineMaterial',
-			uniforms: UniformsUtils.clone( ShaderLib[ 'line' ].uniforms ),
+			uniforms: UniformsUtils.clone( lineShader.uniforms ),
 
-			vertexShader: ShaderLib[ 'line' ].vertexShader,
-			fragmentShader: ShaderLib[ 'line' ].fragmentShader,
+			vertexShader: lineShader.vertexShader,
+			fragmentShader: lineShader.fragmentShader,
 
 			clipping: true // required for clipping support
 
@@ -510,6 +540,12 @@ class LineMaterial extends ShaderMaterial {
 	}
 
 	set worldUnits( value ) {
+
+		if ( ( value === true ) !== this.worldUnits ) {
+
+			this.needsUpdate = true;
+
+		}
 
 		if ( value === true ) {
 
@@ -668,7 +704,7 @@ class LineMaterial extends ShaderMaterial {
 
 	/**
 	 * The size of the viewport, in screen pixels. This must be kept updated to make
-	 * screen-space rendering accurate.The `LineSegments2.onBeforeRender` callback
+	 * screen-space rendering accurate. The `LineSegments2.onBeforeRender` callback
 	 * performs the update for visible objects.
 	 *
 	 * @type {Vector2}
@@ -722,3 +758,4 @@ class LineMaterial extends ShaderMaterial {
 }
 
 export { LineMaterial };
+

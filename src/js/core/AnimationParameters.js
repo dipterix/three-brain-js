@@ -1,9 +1,11 @@
-import { EventDispatcher, Clock, Vector3 } from 'three';
+import { EventDispatcher, Vector3 } from 'three';
+import { Stopwatch } from './Stopwatch.js';
 
 const emptyDict = {};
 
 class AnimationParameters extends EventDispatcher {
-  constructor () {
+  // `timer` is the shared THREE.Timer owned by ViewerApp
+  constructor ( timer ) {
     super();
     this._eventDispatcher = new EventDispatcher();
     this.object = {
@@ -18,7 +20,7 @@ class AnimationParameters extends EventDispatcher {
     this.display = '[None]';
     this.threshold = '[None]';
 
-    this._clock = new Clock();
+    this._clock = new Stopwatch( timer );
     this._onChange = undefined;
     this.oldTime = 0;
     this.clockDelta = 0;

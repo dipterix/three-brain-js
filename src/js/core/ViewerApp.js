@@ -1,5 +1,6 @@
-import { Clock } from 'three';
+import { Timer } from 'three';
 import { ThrottledEventDispatcher } from './ThrottledEventDispatcher.js';
+import { Stopwatch } from './Stopwatch.js';
 import { asArray } from '../utility/asArray.js';
 import { EnhancedGUI } from './EnhancedGUI.js';
 import { ViewerControlCenter } from './ViewerControlCenter.js';
@@ -57,8 +58,15 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.ready = false;
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
 
+    // Shared timebase for everything in this viewer. Advanced exactly once per frame in
+    // `render()`, so all stopwatches below observe the same delta within a frame.
+    // `connect( document )` makes the Timer skip the gap accumulated while the tab is
+    // hidden, instead of reporting one huge delta when it is brought back.
+    this.timer = new Timer();
+    this.timer.connect( document );
+
     // clock used by another other than display data
-    const globalClock = new Clock( false );
+    const globalClock = new Stopwatch( this.timer, false );
     // automatically stops when globalClock.elapsedTime exceeds maxElapsedSec
     globalClock.maxElapsedSec = -1;
     globalClock.setTimeout = ( sec, overwrite = false ) => {
@@ -70,10 +78,10 @@ class ViewerApp extends ThrottledEventDispatcher {
       }
 
       if( !globalClock.running ) {
+        // start() re-zeroes the elapsed time
         globalClock.start();
       }
-      // otherwise getElapsedTime will update oldTime
-      return (globalClock.oldTime - globalClock.startTime) / 1000;
+      return timeElapsed;
     };
     this.globalClock = globalClock;
 
@@ -203,6 +211,10 @@ class ViewerApp extends ThrottledEventDispatcher {
     this._disposed = true;
     super.dispose();
     this.transitions.length = 0;
+    // releases the visibilitychange listener installed by timer.connect( document )
+    if( this.timer ) {
+      try { this.timer.dispose(); } catch (e) {}
+    }
     this.mouseKeyboard.dispose();
     if( this.controllerGUI ) {
       try { this.controllerGUI.dispose(); } catch (e) {}
@@ -1161,6 +1173,10 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Do not render if the canvas is too small
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
+
+    // Advance the shared timebase once per frame, before anything reads a delta or an
+    // elapsed time, so every consumer in this frame sees the same values.
+    this.timer.update();
 
     if( this.transitions.length > 0 ) {
       this.transitions.forEach( transition => {

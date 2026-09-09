@@ -4,8 +4,8 @@ import {
   WebGLRenderer,
   DirectionalLight, AmbientLight,
   Raycaster, ArrowHelper, BoxHelper, AlwaysDepth,
-  LoadingManager, FileLoader, FontLoader,
-  AnimationClip, AnimationMixer, Clock,
+  LoadingManager, FileLoader,
+  AnimationClip, AnimationMixer,
   Mesh, SubtractiveBlending,
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
@@ -222,7 +222,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // If there exists animations, this will control the flow;
     this.animation_clips = new Map();
     this.colorMaps = new Map();
-    this.animParameters = new AnimationParameters();
+    this.animParameters = new AnimationParameters( this._app.timer );
 
     // Set pixel ratio, separate settings for main and side renderers
     this.pixel_ratio = [ window.devicePixelRatio, window.devicePixelRatio ];

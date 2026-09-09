@@ -20,7 +20,7 @@
     "papaparse": "^5.4.1",
     "qrcode-with-logos": "^1.0.5",
     "stats-gl": "^3.6.0",
-    "three": "~0.182.0"
+    "three": "~0.185.1"
   },
   "devDependencies": {
     "css-loader": "^6.7.3",

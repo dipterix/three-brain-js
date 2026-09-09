@@ -566,7 +566,7 @@ shader.fragmentShader = shader.fragmentShader.replace(
     }
 
   } else {
-    if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
+    if( mask_threshold > 0.0 && mask_threshold < 0.99 && mask_threshold < reflectProd ) {
       discard;
     }
     if( vertToCameraProjDist * planeToCameraDistance <= 0.0 ) {
@@ -586,7 +586,7 @@ shader.fragmentShader = shader.fragmentShader.replace(
 
   gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
 
-  if( mask_threshold > 0.0 && mask_threshold < reflectProd ) {
+  if( mask_threshold > 0.0 && mask_threshold < 0.99  && mask_threshold < reflectProd ) {
     discard;
   }
 
