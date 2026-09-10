@@ -14,6 +14,9 @@ import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { buildFlatKDTree } from '../Math/computeStreamlineToTargets.js'
 import { computeGradientsFromRGBA } from '../Math/computeVolumeGradients.js';
+import { getAnatomicalLabelFromPosition } from '../Math/getAnatomicalLabelFromPosition.js';
+import { raycastVoxelVolume } from '../Math/raycast_volume2.js';
+import { formatDataValue } from '../utility/formatDataValue.js';
 
 const tmpVec3 = new Vector3();
 const tmpMat4 = new Matrix4();
@@ -545,6 +548,139 @@ class DataCube2 extends AbstractThreeBrainObject {
     return (this.voxelData.length / this.nVoxels);
   }
 
+  /**
+   * Never joins the raycaster layer.
+   *
+   * The box this volume is drawn on is not where the voxels are, so a surface
+   * hit on it means nothing. `focusModePick` asks the *active* volume for
+   * `intersectRay()` instead, which keeps voxel picking on one code path.
+   */
+  updateFocusMode({ mode, objectType } = {}) {
+    return;
+  }
+
+  /**
+   * First non-transparent voxel this ray crosses.
+   *
+   * `vox2world` is built from `model2vox`, not from `modelShape`: for NIfTI and
+   * MGH volumes the format class recomputes `model2vox` against the *trimmed*
+   * shape in `trimToBoundingBox()` while the affine absorbs the offsets, so
+   * deriving it from `(shape-1)/2` here would be silently wrong for every
+   * trimmed volume. The same expression is used by `updatedKDTree` and
+   * `cloneForExporter`.
+   *
+   * @param {Ray} ray - world-space ray
+   * @returns {{ instance, object, point, distance, voxelIndex }|undefined}
+   */
+  intersectRay( ray ) {
+    if( !ray || !this.object ) { return; }
+
+    // Only `normal` and `main camera` put the voxels in front of the main
+    // camera, and that camera casts the pick ray. `side camera` draws them in
+    // the slice views alone, and `anat. slices` composites them onto
+    // `DataCube`'s slice planes -- where `DataCube.getInfoText` reports them
+    // through `getValueFromPosition` instead. `object.visible` is not usable
+    // here: `pre_render` clears it for the side-canvas pass.
+    switch( this._display_mode ) {
+      case "hidden":
+      case "side camera":
+      case "anat. slices":
+        return;
+    }
+    if( this.forceVisible === false ) { return; }
+    if( !this.voxelColor ) { return; }
+
+    const vox2world = new Matrix4()
+      .copy( this.model2vox ).invert()
+      .premultiply( this._transform );
+
+    const hit = raycastVoxelVolume({
+      origin          : ray.origin,
+      direction       : ray.direction,
+      vox2world       : vox2world,
+      shape           : this.modelShape,
+      voxelColor      : this.voxelColor,
+      nColorChannels  : this.nColorChannels,
+    });
+
+    if( !hit ) { return; }
+
+    return {
+      instance   : this,
+      object     : this.object,
+      point      : hit.point,
+      distance   : ray.origin.distanceTo( hit.point ),
+      voxelIndex : hit.index.clone(),
+    };
+  }
+
+  /**
+   * This volume's value at a world position, formatted for display but without
+   * a line label, or undefined when the position resolves to nothing.
+   *
+   * Split out of `getInfoText` so `DataCube` can ask for it: in `anat. slices`
+   * (and in `normal` / `main camera`) this volume is composited onto the slice
+   * planes, so the slice is what the ray hits and the slice has to be able to
+   * report what is painted on it.
+   *
+   * Reads `voxelData`, the raw array, so the answer ignores the
+   * `Voxel Min`/`Max` threshold and the `Voxel Label` filter -- both of those
+   * act on `voxelColor`.
+   *
+   * @param {Vector3} worldPosition
+   * @returns {string|undefined}
+   */
+  getValueFromPosition( worldPosition ) {
+    if( !worldPosition ) { return; }
+
+    // Continuous data is an intensity, not a label id: putting it through the
+    // FreeSurfer LUT would name an unrelated structure (a T1 voxel of 17 comes
+    // back "Left-Hippocampus"). The crosshair readout already resolves
+    // world -> voxel for this volume, so reuse it and report the same number
+    // the slice footer shows.
+    if( this.isDataContinuous ) {
+      const text = this.getCrosshairValue( worldPosition );
+      return text === "" ? undefined : text;
+    }
+
+    // For an atlas this resolves the LUT and, where the exact voxel is
+    // unlabelled, the nearest labelled neighbour -- which is what you want on a
+    // structure boundary.
+    const anatomical = getAnatomicalLabelFromPosition( this._canvas, worldPosition, this );
+    if( !anatomical || anatomical.index === undefined ) { return; }
+    if( typeof anatomical.label === "string" && anatomical.label !== "Unknown" ) {
+      return `${ anatomical.label } [${ anatomical.index }]`;
+    }
+    return formatDataValue( anatomical.index );
+  }
+
+  /**
+   * Focus-mode info lines. Like `DataCube` there is no `index` line: volumes are
+   * trimmed on load, so a voxel index would not refer to anything the user can
+   * look up.
+   */
+  getInfoText( type, hit ) {
+    switch ( type ) {
+
+      case "type":
+        return `Type:      Voxel - 3D volume`;
+
+      case "display": {
+        if( !hit || !hit.point ) { return; }
+        const value = this.getValueFromPosition( hit.point );
+        if( value === undefined ) { return; }
+        return `Display:   ${ value }`;
+      }
+
+      case "name":
+        return this.name;
+
+      // an unanswered key contributes no line
+      default:
+        return;
+    }
+  }
+
   get componentIndex() {
     return this._timeSlice ?? 0;
   }
@@ -686,7 +822,6 @@ class DataCube2 extends AbstractThreeBrainObject {
 
       this.isoSurface = new Mesh( geometry, material );
       this.isoSurface.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-      this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
       this.isoSurface.renderOrder = CONSTANTS.RENDER_ORDER.DataCube2ISOSurface;
       this.object.add( this.isoSurface );
     }
@@ -858,7 +993,6 @@ class DataCube2 extends AbstractThreeBrainObject {
     // this.group_name = this._params.group.group_name;
 
     this.type = 'DataCube2';
-    this.rayCasterEligible = false;
     this.isDataCube2 = true;
     this.isoSurface = null;
     this._display_mode = "hidden";

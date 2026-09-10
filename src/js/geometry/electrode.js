@@ -733,7 +733,6 @@ class Electrode extends AbstractThreeBrainObject {
       instancedObjects.renderOrder = CONSTANTS.RENDER_ORDER.InstancedElectrode;
       instancedObjects.layers.set( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
       instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
-      instancedObjects.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
       instancedObjects.userData.instance = this;
       this.instancedObjects = instancedObjects;
 
@@ -1196,6 +1195,33 @@ class Electrode extends AbstractThreeBrainObject {
 
   }
 
+  /**
+   * Electrodes are raycastable for the ruler only -- focus mode deliberately
+   * skips them, because a normal left-click already has a dedicated electrode
+   * highlighter and "where" an electrode is would be ambiguous.
+   *
+   * The prototype mesh and the instanced contacts are separate representations
+   * and either may be the visible one, so each is asked separately.
+   *
+   * `visible` alone is not the question: `updateVisibility` hides the prototype
+   * mesh by clearing its camera layers rather than by `visible`, because the
+   * contacts are its children. So also ask whether the main camera draws it --
+   * that camera casts the pick ray, and without this the ruler would measure to
+   * an invisible shell sitting in front of the contacts.
+   */
+  updateFocusMode({ mode, objectType } = {}) {
+    const targets = [ this.object, this.instancedObjects ];
+    targets.forEach(( item ) => {
+      if( !item || !item.isObject3D ) { return; }
+      if( mode === "ruler" && item.visible &&
+          item.layers.test( this._canvas.mainCamera.layers ) ) {
+        item.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      } else {
+        item.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      }
+    });
+  }
+
   getInfoText(type = "display") {
     let infoPrefix, varname, values;
 
@@ -1414,21 +1440,22 @@ class Electrode extends AbstractThreeBrainObject {
       if( visible ) {
         this.object.visible = true;
         if( this.hasInstancedMesh ) {
-          switch (repr) {
-            case 'prototype':
-              this.object.layers.enableAll();
-              this.instancedObjects.visible = false;
-              break;
-
-            case 'contact-only':
-              this.object.layers.disableAll();
-              this.instancedObjects.visible = true;
-              break;
-
-            default:
-              this.object.layers.enableAll();
-              this.instancedObjects.visible = true;
+          // `layers` rather than `visible`, because `instancedObjects` is a
+          // child of `this.object`: hiding the parent would hide the contacts
+          // with it.
+          //
+          // Bit 15 is the one bit to leave alone. It is not a camera layer --
+          // it is focus mode's raycaster opt-in, owned by `updateFocusMode` --
+          // and this runs every frame from `pre_render`, so writing it here
+          // either pins the prototype mesh permanently focusable (what
+          // `enableAll()` used to do) or strips what the ruler just granted.
+          const keepMask = 1 << CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15;
+          if( repr === 'contact-only' ) {
+            this.object.layers.mask &= keepMask;    // hide in every camera
+          } else {
+            this.object.layers.mask |= ~keepMask;   // show in every camera
           }
+          this.instancedObjects.visible = ( repr !== 'prototype' );
         }
       } else {
         this.object.visible = false;

@@ -65,6 +65,9 @@ import { registerPresetQRCode } from '../controls/PresetQRCode.js';
 // 999. QRCode
 import { registerPresetHiddenFeatures } from '../controls/PresetHiddenFeatures.js';
 
+// Focus mode (hold F)
+import { registerPresetFocusObject } from '../controls/PresetFocusObject.js';
+
 // const mouseMoveEvent = { type : "viewerApp.mouse.mousemove" };
 const mouseSingleClickEvent = { type : "viewerApp.mouse.singleClick" };
 const mouseDoubleClickEvent = { type : "viewerApp.mouse.doubleClick" };
@@ -1296,5 +1299,6 @@ ViewerControlCenter = register_controls_localization( ViewerControlCenter );
 ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
 ViewerControlCenter = registerPresetQRCode( ViewerControlCenter );
 ViewerControlCenter = registerPresetHiddenFeatures( ViewerControlCenter );
+ViewerControlCenter = registerPresetFocusObject( ViewerControlCenter );
 
 export { ViewerControlCenter };

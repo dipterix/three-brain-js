@@ -34,7 +34,12 @@ CONSTANTS.LAYER_SYS_AXIAL_10 = 10;                // System reserved, axial came
 CONSTANTS.LAYER_SYS_SAGITTAL_11 = 11;             // System reserved, sagittal camera only
 CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 = 13;     // System reserved, all side cameras visible
 CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 = 14;            // System reserved, raycaster use for all "clickables"
-CONSTANTS.LAYER_SYS_RAYCASTER_15 = 15;            // System reserved, raycaster use for all raycaster-ables
+// Nothing is a permanent member: objects join and leave through
+// `AbstractThreeBrainObject.updateFocusMode()`, which the canvas triggers right
+// before it raycasts. Membership is therefore the whole filter -- what may be
+// hit right now, rather than what an object happens to be.
+CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 = 15;        // System reserved, raycaster opt-in
+
 CONSTANTS.LAYER_INVISIBLE_31 = 31;                // invisible layer, but keep rendered
 
 
@@ -74,6 +79,8 @@ CONSTANTS.ZINDEX_BASE = 1;
 // To do that you must go into the code
 CONSTANTS.KEY_DEBUG                   = "KeyD";         // `cmd+opt+shift+D` - Debug
 CONSTANTS.USE_RULER                   = "KeyR";         // `r` - Ruler
+CONSTANTS.KEY_RAYCASTER_ALL           = "KeyF";         // `f` - Hold key F to raycaster on all objects and highlight the first intersection
+CONSTANTS.KEY_CYCLE_FOCUS_TYPE        = "KeyF";         // `⇧F` - cycle through the focus-mode object types
 CONSTANTS.KEY_HIDDEN_FEATURES         = "KeyH";         // `cmd+opt+shift+H` - Hidden gems
 CONSTANTS.KEY_SIDE_PANEL              = "KeyP";         // `p` - toggle side panel
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
@@ -145,6 +152,7 @@ CONSTANTS.TOOLTIPS.KEY_SYNC_THRESHOLD          = "t";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION        = "s";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_VOXEL_TYPE        = "a";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "l";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_FOCUS_TYPE        = "f/⇧F";
 CONSTANTS.TOOLTIPS.KEY_REGISTER_FROM_CROSSHAIR     = "`";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_R = "1/⇧1";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_A = "2/⇧2";
@@ -187,6 +195,7 @@ CONSTANTS.FOLDERS = {
   'copy-viewer-state'     : 'Default',
   'main-camera-position'  : 'Default',
   'toggle-helpper'        : 'Default',
+  'focus-object'          : 'Default',
   'toggle-side-panels'    : 'Volume Settings',
   'reset-side-panels'     : 'Volume Settings',
   'side-three-planes'     : 'Volume Settings',
@@ -253,6 +262,9 @@ CONSTANTS.GEOMETRY = {
   "electrode-outline-threhsold" : 0.7,
   "streamline-retention-count": 200,
   "streamline-linewidth-factor": 0.5,
+  // On-screen radius of the focus-mode marker at `mainCamera.zoom === 1`; the
+  // marker divides by the live zoom each frame to stay this size.
+  "focus-marker-size": 3.0,
 };
 
 

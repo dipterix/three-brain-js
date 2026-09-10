@@ -59,6 +59,7 @@ class RShinyDriver {
 
     // register events
     this.$wrapper.addEventListener( "viewerApp.mouse.click", this._onClicked );
+    this.$wrapper.addEventListener( "viewerApp.canvas.objectFocused", this._onObjectFocused );
     this.$wrapper.addEventListener( "viewerApp.mainCamera.updated", this._onMainCameraUpdated );
     this.$wrapper.addEventListener( "viewerApp.state.updated" , this._onCanvasStateChanged );
     this.$wrapper.addEventListener( "viewerApp.subject.changed" , this._onSubjectChanged );
@@ -148,6 +149,7 @@ class RShinyDriver {
     }
     // remove listeners
     this.$wrapper.removeEventListener( "viewerApp.mouse.click", this._onClicked );
+    this.$wrapper.removeEventListener( "viewerApp.canvas.objectFocused", this._onObjectFocused );
     this.$wrapper.removeEventListener( "viewerApp.mainCamera.updated", this._onMainCameraUpdated );
     this.$wrapper.removeEventListener( "viewerApp.state.updated" , this._onCanvasStateChanged );
     this.$wrapper.removeEventListener( "viewerApp.subject.changed" , this._onSubjectChanged );
@@ -311,6 +313,22 @@ class RShinyDriver {
         this.dispatchToShiny('mouse_clicked', data, 'event');
       }
     }
+  }
+
+  /**
+   * Focus mode (hold F) picked something.
+   *
+   * Deliberately its own input rather than riding on `mouse_clicked`: focus mode
+   * does not change the selection, so apps listening for clicks should not see
+   * it. The payload is a flat record of identifiers and values -- no instance,
+   * no `Object3D`, no `_params` blob -- with 1-based indices for R.
+   */
+  _onObjectFocused = async ( event ) => {
+    if( !this.canvas.activated ) { return; }
+    // `ThrottledEventDispatcher` puts the payload straight on `detail`
+    const data = event.detail;
+    if( !data ) { return; }
+    this.dispatchToShiny( 'mouse_focused', data, 'event' );
   }
 
   _onMainCameraUpdated = async () => {

@@ -10,6 +10,7 @@ import { compile_free_material } from '../shaders/SurfaceShader.js';
 import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
 import { buildBoundsTreeAsync } from '../Math/meshBVH.js';
+import { formatDataValue } from '../utility/formatDataValue.js';
 
 // Cache key for the un-morphed surface.
 const BASE_MORPH_KEY = "__base__";
@@ -332,6 +333,116 @@ class FreeMesh extends AbstractThreeBrainObject {
     }
 
     return;
+  }
+
+  _isVertexIndex( vertexIndex ) {
+    return typeof vertexIndex === "number" &&
+      vertexIndex >= 0 && vertexIndex < this.__nvertices;
+  }
+
+  /**
+   * What a named vertex dataset carries at `vertexIndex`, as `"<name> = <v>"`
+   * for measurements or `"<name> = <label>"` for annotations. Returns undefined
+   * when the data is absent, still loading, or belongs to another surface.
+   */
+  formatVertexValue( dataName, vertexIndex ) {
+    if( typeof dataName !== "string" || dataName === "" || dataName === "[none]" ) { return; }
+    if( !this._isVertexIndex( vertexIndex ) ) { return; }
+
+    const dataObject = this._canvas.get_data(
+      `${ this._hemispherePrefix }h_annotation_${ dataName }`,
+      this.name, this.group_name );
+
+    if( !dataObject || dataObject.isInvalid ) { return; }
+    if( dataObject.nVertices !== this.__nvertices ) { return; }
+
+    if( dataObject.isSurfaceMeasurement ) {
+      // `_frameData` is the frame currently on screen; `vertexData` holds them all
+      const values = dataObject._frameData;
+      if( !values || values.length <= vertexIndex ) { return; }
+      return `${ dataName } = ${ formatDataValue( values[ vertexIndex ] ) }`;
+    }
+
+    if( dataObject.isSurfaceAnnotation ) {
+      const vertexKeys = dataObject.vertexKeys,
+            labels = dataObject.labels;
+      if( !vertexKeys || !labels ) { return; }
+      const label = labels.get( vertexKeys[ vertexIndex ] );
+      if( label === undefined ) { return; }
+      return `${ dataName } = ${ label }`;
+    }
+
+    return;
+  }
+
+  /**
+   * The primary vertex value -- what the surface is shaded with underneath any
+   * overlay, typically sulc. Stored under its own data key rather than as an
+   * annotation, so it needs a separate read from `formatVertexValue`.
+   */
+  formatPrimaryVertexValue( vertexIndex ) {
+    if( !this._isVertexIndex( vertexIndex ) ) { return; }
+
+    const dataObject = this._canvas.get_data(
+      `${ this._hemispherePrefix }h_primary_vertex_color`,
+      this.name, this.group_name );
+
+    if( !dataObject || !dataObject.isSurfaceMeasurement ) { return; }
+    if( dataObject.nVertices !== this.__nvertices ) { return; }
+
+    const values = dataObject._frameData;
+    if( !values || values.length <= vertexIndex ) { return; }
+
+    return `${ this._vertex_cname || "value" } = ${ formatDataValue( values[ vertexIndex ] ) }`;
+  }
+
+  /**
+   * Focus-mode info lines. `hit` carries the intersection context; indices in it
+   * are three.js (0-based) and are converted to 1-based here, at the reporting
+   * boundary, so R and the panel agree.
+   */
+  getInfoText( type, hit ) {
+    switch ( type ) {
+
+      case "type":
+        // deliberately not "cortical" / "subcortical": subcortical surfaces are
+        // routinely loaded through this same path, so the distinction would
+        // often be wrong
+        return `Type:      Surface (${ this.surface_type || "unknown" }, ${ this.hemisphere })`;
+
+      case "index": {
+        if( !hit || !this._isVertexIndex( hit.vertexIndex ) ) { return; }
+        let text = `Vertex:    ${ hit.vertexIndex + 1 }`;
+        if( typeof hit.faceIndex === "number" && hit.faceIndex >= 0 ) {
+          text += `   Face: ${ hit.faceIndex + 1 }`;
+        }
+        const underlay = this.formatPrimaryVertexValue( hit.vertexIndex );
+        if( underlay ) { text += `   ${ underlay }`; }
+        return text;
+      }
+
+      case "display": {
+        if( !hit ) { return; }
+        const text = this.formatVertexValue( this.state.overlay.dataName, hit.vertexIndex );
+        if( !text ) { return; }
+        return `Display:   ${ text }`;
+      }
+
+      case "threshold": {
+        if( !hit ) { return; }
+        const dataName = this._canvas.get_state( "surfaceThresholdData", "[none]" );
+        const text = this.formatVertexValue( dataName, hit.vertexIndex );
+        if( !text ) { return; }
+        return `Threshold: ${ text }`;
+      }
+
+      case "name":
+        return this.name;
+
+      // an unanswered key contributes no line
+      default:
+        return;
+    }
   }
 
   /**
@@ -794,6 +905,16 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._material_options.elec_cols.value.needsUpdate = true;
     this._material_options.elec_active_size.value = ii;
 
+  }
+
+  updateFocusMode({ mode, objectType } = {}) {
+    if( mode === "ruler" || objectType === "all" || objectType === "surface mesh" ) {
+      // make sure the bounds tree matches the morph state about to be picked
+      this.prepareForRaycast();
+      super.updateFocusMode({ mode : mode, objectType : objectType });
+    } else {
+      this.object.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+    }
   }
 
   /**

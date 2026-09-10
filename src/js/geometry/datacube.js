@@ -6,6 +6,7 @@ import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedF
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType, Color } from 'three';
 import { SliceShader, SliceMaterial } from '../shaders/SliceShader.js';
+import { formatDataValue } from '../utility/formatDataValue.js';
 
 
 /* WebGL doesn't take transparency into consideration when calculating depth
@@ -144,6 +145,10 @@ class DataCube extends AbstractThreeBrainObject {
     sliceMaterial.underlayShape.copy( this.cubeShape );
     sliceMaterial.world2UnderlayVoxel.copy( world2UnderlayVoxel );
 
+    // the shader is not the only consumer: focus mode needs the same world->IJK
+    // transform on the CPU to read `cubeData` under the cursor
+    this.world2UnderlayVoxel = world2UnderlayVoxel;
+
     this.sliceMaterial = sliceMaterial;
     const sliceGeometryXY = new PlaneGeometry( 512, 512 );
     sliceGeometryXY.computeVertexNormals();
@@ -254,6 +259,100 @@ class DataCube extends AbstractThreeBrainObject {
 
   get_track_data( track_name, reset_material ){}
 
+  updateFocusMode({ mode, objectType } = {}) {
+    if( mode === "ruler" || objectType === "all" || objectType === "2D slice" ) {
+      // `this.object` is the three slice planes, which the base walks for us
+      super.updateFocusMode({ mode : mode, objectType : objectType });
+    } else {
+      this.object.forEach(( item ) => {
+        item.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      });
+    }
+  }
+
+  /**
+   * Which of the three planes an object is, as a `{ anatomical, crs }` pair.
+   * Both names are kept because only one of them is honest at a time -- see
+   * `getInfoText`.
+   */
+  _planeNames( object ) {
+    if( object === this.sliceXZ ) { return { anatomical : "coronal",  crs : "row" }; }
+    if( object === this.sliceXY ) { return { anatomical : "axial",    crs : "slice" }; }
+    if( object === this.sliceYZ ) { return { anatomical : "sagittal", crs : "column" }; }
+    return;
+  }
+
+  /**
+   * Underlay intensity at a world-space point, or undefined when the point
+   * falls outside the volume.
+   */
+  valueAtWorldPosition( position ) {
+    if( !position || !this.world2UnderlayVoxel || !this.cubeData ) { return; }
+
+    const ijk = tmpVec3.copy( position ).applyMatrix4( this.world2UnderlayVoxel );
+    const i = Math.round( ijk.x ), j = Math.round( ijk.y ), k = Math.round( ijk.z );
+    const mx = this.cubeShape.x, my = this.cubeShape.y, mz = this.cubeShape.z;
+
+    if( i < 0 || i >= mx || j < 0 || j >= my || k < 0 || k >= mz ) { return; }
+
+    return this.cubeData[ i + mx * ( j + my * k ) ];
+  }
+
+  /**
+   * Focus-mode info lines. There is no `index` line: volumes get trimmed on the
+   * way in, so a voxel index would not reliably refer to anything the user can
+   * look up. The coordinates carry the location instead.
+   */
+  getInfoText( type, hit ) {
+    switch ( type ) {
+
+      case "type": {
+        const names = hit ? this._planeNames( hit.object ) : undefined;
+        if( !names ) { return `Type:      Volume slice`; }
+        // Anatomical names only mean something while the planes are
+        // axis-aligned. Under `line-of-sight`, `snap-to-electrode` and
+        // `column-row-slice` the crosshair rotates them, so "coronal" would be
+        // a lie -- fall back to the axis the plane indexes. This is the same
+        // test `pre_render` uses to pick a texture filter.
+        const axisAligned = this._canvas.crosshairGroup.quaternion.w === 1;
+        return `Type:      Volume slice (${ axisAligned ? names.anatomical : names.crs })`;
+      }
+
+      case "display": {
+        if( !hit ) { return; }
+        const value = this.valueAtWorldPosition( hit.point );
+        if( value === undefined ) { return; }
+        // `cubeData` is normalised on load, so this is what is drawn rather
+        // than the raw scanner intensity
+        let text = `Display:   ${ formatDataValue( value ) }`;
+
+        // The active volume is painted onto these planes as an overlay in the
+        // modes `pre_render` recorded, and in `anat. slices` that is the only
+        // place it is drawn at all -- so the slice reports it. Raw value, not
+        // the thresholded colour; see `DataCube2.getValueFromPosition`.
+        if( this._useOverlayMain ) {
+          const volume = this._canvas.get_state( "activeDataCube2Instance" );
+          if( volume && volume.isDataCube2 &&
+              typeof volume.getValueFromPosition === "function" ) {
+            const overlay = volume.getValueFromPosition( hit.point );
+            if( overlay !== undefined ) {
+              const atlasType = this._canvas.get_state( "atlas_type" );
+              text += `  (${ atlasType ? atlasType + ": " : "" }${ overlay })`;
+            }
+          }
+        }
+        return text;
+      }
+
+      case "name":
+        return this.name;
+
+      // an unanswered key contributes no line
+      default:
+        return;
+    }
+  }
+
   pre_render({ target = CONSTANTS.RENDER_CANVAS.main } = {}){
 
     const sliceMode = this._canvas.get_state("sideCameraTrackMainCamera", "canonical");
@@ -291,6 +390,9 @@ class DataCube extends AbstractThreeBrainObject {
             displayOverlay === "normal" ||
             displayOverlay === "main camera" ||
             displayOverlay === "anat. slices";
+      // remembered for `getInfoText`: the pick ray comes from the main camera,
+      // so this is the branch that decides whether the overlay is on screen
+      this._useOverlayMain = useOverlay;
     } else {
       this.sliceMaterial.zeroThreshold = -1.0;
       this.sliceMaterial.depthWrite = false;

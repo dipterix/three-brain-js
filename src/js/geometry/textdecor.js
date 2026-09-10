@@ -23,7 +23,6 @@ class TextDecor extends AbstractThreeBrainObject {
     super(g, canvas);
     this.type = 'TextDecor';
     this.isSprite = true;
-    this.rayCasterEligible = false;
     this.clickable = g.clickable === true;
 
     const text = typeof g.text === 'string' ? g.text : '';
@@ -83,6 +82,11 @@ class TextDecor extends AbstractThreeBrainObject {
    * Replace the displayed text.
    * @param {string} text
    */
+  updateFocusMode({ mode, objectType } = {}) {
+    // text labels are never pick targets (this replaces `rayCasterEligible`)
+    return;
+  }
+
   setText(text) {
     this._textMap.draw_text(typeof text === 'string' ? text : '');
   }

@@ -1,5 +1,5 @@
 import {
-  Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4, Layers,
+  Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4,
   // OrthographicCamera,
   WebGLRenderer,
   DirectionalLight, AmbientLight,
@@ -29,6 +29,7 @@ import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
 import { RulerHelper } from '../geometry/RulerHelper.js';
+import { SpriteMarker } from '../geometry/SpriteMarker.js';
 
 // Utility
 import { asArray } from '../utility/asArray.js';
@@ -42,6 +43,16 @@ import { installAcceleratedRaycast } from '../Math/meshBVH.js';
 // bounds tree keep the stock three.js behaviour, so this is inert until a
 // geometry opts in.
 installAcceleratedRaycast();
+
+const FOCUS_MODE_INFO_KEYS = [ "name", "type", "position", "index", "display", "threshold" ];
+
+// `getInfoText` bakes an aligned label into each line for the panel; R wants the
+// value on its own.
+const INFO_LABEL_REGEX = /^[A-Za-z][A-Za-z0-9 .]*:\s*/;
+function stripInfoLabel( text ) {
+  if( typeof text !== "string" ) { return text; }
+  return text.replace( INFO_LABEL_REGEX, "" );
+}
 
 const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
@@ -73,12 +84,6 @@ const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
 const BLACK_COLOR = new Color().set(0, 0, 0);
 
-
-const MAIN_CAMERA_VISIBLE_LAYERS = new Layers();
-MAIN_CAMERA_VISIBLE_LAYERS.set( CONSTANTS.LAYER_USER_MAIN_CAMERA_0 );
-MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_USER_ALL_CAMERA_1 );
-MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 );
-MAIN_CAMERA_VISIBLE_LAYERS.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
 
 /* ------------------------------------ Layer setups ------------------------------------
   Defines for each camera which layers are visible.
@@ -432,6 +437,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.highlightTarget.visible = false;
     this.add_to_scene( this.highlightTarget, true );
 
+    // Focus mode (hold F). Kept entirely apart from `object_chosen` and the
+    // highlight box above: those drive electrode cycling, the legend value and
+    // the R broadcast, none of which should start seeing a surface.
+    this.focusModeTarget = null;
+    this.hasFocusModeTarget = false;
+    this.focusModeMarker = new SpriteMarker( this.mainCamera );
+    this.add_to_scene( this.focusModeMarker.object, true );
+
     this.bounding_box = new BoxHelper();
     this.bounding_box.material.color.setRGB( 0, 0, 1 );
     this.bounding_box.userData.added = false;
@@ -512,6 +525,22 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
   */
   _onMouseDown = async ( event ) => {
+
+    // Focus mode takes precedence and never touches `object_chosen`: it answers
+    // "what is under the cursor", not "what did the user select".
+    if( this.get_state( "focus_mode_activated" ) ) {
+      const target = this.focusModePick();
+      this.setFocusModeTarget( target );
+
+      // right-click still drives the slices, matching a normal right-click
+      if( target && event.detail && event.detail.button == 2 ) {
+        this.setSliceCrosshair( target.point );
+      }
+
+      this.needsUpdate = true;
+      return;
+    }
+
     // async, but raycaster is always up to date
     const item = this.raycastObjects();
     if( !item || !item.object || !item.object.isMesh ) { return; }
@@ -557,7 +586,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     } else {
       this._renderFlag = flag;
     }
-    if( this.debug && typeof message === "string" ) {
+    if( this.debug && typeof message === "string" && oldFlag !== this._renderFlag ) {
       this.debugVerbose(`${message}  sets rendering flag from ${oldFlag} to ${this._renderFlag} with flag ${flag} and operator ${operator}`);
     }
   }
@@ -568,6 +597,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       case 'enable' :
         this.set_state( "ruler_activated", true );
+        // layer 15 has no permanent members, so the ruler has to ask objects to
+        // opt in the same way focus mode does
+        this.prepareFocusMode({ mode : "ruler" });
         break;
 
       case 'reset':
@@ -606,6 +638,230 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
+  /**
+   * Record (or clear) the focus-mode target and move the marker to it.
+   *
+   * @param {Object|undefined} target as returned by `focusModePick`
+   */
+  setFocusModeTarget( target ) {
+    if( !target || !target.point ) {
+      this.focusModeTarget = null;
+      this.hasFocusModeTarget = false;
+      return;
+    }
+
+    this.focusModeTarget = target;
+    this.hasFocusModeTarget = true;
+    // whether the marker is *shown* is decided once per frame in `update()`,
+    // where it can also follow the `Highlight Box` controller
+    this.focusModeMarker.setPosition( target.point );
+
+    this.dispatch({
+      type : "viewerApp.canvas.objectFocused",
+      data : this.focusModeDescription(),
+      immediate : true,
+    });
+  }
+
+  /**
+   * Drop the focus target. Called on dispose, on subject switch, and by
+   * `AbstractThreeBrainObject.dispose` -- the target holds strong references to
+   * an instance and its `Object3D`, so a stale one would pin a whole subject's
+   * geometry in memory.
+   *
+   * @param {Object} [instance] clear only if the target points at this instance
+   */
+  clearFocusModeTarget( instance ) {
+    if( !this.focusModeTarget ) { return; }
+    if( instance && this.focusModeTarget.instance !== instance ) { return; }
+    this.setFocusModeTarget( undefined );
+  }
+
+  /**
+   * The focus target as a flat record: identifiers and values only, no
+   * instances, `Object3D`s or `_params` blobs. Indices are 1-based here, at the
+   * reporting boundary, so the panel and R agree while `focusModeTarget` stays
+   * in three.js terms.
+   */
+  focusModeDescription() {
+    const target = this.focusModeTarget;
+    if( !target || !target.instance ) { return; }
+
+    const inst = target.instance;
+    const data = {
+      name       : inst.name,
+      geom_type  : inst._params ? inst._params.type : undefined,
+      subject    : inst.subject_code,
+      tkr_ras    : target.point.toArray(),
+    };
+
+    const type = typeof inst.getInfoText === "function" ? inst.getInfoText( "type", target ) : undefined;
+    if( type ) { data.type = stripInfoLabel( type ); }
+
+    const scanRAS = this.focusModeScannerPosition();
+    if( scanRAS ) { data.scan_ras = scanRAS.toArray(); }
+
+    // Only surfaces have indices worth sending. An isosurface hit also carries
+    // face/vertex numbers, but they index a marching-cubes mesh that is
+    // regenerated on every threshold change, so they would not mean anything on
+    // the R side.
+    if( inst.isFreeMesh ) {
+      if( typeof target.vertexIndex === "number" ) { data.vertex_index = target.vertexIndex + 1; }
+      if( typeof target.faceIndex === "number" ) { data.face_index = target.faceIndex + 1; }
+    }
+
+    if( inst.isStreamline && typeof inst.tractFromSegment === "function" ) {
+      const tract = inst.tractFromSegment( target.segmentIndex );
+      if( tract ) {
+        data.line_index = tract.tractID + 1;
+        if( typeof tract.length === "number" ) { data.line_length = tract.length; }
+      }
+    }
+
+    if( typeof inst.getInfoText === "function" ) {
+      const display = inst.getInfoText( "display", target );
+      if( display ) { data.display = stripInfoLabel( display ); }
+      const threshold = inst.getInfoText( "threshold", target );
+      if( threshold ) { data.threshold = stripInfoLabel( threshold ); }
+      if( typeof inst.formatPrimaryVertexValue === "function" ) {
+        const underlay = inst.formatPrimaryVertexValue( target.vertexIndex );
+        if( underlay ) { data.underlay = underlay; }
+      }
+    }
+
+    return data;
+  }
+
+  /**
+   * Scanner-RAS of the focus point. World space is tkrRAS, and `tkrRAS_Scanner`
+   * (Norig * inv(Torig)) is precomputed per subject when the subject group loads.
+   */
+  focusModeScannerPosition() {
+    const target = this.focusModeTarget;
+    if( !target || !target.instance ) { return; }
+
+    const subjectData = this.shared_data.get( target.instance.subject_code );
+    if( !subjectData || !subjectData.matrices ) { return; }
+
+    return this._tmpVec3.copy( target.point )
+      .applyMatrix4( subjectData.matrices.tkrRAS_Scanner );
+  }
+
+  /**
+   * Ask every instance to re-decide whether it may be raycast, then raycast.
+   *
+   * Membership of `LAYER_SYS_RAYCASTER_ALL_15` is the whole filter, and it is
+   * recomputed from scratch on every prepare, so an object that should not be
+   * hittable simply is not on the layer. That is deliberately the objects'
+   * decision: things like "am I the active volume" are invisible from here.
+   *
+   * @param {Object} [options]
+   * @param {string} [options.mode] - `"ruler"` or `"focus"`
+   * @param {string} [options.objectType] - the `Focus Object Type` value
+   */
+  prepareFocusMode({ mode = "focus", objectType } = {}) {
+    if( objectType === undefined ) {
+      objectType = this.get_state( "focusModeObjectType", "all" );
+    }
+    this.dispatch({
+      type : "viewerApp.canvas.prepareFocusMode",
+      data : { mode : mode, objectType : objectType },
+      immediate : true,
+      muffled : true,
+    });
+  }
+
+  /**
+   * What is under the cursor, restricted to the focus-mode object type.
+   *
+   * Separate from `raycastObjects` because the two answer different questions:
+   * that one asks "what did the user click", constrained to the clickable
+   * layer; this one asks "what is under the cursor of this kind".
+   *
+   * @returns {Object|undefined} `{ instance, object, point, distance,
+   *   faceIndex, vertexIndex, segmentIndex }`, all indices in three.js
+   *   (0-based) terms.
+   */
+  focusModePick() {
+    const raycaster = this.updateRaycast();
+    if( !raycaster ) { return; }
+
+    const objectType = this.get_state( "focusModeObjectType", "all" );
+
+    raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+    // recursion reaches the slice planes and other sub-objects without listing
+    // them; anything not on the layer is skipped
+    const items = raycaster.intersectObject( this.scene, true );
+
+    let best;
+    for( let ii = 0; ii < items.length; ii++ ) {
+      const item = items[ ii ];
+      const inst = getThreeBrainInstance( item.object );
+      if( !inst ) { continue; }
+
+      // hidden streamlines still own live segments inside `instanceCount`;
+      // this is per-segment, below object granularity, so it cannot be a
+      // layer decision
+      if( inst.isStreamline ) {
+        if( typeof inst.segmentIsVisible === "function" &&
+            !inst.segmentIsVisible( item.faceIndex ) ) { continue; }
+      }
+
+      best = this._describeFocusModeHit( inst, item );
+      break;
+    }
+
+    // The volume is never on the layer -- a hit on the box it is drawn on would
+    // not be a voxel. Only one volume is ever active, so ask that one directly.
+    if( objectType === "all" || objectType === "3D voxel" ) {
+      const volume = this.get_state( "activeDataCube2Instance" );
+      if( volume && volume.isDataCube2 && typeof volume.intersectRay === "function" ) {
+        const hit = volume.intersectRay( raycaster.ray );
+        if( hit && ( !best || hit.distance < best.distance ) ) {
+          best = hit;
+        }
+      }
+    }
+
+    return best;
+  }
+
+  /**
+   * Turn a raw intersection into the record focus mode stores, resolving the
+   * per-type index the info panel reports.
+   */
+  _describeFocusModeHit( inst, item ) {
+    const hit = {
+      instance : inst,
+      object   : item.object,
+      point    : item.point.clone(),
+      distance : item.distance,
+    };
+
+    if( inst.isStreamline ) {
+      // `Line2` reports the instance (segment) index here, not a triangle
+      hit.segmentIndex = item.faceIndex;
+      return hit;
+    }
+
+    if( typeof item.faceIndex === "number" ) {
+      hit.faceIndex = item.faceIndex;
+    }
+
+    // nearest vertex of the hit triangle is the largest barycentric weight
+    const face = item.face, barycoord = item.barycoord;
+    if( face && barycoord ) {
+      let vertexIndex = face.a, weight = barycoord.x;
+      if( barycoord.y > weight ) { vertexIndex = face.b; weight = barycoord.y; }
+      if( barycoord.z > weight ) { vertexIndex = face.c; }
+      hit.vertexIndex = vertexIndex;
+    } else if ( face ) {
+      hit.vertexIndex = face.a;
+    }
+
+    return hit;
+  }
+
   raycastObjects() {
     const raycaster = this.updateRaycast();
     if( !raycaster ) { return; }
@@ -613,22 +869,21 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     let items;
 
     if( this.get_state( "ruler_activated" ) ) {
-      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
+      // same opt-in mechanism focus mode uses: instances put themselves on the
+      // layer, so nothing has to be permanently raycastable
+      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      items = raycaster.intersectObject( this.scene, true );
 
-      const visibleObjectGenerator = this.mesh.values().filter((mesh) => {
-        return mesh.visible && mesh.layers.test( MAIN_CAMERA_VISIBLE_LAYERS );
-      })
-      const visibleObjects = [...visibleObjectGenerator];
-      // check if datacube2 has isoSurface
-      const instance = this.get_state( "activeDataCube2Instance" );
-      if( instance && instance.isDataCube2 ) {
-        if( instance.useISOSurface && instance.isoSurface && !instance.isoSurface.isInvalid ) {
-          visibleObjects.push( instance.isoSurface );
+      // The volume never joins the layer, so the ruler asks it directly -- this
+      // is what preserves being able to measure against a volume now that the
+      // isosurface has no standing layer membership.
+      const volume = this.get_state( "activeDataCube2Instance" );
+      if( volume && volume.isDataCube2 && typeof volume.intersectRay === "function" ) {
+        const hit = volume.intersectRay( raycaster.ray );
+        if( hit && ( items.length === 0 || hit.distance < items[0].distance ) ) {
+          items = [ hit ];
         }
       }
-
-      this._prepareRaycastTargets( visibleObjects );
-      items = raycaster.intersectObjects( visibleObjects );
     } else {
       // where clickable objects stay
       raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
@@ -1057,6 +1312,8 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Remove all objects, listeners, and dispose all
     this._disposed = true;
     this.activated = false;
+    this.clearFocusModeTarget();
+    this.focusModeMarker.dispose();
     this.animParameters.dispose();
 
     // Remove listeners
@@ -1097,6 +1354,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   clear_all(){
     // Stop showing information of any selected objects
     this.object_chosen=undefined;
+    // the focus target pins an instance and its Object3D; drop it before the
+    // geometry it points at is torn down
+    this.clearFocusModeTarget();
     this.clickable.clear();
     this.clickableArray.length = 0;
     this.title = undefined;
@@ -1891,6 +2151,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.rulerHelper.setTextScale( 1. / this.mainCamera.zoom );
 
+    // the focus marker is a highlight, so it answers to the `Highlight Box`
+    // controller; the info text has its own (`Info Text` / `info_text_disabled`)
+    this.focusModeMarker.visible = this.hasFocusModeTarget &&
+      !this.get_state( "highlight_disabled", false );
+    this.focusModeMarker.update();
+
     // check if time has timeChanged
     this.threebrain_instances.forEach((inst) => {
       inst.update();
@@ -2075,6 +2341,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // Draw focused target information on the top right corner
     this.renderSelectedObjectInfo( 0, 0, _width, _height );
+
+    // Focus mode (hold F) reports into the same corner, below the selection
+    this.renderFocusModeInfo( 0, 0, _width, _height );
 
     // check if capturer is working
     if( this.capturer_recording && this.capturer ){
@@ -2400,28 +2669,15 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     );
   }
 
-  renderSelectedObjectInfo(
-    x = 10, y = 10, w = 100, h = 100,
-    contextWrapper = undefined ){
-
-    // Add selected object information, or if not showing is set
-    if( !this.animParameters.hasObjectFocused || this.get_state( 'info_text_disabled') ){
-      // no object selected, discard
-      return;
-    }
-
-    if( !contextWrapper ){
-      contextWrapper = this.domContextWrapper;
-    }
-    const objectInfo = this.animParameters.objectFocused;
-
+  /**
+   * Where the info text starts, and the font metrics it uses. Shared by the
+   * selection block and the focus-mode block so the two stay aligned.
+   */
+  _infoTextLayout( w ) {
     this._lineHeight_normal = this._lineHeight_normal || Math.round( 20 * this.pixel_ratio[0] );
     this._lineHeight_small = this._lineHeight_small || Math.round( 12 * this.pixel_ratio[0] );
     this._fontSize_normal = this._fontSize_normal || Math.round( 12 * this.pixel_ratio[0] );
     this._fontSize_small = this._fontSize_small || Math.round( 8 * this.pixel_ratio[0] );
-
-    contextWrapper.set_font_color( this.foreground_color );
-    contextWrapper.set_font( this._fontSize_normal, this._fontType );
 
     let text_left;
     const infoTextPosition = this.get_state( 'info_text_position' );
@@ -2434,16 +2690,40 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     } else {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
     }
+
+    return {
+      left : text_left,
+      // Make sure it's not hidden by control panel
+      top  : this._lineHeight_normal + this._lineHeight_small + this.pixel_ratio[0] * 10,
+    };
+  }
+
+  renderSelectedObjectInfo(
+    x = 10, y = 10, w = 100, h = 100,
+    contextWrapper = undefined ){
+
+    // Add selected object information, or if not showing is set
+    if( !this.animParameters.hasObjectFocused || this.get_state( 'info_text_disabled') ){
+      // no object selected, discard. Let the focus-mode block start at the top.
+      this.__infoTextBottom = this._infoTextLayout( w ).top;
+      return;
+    }
+
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
+    }
+    const objectInfo = this.animParameters.objectFocused;
+
+    const layout = this._infoTextLayout( w );
+
+    contextWrapper.set_font_color( this.foreground_color );
+    contextWrapper.set_font( this._fontSize_normal, this._fontType );
+
     if( !this.__textPosition ) {
       this.__textPosition = new Vector2();
     }
     const textPosition = this.__textPosition;
-    textPosition.set(
-      text_left,
-
-      // Make sure it's not hidden by control panel
-      this._lineHeight_normal + this._lineHeight_small + this.pixel_ratio[0] * 10
-    );
+    textPosition.set( layout.left, layout.top );
 
     let pos = objectInfo.position;
     const electrodeInstance = objectInfo.instance && objectInfo.instance.isElectrode ? objectInfo.instance : null;
@@ -2565,6 +2845,76 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       textPosition.x, textPosition.y
     );
 
+    this.__infoTextBottom = textPosition.y;
+  }
+
+  /**
+   * Focus-mode (hold F) report, drawn below the selection block.
+   *
+   * Each instance formats its own lines through `getInfoText( key, hit )` --
+   * the protocol electrodes already use -- and any key that returns undefined is
+   * skipped, so types contribute only the lines they can answer.
+   */
+  renderFocusModeInfo(
+    x = 10, y = 10, w = 100, h = 100,
+    contextWrapper = undefined ){
+
+    if( !this.hasFocusModeTarget || this.get_state( 'info_text_disabled' ) ) { return; }
+
+    const target = this.focusModeTarget;
+    const inst = target ? target.instance : undefined;
+    if( !inst || typeof inst.getInfoText !== "function" ) { return; }
+
+    if( !contextWrapper ){
+      contextWrapper = this.domContextWrapper;
+    }
+
+    const layout = this._infoTextLayout( w );
+    let top = this.__infoTextBottom;
+    if( typeof top !== "number" || top < layout.top ) { top = layout.top; }
+    // a blank line between the selection block and this one
+    top += this._lineHeight_small * 1.5;
+
+    contextWrapper.set_font_color( this.foreground_color );
+    contextWrapper.set_font( this._fontSize_normal, this._fontType );
+
+    const name = inst.getInfoText( "name", target );
+    if( !name ) { return; }
+
+    let lineY = top;
+    contextWrapper.fill_text( name, layout.left, lineY );
+
+    contextWrapper.set_font( this._fontSize_small, this._fontType );
+
+    for( let ii = 0; ii < FOCUS_MODE_INFO_KEYS.length; ii++ ) {
+      const key = FOCUS_MODE_INFO_KEYS[ ii ];
+      if( key === "name" ) { continue; }
+
+      const line = key === "position"
+        ? this._focusModePositionText()
+        : inst.getInfoText( key, target );
+
+      if( !line ) { continue; }
+      lineY += this._lineHeight_small;
+      contextWrapper.fill_text( line, layout.left, lineY );
+    }
+  }
+
+  _focusModePositionText() {
+    const target = this.focusModeTarget;
+    if( !target ) { return; }
+
+    const tkr = target.point;
+    const scan = this.focusModeScannerPosition();
+
+    let text = `ScanRAS:   `;
+    if( scan ) {
+      text += `(${ scan.x.toFixed(0) }, ${ scan.y.toFixed(0) }, ${ scan.z.toFixed(0) })`;
+    } else {
+      text += `n/a`;
+    }
+    text += `    tkrRAS: (${ tkr.x.toFixed(0) }, ${ tkr.y.toFixed(0) }, ${ tkr.z.toFixed(0) })`;
+    return text;
   }
 
   _draw_video( results, w, h, contextWrapper ){

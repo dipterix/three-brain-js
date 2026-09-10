@@ -4,10 +4,17 @@ import { registerRigidPoints } from '../Math/svd.js';
 import { CONSTANTS } from '../core/constants.js';
 import {
   Vector3, Matrix4, Quaternion, BufferGeometry, DataTexture, RGBAFormat, UVMapping,
-  UnsignedByteType, ClampToEdgeWrapping, NearestFilter, Mesh,
+  UnsignedByteType, ClampToEdgeWrapping, NearestFilter, Mesh, Layers,
   BufferAttribute, Float32BufferAttribute, CatmullRomCurve3,
   PlaneGeometry, SphereGeometry, BoxGeometry, EventDispatcher
 } from 'three';
+
+const mainCameraLayers = new Layers();
+mainCameraLayers.disableAll();
+mainCameraLayers.enable( CONSTANTS.LAYER_USER_MAIN_CAMERA_0 );
+mainCameraLayers.enable( CONSTANTS.LAYER_USER_ALL_CAMERA_1 ); 
+mainCameraLayers.enable( CONSTANTS.LAYER_SYS_ALL_CAMERAS_7 ); 
+mainCameraLayers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 ); 
 
 const tmpVec3 = new Vector3();
 
@@ -22,7 +29,6 @@ class AbstractThreeBrainObject extends EventDispatcher {
     this._visible = true;
     this.type = 'AbstractThreeBrainObject';
     this.isThreeBrainObject = true;
-    this.rayCasterEligible = true;
     this.name = g.name;
     if( g.group && typeof g.group === 'object' ){
       this.group_name = g.group.group_name;
@@ -39,6 +45,18 @@ class AbstractThreeBrainObject extends EventDispatcher {
     canvas.threebrain_instances.set( this.name, this );
     this.clickable = g.clickable === true;
     this.world_position = new Vector3();
+
+    // The canvas asks every instance to re-decide its raycaster membership just
+    // before picking; see `updateFocusMode`.
+    //
+    // Registered here rather than in `finish_init` because subclasses may
+    // replace that method wholesale -- `DataCube` does, since its `this.object`
+    // is three slice planes and the base method assumes a single `Object3D` --
+    // and a missed subscription is silent: the object simply never joins the
+    // layer and can never be picked. `super( g, canvas )` is mandatory, so this
+    // cannot be skipped.
+    this._canvas.$el.addEventListener(
+      "viewerApp.canvas.prepareFocusMode", this._onPrepareFocusMode );
   }
 
   setLayers( addition = [], object = null ){
@@ -49,9 +67,6 @@ class AbstractThreeBrainObject extends EventDispatcher {
       // set clickable layer
       if( this._params.clickable === true ){
         layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
-      }
-      if( this.rayCasterEligible ) {
-        layers.push( CONSTANTS.LAYER_SYS_RAYCASTER_15 );
       }
       layers.concat( more_layers );
 
@@ -73,6 +88,47 @@ class AbstractThreeBrainObject extends EventDispatcher {
       }
     }
   }
+
+  /**
+   * Decide whether this object may be raycast right now, and join or leave
+   * `LAYER_SYS_RAYCASTER_ALL_15` accordingly.
+   *
+   * The canvas calls this on every instance through
+   * `ViewerCanvas.prepareFocusMode()` just before it raycasts, so membership is
+   * recomputed from scratch each time -- there is no teardown to forget. It is
+   * also the only place that knows things the canvas cannot see from outside,
+   * such as which volume is the active one.
+   *
+   * `this.object` may be a single `Object3D` or an array of them (`DataCube`
+   * owns its three slice planes that way), so both are handled here and most
+   * subclasses need no override at all.
+   *
+   * Override it the way `pre_render` is overridden: gate on `mode` /
+   * `objectType`, then delegate to `super`.
+   *
+   * @param {Object} [options]
+   * @param {string} [options.mode] - `"ruler"` or `"focus"`
+   * @param {string} [options.objectType] - the `Focus Object Type` value
+   */
+  updateFocusMode({ mode, objectType } = {}) {
+    let obj = this.object;
+    if( !obj || !( obj.isObject3D || Array.isArray( obj ) ) ) { return; }
+    if( !Array.isArray( obj ) ) { obj = [ obj ]; }
+    obj.forEach(( item ) => {
+      if( !item || !item.isObject3D ) { return; }
+      
+      if( item.visible && item.layers.test( mainCameraLayers ) ) {
+        item.layers.enable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      } else {
+        item.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+      }
+    });
+  }
+
+  _onPrepareFocusMode = ( event ) => {
+    this.updateFocusMode( event.detail || {} );
+  }
+
 
   warn( s ){
     console.warn(this._name + ' ' + s);
@@ -104,6 +160,14 @@ class AbstractThreeBrainObject extends EventDispatcher {
     });
     this._canvas.removeClickable( this.name );
     this._canvas.threebrain_instances.delete( this.name );
+    try {
+      this._canvas.$el.removeEventListener(
+        "viewerApp.canvas.prepareFocusMode", this._onPrepareFocusMode );
+    } catch (e) {}
+    // focus mode holds a strong reference to the instance and its Object3D
+    if( typeof this._canvas.clearFocusModeTarget === "function" ) {
+      this._canvas.clearFocusModeTarget( this );
+    }
   }
 
   get_track_data( track_name, reset_material ){
@@ -179,6 +243,7 @@ class AbstractThreeBrainObject extends EventDispatcher {
     if( this.object ){
       // console.debug(`Finalizing ${ this.name }`);
       this.setLayers();
+
       this.object.userData.construct_params = this._params;
 
       this._canvas.mesh.set( this.name, this.object );

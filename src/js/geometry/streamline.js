@@ -13,6 +13,7 @@ import { StreamlineMaterial } from '../shaders/StreamlineMaterial.js';
 import { Line2 }from 'three/addons/lines/Line2.js';
 import { LineMaterial }from '../shaders/LineMaterial.js';
 import { mulberry32 } from '../utility/mulberry32.js'
+import { formatDataValue } from '../utility/formatDataValue.js';
 import { computeStreamlineToTargets, makeSinglePointTree } from '../Math/computeStreamlineToTargets.js';
 import { startWorker, stopWorker } from '../core/Workers.js';
 import { CONSTANTS } from '../core/constants.js';
@@ -469,6 +470,103 @@ class Streamline extends AbstractThreeBrainObject {
     return promise.then(() => {
       this._canvas.needsUpdate = true;
     })
+  }
+
+  updateFocusMode({ mode, objectType } = {}) {
+    if( mode === "ruler" || objectType === "all" || objectType === "streamline" ) {
+      super.updateFocusMode({ mode : mode, objectType : objectType });
+    } else {
+      this.object.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
+    }
+  }
+
+  /**
+   * Resolve a segment index (what `Line2` reports as `faceIndex`) to the tract
+   * it belongs to.
+   *
+   * `tractRange` holds `[ tractID, nSegments, firstSegment ]` per tract, so this
+   * is a scan for the range containing `segmentIndex`.
+   *
+   * @returns {{ tractID: number, length: number }|undefined}
+   */
+  tractFromSegment( segmentIndex ) {
+    if( !this.object ) { return; }
+    const geometry = this.object.geometry;
+    if( !geometry || typeof segmentIndex !== "number" || segmentIndex < 0 ) { return; }
+
+    const tractRange = geometry.tractRange;
+    if( !tractRange ) { return; }
+
+    const nTracts = tractRange.length / 3;
+    for( let i = 0; i < nTracts; i++ ) {
+      const first = tractRange[ i * 3 + 2 ],
+            count = tractRange[ i * 3 + 1 ];
+      if( segmentIndex >= first && segmentIndex < first + count ) {
+        const tractID = tractRange[ i * 3 ];
+        const lengths = this.lengthPerStreamline;
+        return {
+          tractID : tractID,
+          length  : lengths ? lengths[ tractID ] : undefined,
+        };
+      }
+    }
+    return;
+  }
+
+  /**
+   * Whether a segment belongs to a streamline that is actually drawn.
+   *
+   * `Line2.raycast` honours `geometry.instanceCount`, so retention and length
+   * filtering are respected for free, but segments the shader discards are still
+   * inside that count. `instanceWeight` encodes all three states (-2 never
+   * plotted, being the connector at the end of each tract; -1 filtered out;
+   * >= 0 visible), so this is the same `>= 0` test the distance sweep uses.
+   */
+  segmentIsVisible( segmentIndex ) {
+    if( !this.object || !this.object.geometry ) { return false; }
+    const weights = this.object.geometry.instanceWeight;
+    if( !weights || segmentIndex < 0 || segmentIndex >= weights.length ) { return false; }
+    return weights[ segmentIndex ] >= 0;
+  }
+
+  /**
+   * Focus-mode info lines. `hit.faceIndex` is a segment index; the panel reports
+   * the 1-based streamline it belongs to.
+   */
+  getInfoText( type, hit ) {
+    switch ( type ) {
+
+      case "type": {
+        const circuit = this._params.streamline_group,
+              bundle = this._params.streamline_name;
+        const label = ( circuit && bundle ) ? `${ circuit }/${ bundle }` : ( bundle || circuit );
+        const nSegments = ( this.object && this.object.geometry )
+          ? this.object.geometry.nSegments : undefined;
+        const count = ( nSegments === undefined ) ? "" : `, n=${ nSegments }`;
+        if( label ) {
+          return `Type:      Streamline (${ label }${ count })`;
+        }
+        return `Type:      Streamline${ count ? ` (${ count.slice(2) })` : "" }`;
+      }
+
+      case "index": {
+        if( !hit || typeof hit.segmentIndex !== "number" ) { return; }
+        const tract = this.tractFromSegment( hit.segmentIndex );
+        if( !tract ) { return; }
+        let text = `Line:      ${ tract.tractID + 1 }`;
+        if( typeof tract.length === "number" && !isNaN( tract.length ) ) {
+          text += `   Length: ${ formatDataValue( tract.length ) }`;
+        }
+        return text;
+      }
+
+      case "name":
+        return this.name;
+
+      // an unanswered key contributes no line
+      default:
+        return;
+    }
   }
 
   filterByLength({ min, max, retentionRatio } = {}) {
