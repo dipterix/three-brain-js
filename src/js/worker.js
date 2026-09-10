@@ -113,38 +113,46 @@ async function workerListener (event) {
   const args = event.data.args;
   const token = event.data.token;
 
-  if ( !Array.isArray(methodNames) ) {
-    throw new TypeError(`Invalid method names: ${methodNames}. Must be an array`);
-  }
-  let method = {
-    workerLoaders : workerLoaders,
-  };
-  methodNames.forEach((name) => {
-    method = method[ name ];
-    if( method === undefined ) {
-      throw new TypeError(`Cannot find object: threeBrain.${methodNames.join(".")}`);
+  try {
+    if ( !Array.isArray(methodNames) ) {
+      throw new TypeError(`Invalid method names: ${methodNames}. Must be an array`);
     }
-  })
-  if( typeof method !== "function" ) {
-    throw new TypeError(`Object threeBrain.${methodNames.join(".")} is not a function. Abort.`);
-  }
-  if( !method._workerCallable ) {
-    throw new TypeError(`Method threeBrain.${methodNames.join(".")} is not a worker-callable function.`);
-  }
+    let method = {
+      workerLoaders : workerLoaders,
+    };
+    methodNames.forEach((name) => {
+      method = method[ name ];
+      if( method === undefined ) {
+        throw new TypeError(`Cannot find object: threeBrain.${methodNames.join(".")}`);
+      }
+    })
+    if( typeof method !== "function" ) {
+      throw new TypeError(`Object threeBrain.${methodNames.join(".")} is not a function. Abort.`);
+    }
+    if( !method._workerCallable ) {
+      throw new TypeError(`Method threeBrain.${methodNames.join(".")} is not a worker-callable function.`);
+    }
 
-  postMessage({
-    token: token,
-    status: "started"
-  });
-
-  const re = await method(args, postMessage, token);
-
-  // Note: 'scheduled' status is a fallback; workerWrapper already sends 'done' with transferables
-  if ( re !== undefined ) {
     postMessage({
       token: token,
-      status: "scheduled",
-      object: re
+      status: "started"
+    });
+
+    // Every worker-callable posts its own terminal message ('done' / 'error'),
+    // so the return value is not re-posted here. Re-posting it used to throw
+    // whenever the method had transferred its buffers back: they are detached
+    // by then, and cloning a detached buffer fails.
+    await method(args, postMessage, token);
+  } catch (e) {
+    // Without this the main thread never hears back and its promise stays
+    // pending forever. Send a plain object: not every browser can clone `Error`.
+    postMessage({
+      token: token,
+      status: "error",
+      object: {
+        name: e?.name,
+        message: e?.message ?? String(e)
+      }
     });
   }
 }
