@@ -142,6 +142,10 @@ class FreeMesh extends AbstractThreeBrainObject {
     const stateDict = overlay ? this.state.overlay : this.state.underlay;
     const colorAttribute = overlay ? this._geometry.attributes.overlayColor : this._geometry.attributes.color;
 
+    // colors not set by `pre_render` are overridden by the surface color
+    // controllers on the next render
+    if( overlay ) { stateDict.signature = null; }
+
     if( !dataArray ) {
       if( dataName !== "[none]" && stateDict.dataName === dataName ) {
         dataArray = stateDict.dataArray;
@@ -197,12 +201,9 @@ class FreeMesh extends AbstractThreeBrainObject {
         }
       }
 
-      if( continuousColorMap ) {
-        // minValue = continuousColorMap.minV;
-        // maxValue = continuousColorMap.maxV;
-        continuousColorMapName = dataName;
-      } else if( typeof continuousColorMapName !== "string" ) {
-        continuousColorMapName = this.state.defaultColorMap;
+      // an explicit color map wins over the electrode color map of the same name
+      if( typeof continuousColorMapName !== "string" ) {
+        continuousColorMapName = continuousColorMap ? dataName : this.state.defaultColorMap;
       }
 
       if ( isNaN(cutoffVMin) ) {
@@ -1238,8 +1239,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     switch (ctype) {
       case 'vertices':
         col_code = CONSTANTS.VERTEX_COLOR;
-        let annotName = this._canvas.get_state("surfaceAnnotation", "[none]");
-        if( this.state.overlay.dataName !== annotName ) {
+        const annotName = this._canvas.get_state("surfaceAnnotation", "[none]"),
+              cmapName = this._canvas.get_state("surfaceColorMap", this.state.defaultColorMap),
+              colorRange = asArray( this._canvas.get_state("surfaceColorRange") ),
+              colorSignature = `${ annotName }|${ cmapName }|${ colorRange.join(",") }`;
+        if( this.state.overlay.dataName !== annotName || this.state.overlay.signature !== colorSignature ) {
           // get data array
           let nodeDataObject = this._canvas.get_data(`${ this._hemispherePrefix }h_annotation_${annotName}`,
                 this.name, this.group_name);
@@ -1260,15 +1264,30 @@ class FreeMesh extends AbstractThreeBrainObject {
                 dataName : annotName,
               });
             } else {
-              const maxV = Math.max( Math.abs(nodeDataObject.max), Math.abs(nodeDataObject.min) );
+              // color range from the controllers, or else this surface's own
+              // symmetric range (data not loaded when the controllers reset)
+              let lb, ub;
+              if( colorRange.length === 2 && colorRange.every( Number.isFinite ) ) {
+                lb = Math.min( colorRange[0], colorRange[1] );
+                ub = Math.max( colorRange[0], colorRange[1] );
+              } else {
+                ub = Math.max( Math.abs(nodeDataObject.max), Math.abs(nodeDataObject.min) );
+                lb = -ub;
+              }
+              // the look-up table divides by the range width
+              if( ub - lb <= 1e-12 ) { ub = lb + 1e-6; }
+              // infinite cutoffs clamp out-of-range values to the end colors
               this.setColors( nodeDataObject.vertexData, {
                 isContinuous : true, overlay : true,
-                minValue: -maxV,
-                maxValue: maxV,
+                continuousColorMapName : cmapName,
+                minValue : lb, maxValue : ub,
+                cutoffVMin : -Infinity, cutoffVMax : Infinity,
                 dataName : annotName,
               });
             }
           }
+          // data still loading is retried through the `dataName` mismatch
+          this.state.overlay.signature = colorSignature;
         }
 
         break;
@@ -1494,6 +1513,9 @@ class FreeMesh extends AbstractThreeBrainObject {
         active        : false,
       },
       overlay : {
+        // change-detection key of the surface color controllers; null forces
+        // a recolor on the next render
+        signature     : null,
         dataName      : "[none]",
         dataArray     : undefined,
         dataItemSize  : 1,

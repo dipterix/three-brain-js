@@ -1056,74 +1056,9 @@ class ViewerControlCenter extends EventDispatcher {
           this.canvas.needsUpdate = true;
         });
 
-    } else {
-
-      // Surface
-      let vmin = inst.state.overlay.vmin,
-          vmax = inst.state.overlay.vmax,
-          cutoffVMin = inst.state.overlay.vmin,
-          cutoffVMax = inst.state.overlay.vmax,
-          dynamicColorRange = false;
-
-      const setClippingValues = (args) => {
-        if( args && typeof args === "object" ) {
-          if( typeof args.cutoffVMin === "number" ) {
-            cutoffVMin = args.cutoffVMin;
-          }
-          if( typeof args.cutoffVMax === "number" ) {
-            cutoffVMax = args.cutoffVMax;
-          }
-          if( typeof args.dynamicColorRange === "boolean" ) {
-            dynamicColorRange = args.dynamicColorRange;
-          }
-        }
-        inst.setColors( null, {
-          isContinuous : true,
-          overlay : true,
-          minValue : vmin, maxValue : vmax,
-          cutoffVMin : cutoffVMin,
-          cutoffVMax : cutoffVMax,
-          dynamicColorRange : dynamicColorRange,
-          dataName: "[custom measurement]",
-        });
-        this.canvas.needsUpdate = true;
-      }
-
-      let controllerName = `Clipping Min - ${ normalizedFileName }`;
-      let ctrl = this.gui.getController( controllerName, innerFolderName, true );
-      if( ctrl.isfake ) {
-        ctrl = this.gui.addController( controllerName, cutoffVMin, { folderName : innerFolderName } );
-      }
-      ctrl.max(vmax).step(0.01)
-        .onChange( async (v) => {
-          setClippingValues({ cutoffVMin : v });
-        })
-        .setValue(cutoffVMin);
-
-      controllerName = `Clipping Max - ${ normalizedFileName }`;
-      ctrl = this.gui.getController( controllerName, innerFolderName, true );
-      if( ctrl.isfake ) {
-        ctrl = this.gui.addController( controllerName, cutoffVMax, { folderName : innerFolderName } );
-      }
-      ctrl.min(vmin).step(0.01)
-        .onChange( async (v) => {
-          setClippingValues({ cutoffVMax : v });
-        })
-        .setValue(cutoffVMax);
-
-      controllerName = `Dynamic Color - ${ normalizedFileName }`;
-      ctrl = this.gui.getController( controllerName, innerFolderName, true );
-      if( ctrl.isfake ) {
-        ctrl = this.gui.addController( controllerName, false, { folderName : innerFolderName } );
-      }
-      ctrl.onChange( async (v) => {
-        setClippingValues({ dynamicColorRange : v });
-      })
-      .setValue(dynamicColorRange);
-
-      // setClippingValues();
-
     }
+    // surface measurements are ranged by `Surface Color Min/Max` and clipped
+    // by the `Surface Threshold` controllers instead
 
 
   }
@@ -1203,23 +1138,19 @@ class ViewerControlCenter extends EventDispatcher {
           inst.useColorLookupTable( lut, v );
           colorSettings.continuous = v;
         } else if ( inst.isFreeMesh ) {
-          try {
-            const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom measurement]`];
-            inst.state.defaultColorMap = v;
-            inst.setColors( data.vertexData, {
-              isContinuous : true,
-              overlay : true,
-              continuousColorMapName: v,
-              dataName: "[custom measurement]",
-              minValue: data.min,
-              maxValue: data.max,
-            });
+          // the measurement is colored by the surface color controllers
+          const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom measurement]`];
+          if( data ) {
             inst._materialColor.set( "#FFFFFF" );
             inst.object.material.vertexColors = true;
 
-            this.gui.getController("Surface Color Data").setValue("[custom measurement]");
-
-          } catch (e) {}
+            // re-selecting the data would reset the color range
+            const ctrlVertData = this.gui.getController("Surface Color Data");
+            if( !ctrlVertData.isfake && ctrlVertData.getValue() !== "[custom measurement]" ) {
+              ctrlVertData.setValue("[custom measurement]");
+            }
+            this.gui.getController("Surface Color Map").setValue( v );
+          }
           colorSettings.continuous = v;
         }
 

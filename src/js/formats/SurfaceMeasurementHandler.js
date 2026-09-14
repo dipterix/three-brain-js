@@ -1,7 +1,6 @@
 import { CONSTANTS } from '../core/constants.js';
 import { FileDataHandler } from './FileDataHandler.js';
 import { normalizeImageName } from '../utility/normalizeImageName.js';
-import { SHARED_SETTINGS } from '../core/SharedSettings.js';
 
 class SurfaceMeasurementHandler extends FileDataHandler {
 
@@ -56,22 +55,11 @@ class SurfaceMeasurementHandler extends FileDataHandler {
         inst._annotationList.push("[custom measurement]");
       }
 
-      const cmapName = SHARED_SETTINGS.OBJECT_COLORS[`${ inst._hemispherePrefix }h.pial`].continuous;
-      inst.state.defaultColorMap = cmapName;
-      inst.setColors( data.vertexData, {
-        isContinuous : true,
-        overlay : true,
-        minValue: -maxAbsVal,
-        maxValue: maxAbsVal,
-        dataName: "[custom measurement]",
-      });
-
       // Colors
       app.controlCenter.dragdropAddColorController( inst, surfaceName, "continuous" );
 
+      // selecting the data lets the surface color controllers color it
       app.controllerGUI.getController("Surface Color Data").setValue("[custom measurement]");
-
-      app.controlCenter.dragdropAddValueClippingController( inst, surfaceName );
 
       // Make sure the vertex data can be properly disposed
       const disposeItem = () => {

@@ -1,5 +1,7 @@
 import { CONSTANTS } from '../core/constants.js';
 import { getThreeBrainInstance } from '../geometry/abstract.js';
+import { ColorMapKeywords } from '../core/CustomLut.js';
+import { SHARED_SETTINGS } from '../core/SharedSettings.js';
 
 // 11. surface type
 // 12. Hemisphere material/transparency
@@ -420,6 +422,54 @@ function registerPresetSurface( ViewerControlCenter ){
           },
           options = Object.keys( maps );
 
+    // Collects the metadata of a vertex data across every surface of the
+    // current subject; hemispheres share the same annotation labels, so the
+    // label sets are unioned.
+    const collectVertexDataInfo = ( dataName ) => {
+      let isContinuous, min = Infinity, max = -Infinity;
+      const labels = new Set();
+      let found = false;
+
+      this.canvas.threebrain_instances.forEach( inst => {
+        if( !inst || !inst.isFreeMesh ) { return; }
+        if( typeof inst.getVertexDataInfo !== "function" ) { return; }
+        const info = inst.getVertexDataInfo( dataName );
+        if( !info ) { return; }
+        found = true;
+        isContinuous = info.isContinuous;
+        if( info.isContinuous ) {
+          if( info.min < min ) { min = info.min; }
+          if( info.max > max ) { max = info.max; }
+        } else if ( info.labels ) {
+          info.labels.forEach( labelName => { labels.add( `${ labelName }` ); } );
+        }
+      });
+
+      if( !found ) { return; }
+      return {
+        isContinuous  : isContinuous,
+        min           : min,
+        max           : max,
+        labels        : [ ...labels ],
+      };
+    };
+
+    // color map and range only apply to continuous vertex data; controllers
+    // are addressed by name because `Surface Color` fires before they exist
+    const surfaceColorMapControllers = [
+      'Surface Color Map', 'Surface Color Min', 'Surface Color Max'
+    ];
+    const updateSurfaceColorMapVisibility = () => {
+      if(
+        this.canvas.get_state( "surface_color_type", "vertices" ) === "vertices" &&
+        this.canvas.get_state( "surfaceColorDataType", "none" ) === "continuous"
+      ) {
+        this.gui.showControllers( surfaceColorMapControllers, folderName );
+      } else {
+        this.gui.hideControllers( surfaceColorMapControllers, folderName );
+      }
+    };
+
     const ctrlSurfaceColorType = this.gui
       .addController('Surface Color', "none", {args : options, folderName : folderName })
       .onChange((v) => {
@@ -461,6 +511,7 @@ function registerPresetSurface( ViewerControlCenter ){
         }
 
         this.canvas.set_state( "surface_color_type", v);
+        updateSurfaceColorMapVisibility();
         // this.fire_change({ 'surface_color_type' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
@@ -504,8 +555,78 @@ function registerPresetSurface( ViewerControlCenter ){
         folderName : folderName })
       .onChange((v) => {
         this.canvas.set_state("surfaceAnnotation", v);
+        resetSurfaceColorRange( v );
         this.canvas.needsUpdate = true;
       });
+
+    const defaultSurfaceColorMap = SHARED_SETTINGS.OBJECT_COLORS[ "lh.pial" ].continuous;
+    this.gui
+      .addController("Surface Color Map", defaultSurfaceColorMap, {
+        args: Object.keys( ColorMapKeywords ),
+        folderName : folderName })
+      .onChange((v) => {
+        if( !ColorMapKeywords[ v ] ) { return; }
+        this.canvas.set_state("surfaceColorMap", v);
+        // drag-and-drop color map selectors created later start with this map
+        SHARED_SETTINGS.OBJECT_COLORS[ "lh.pial" ].continuous = v;
+        SHARED_SETTINGS.OBJECT_COLORS[ "rh.pial" ].continuous = v;
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.canvas.set_state("surfaceColorMap", defaultSurfaceColorMap);
+
+    const updateSurfaceColorRange = () => {
+      this.canvas.set_state("surfaceColorRange", [
+        Number( ctrlSurfaceColorMin.getValue() ),
+        Number( ctrlSurfaceColorMax.getValue() ),
+      ]);
+      this.broadcast();
+      this.canvas.needsUpdate = true;
+    };
+
+    // bounds are placeholders until a continuous data is selected
+    const ctrlSurfaceColorMin = this.gui
+      .addController("Surface Color Min", -1, { folderName : folderName })
+      .min( -1 ).max( 1 )
+      .onChange( updateSurfaceColorRange );
+
+    const ctrlSurfaceColorMax = this.gui
+      .addController("Surface Color Max", 1, { folderName : folderName })
+      .min( -1 ).max( 1 )
+      .onChange( updateSurfaceColorRange );
+
+    // Resets the color range to the symmetric range `±max|v|` of the selected
+    // data, shared by both hemispheres; non-continuous data leave the range to
+    // the surfaces.
+    const resetSurfaceColorRange = ( dataName ) => {
+      const info = collectVertexDataInfo( dataName );
+
+      if( !info || !info.isContinuous ) {
+        this.canvas.set_state("surfaceColorDataType", info ? "discrete" : "none");
+        this.canvas.set_state("surfaceColorRange", undefined);
+        updateSurfaceColorMapVisibility();
+        return;
+      }
+
+      let absMax = Math.max( Math.abs( info.min ), Math.abs( info.max ) );
+      if( !Number.isFinite( absMax ) || absMax <= 0 ) { absMax = 1; }
+
+      // the slider step is two digits below the data magnitude, and the bound
+      // is rounded outwards to it
+      const magnitude = Math.floor( Math.log10( absMax ) ) - 2,
+            step = Math.pow( 10, magnitude ),
+            decimals = Math.max( 0, -magnitude ),
+            bound = parseFloat( ( Math.ceil( absMax / step - 1e-9 ) * step ).toFixed( decimals ) );
+
+      [ ctrlSurfaceColorMin, ctrlSurfaceColorMax ].forEach( ctrl => {
+        ctrl.min( -bound ).max( bound ).step( step ).decimals( decimals );
+      });
+
+      this.canvas.set_state("surfaceColorDataType", "continuous");
+      ctrlSurfaceColorMin.setValue( -bound );
+      ctrlSurfaceColorMax.setValue( bound );
+      updateSurfaceColorMapVisibility();
+    };
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_SURFACE_COLOR,
@@ -528,38 +649,6 @@ function registerPresetSurface( ViewerControlCenter ){
     });
 
     // ---------- for node-threshold -------------------------------------------
-
-    // Collects the metadata of a vertex data across every surface of the
-    // current subject; hemispheres share the same annotation labels, so the
-    // label sets are unioned.
-    const collectVertexDataInfo = ( dataName ) => {
-      let isContinuous, min = Infinity, max = -Infinity;
-      const labels = new Set();
-      let found = false;
-
-      this.canvas.threebrain_instances.forEach( inst => {
-        if( !inst || !inst.isFreeMesh ) { return; }
-        if( typeof inst.getVertexDataInfo !== "function" ) { return; }
-        const info = inst.getVertexDataInfo( dataName );
-        if( !info ) { return; }
-        found = true;
-        isContinuous = info.isContinuous;
-        if( info.isContinuous ) {
-          if( info.min < min ) { min = info.min; }
-          if( info.max > max ) { max = info.max; }
-        } else if ( info.labels ) {
-          info.labels.forEach( labelName => { labels.add( `${ labelName }` ); } );
-        }
-      });
-
-      if( !found ) { return; }
-      return {
-        isContinuous  : isContinuous,
-        min           : min,
-        max           : max,
-        labels        : [ ...labels ],
-      };
-    };
 
     // remembers the continuous range so it survives a round-trip through a
     // discrete threshold data
@@ -665,9 +754,12 @@ function registerPresetSurface( ViewerControlCenter ){
     // 'blend_factor'      : { value : 0.4 }
 
 
-    // `Surface Threshold Method` only applies to continuous thresholds, and the
-    // threshold data defaults to `[none]`
-    this.gui.hideControllers(['Sigma', 'Decay', 'Range Limit', 'Surface Threshold Method'], folderName);
+    // `Surface Threshold Method` and the color map only apply to continuous
+    // data, and both the threshold and the color data default to `[none]`
+    this.gui.hideControllers([
+      'Sigma', 'Decay', 'Range Limit', 'Surface Threshold Method',
+      ...surfaceColorMapControllers
+    ], folderName);
   };
 
   return( ViewerControlCenter );
