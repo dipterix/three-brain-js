@@ -123,8 +123,8 @@ class StreamlineGeometry extends InstancedBufferGeometry {
     let iPos = 0;
     for ( let i = 0; i < this.nTracts ; i++ ) {
       const idx = tractIndex[ i ],
-            iStart = pointOffset[ idx ],
-            iEnd   = pointOffset[ idx + 1 ],
+            iStart = this.pointOffset[ idx ],
+            iEnd   = this.pointOffset[ idx + 1 ],
             len = iEnd - iStart;
       if( len <= 0 ) { continue; }
 
@@ -540,9 +540,9 @@ class Streamline extends AbstractThreeBrainObject {
         const circuit = this._params.streamline_group,
               bundle = this._params.streamline_name;
         const label = ( circuit && bundle ) ? `${ circuit }/${ bundle }` : ( bundle || circuit );
-        const nSegments = ( this.object && this.object.geometry )
-          ? this.object.geometry.nSegments : undefined;
-        const count = ( nSegments === undefined ) ? "" : `, n=${ nSegments }`;
+        const nLines = ( this.object && this.object.geometry )
+          ? this.object.geometry.nTracts : undefined;
+        const count = ( nLines === undefined ) ? "" : `, n=${ nLines }`;
         if( label ) {
           return `Type:      Streamline (${ label }${ count })`;
         }

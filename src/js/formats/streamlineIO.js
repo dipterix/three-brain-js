@@ -120,12 +120,11 @@ function readTT(buffer) {
       i = i + newpts+13;
       nvert3 += newpts;
     }
-    offsetPt0 = new Uint32Array(pos.length+2);
-    offsetPt0[0] = 0;
+    offsetPt0 = new Uint32Array(pos.length + 1);
     pts = new Float32Array(nvert3);
     let npt = 0;
     for (let i = 0; i < pos.length; i++) {
-      offsetPt0[i+1] = npt / 3;
+      offsetPt0[i] = npt / 3;
       let p = pos[i];
       let sz = dv.getUint32(p, true)/3;
       let x = dv.getInt32(p+4, true);
@@ -154,7 +153,7 @@ function readTT(buffer) {
       pts[v++] = pos[1]
       pts[v++] = pos[2]
     }
-    offsetPt0[pos.length + 1] = npt / 3; //solve fence post problem, offset for final streamline
+    offsetPt0[pos.length] = npt / 3; //solve fence post problem, offset for final streamline
   } // parse_tt()
   parse_tt(mat.track);
   // window.mat = mat;
@@ -275,6 +274,7 @@ function readTRK(buffer) {
   while (i < ntracks) {
     const n_pts = i32[i]
     i = i + 1 // read 1 32-bit integer for number of points in this streamline
+    offsetPt0[noffset++] = npt; // first point of this streamline
     slen = 0;
     for (let j = 0; j < n_pts; j++) {
       const ptx = f32[i + 0]
@@ -311,9 +311,7 @@ function readTRK(buffer) {
         dps[j].vals.push(f32[i]);
       }
     }
-    lps32[noffset] = slen;
-    noffset++;
-    offsetPt0[noffset + 1] = npt;
+    lps32[noffset - 1] = slen;
   } // for each streamline: while i < n_count
   // output uses static float32 not dynamic number[]
   const dps32 = []
@@ -332,12 +330,11 @@ function readTRK(buffer) {
     })
   }
   // add 'first index' as if one more line was added (fence post problem)
-  noffset++;
-  offsetPt0[noffset] = npt;
+  offsetPt0[noffset++] = npt;
   // resize offset/vertex arrays that were initially over-provisioned
   pts = pts.slice(0, npt3);
   offsetPt0 = offsetPt0.slice(0, noffset);
-  lps32 = lps32.slice(0, noffset - 2);
+  lps32 = lps32.slice(0, noffset - 1);
   return {
     pts,
     offsetPt0,
