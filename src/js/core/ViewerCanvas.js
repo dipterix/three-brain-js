@@ -10,7 +10,6 @@ import {
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
 } from 'three';
-import { WebGPURenderer } from 'three/webgpu';
 import Stats from 'stats-gl';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
