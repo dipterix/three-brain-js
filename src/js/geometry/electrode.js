@@ -1200,6 +1200,10 @@ class Electrode extends AbstractThreeBrainObject {
    * skips them, because a normal left-click already has a dedicated electrode
    * highlighter and "where" an electrode is would be ambiguous.
    *
+   * This is the one place the ruler and focus mode differ: every other object
+   * gates on `objectType` alone, so the ruler reaches whatever the `Focus Object
+   * Type` controller allows, plus electrodes regardless of that type.
+   *
    * The prototype mesh and the instanced contacts are separate representations
    * and either may be the visible one, so each is asked separately.
    *

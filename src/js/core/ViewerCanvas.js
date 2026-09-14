@@ -541,36 +541,35 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       return;
     }
 
+    // The ruler picks exactly what focus mode picks; the only difference is
+    // that `setRuler( 'enable' )` also put electrodes on the layer.
+    if( this.get_state( "ruler_activated" ) ) {
+      const target = this.focusModePick();
+      if( target ) {
+        let knotPosition = target.point;
+        // snap to the nearest contact, as a normal click would
+        if( target.instance.isElectrode ) {
+          knotPosition = this.focusObject( target.object, { intersectPoint: target.point } );
+        }
+        this.rulerHelper.addKnot( knotPosition );
+        this.needsUpdate = true;
+      }
+      return;
+    }
+
     // async, but raycaster is always up to date
     const item = this.raycastObjects();
     if( !item || !item.object || !item.object.isMesh ) { return; }
 
-    const rulerEnabled = this.get_state( "ruler_activated" );
+    // normal left-click
+    const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
 
-    // set ruler
-    if( rulerEnabled ) {
+    // right-click, or the slice mode is snap-to-electrode
+    if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
+      // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
 
-      let knotPosition = item.point;
-
-      const maybeElectrode = getThreeBrainInstance( item.object );
-      if( maybeElectrode && maybeElectrode.isElectrode ) {
-        knotPosition = this.focusObject( item.object, { intersectPoint: item.point } );
-      }
-
-      this.rulerHelper.addKnot( knotPosition );
-
-    } else {
-
-      // normal left-click
-      const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
-
-      // right-click, or the slice mode is snap-to-electrode
-      if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
-        // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
-
-        crosshairPosition.centerCrosshair = true;
-        this.setSliceCrosshair( crosshairPosition );
-      }
+      crosshairPosition.centerCrosshair = true;
+      this.setSliceCrosshair( crosshairPosition );
     }
 
     this.needsUpdate = true;
@@ -774,6 +773,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   /**
    * What is under the cursor, restricted to the focus-mode object type.
    *
+   * The one picker for both focus mode (`F`) and the ruler (`R`), so the two
+   * cannot drift apart. What separates them is layer membership alone, settled
+   * by `prepareFocusMode({ mode })` when the key went down: the ruler also
+   * admits electrodes (see `Electrode.updateFocusMode`).
+   *
    * Separate from `raycastObjects` because the two answer different questions:
    * that one asks "what did the user click", constrained to the clickable
    * layer; this one asks "what is under the cursor of this kind".
@@ -866,32 +870,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const raycaster = this.updateRaycast();
     if( !raycaster ) { return; }
 
-    let items;
-
-    if( this.get_state( "ruler_activated" ) ) {
-      // same opt-in mechanism focus mode uses: instances put themselves on the
-      // layer, so nothing has to be permanently raycastable
-      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );
-      items = raycaster.intersectObject( this.scene, true );
-
-      // The volume never joins the layer, so the ruler asks it directly -- this
-      // is what preserves being able to measure against a volume now that the
-      // isosurface has no standing layer membership.
-      const volume = this.get_state( "activeDataCube2Instance" );
-      if( volume && volume.isDataCube2 && typeof volume.intersectRay === "function" ) {
-        const hit = volume.intersectRay( raycaster.ray );
-        if( hit && ( items.length === 0 || hit.distance < items[0].distance ) ) {
-          items = [ hit ];
-        }
-      }
-    } else {
-      // where clickable objects stay
-      raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
-      // Only raycast with visible
-      const clickableObjects = this.clickableArray.filter((e) => { return( e.visible ) });
-      this._prepareRaycastTargets( clickableObjects );
-      items = raycaster.intersectObjects( clickableObjects );
-    }
+    // where clickable objects stay; the ruler uses `focusModePick` instead
+    raycaster.layers.set( CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 );
+    // Only raycast with visible
+    const clickableObjects = this.clickableArray.filter((e) => { return( e.visible ) });
+    this._prepareRaycastTargets( clickableObjects );
+    const items = raycaster.intersectObjects( clickableObjects );
 
     if( !items || items.length === 0 ) {
       return;

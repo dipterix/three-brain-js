@@ -260,7 +260,7 @@ class DataCube extends AbstractThreeBrainObject {
   get_track_data( track_name, reset_material ){}
 
   updateFocusMode({ mode, objectType } = {}) {
-    if( mode === "ruler" || objectType === "all" || objectType === "2D slice" ) {
+    if( objectType === "all" || objectType === "2D slice" ) {
       // `this.object` is the three slice planes, which the base walks for us
       super.updateFocusMode({ mode : mode, objectType : objectType });
     } else {

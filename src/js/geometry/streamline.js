@@ -473,7 +473,7 @@ class Streamline extends AbstractThreeBrainObject {
   }
 
   updateFocusMode({ mode, objectType } = {}) {
-    if( mode === "ruler" || objectType === "all" || objectType === "streamline" ) {
+    if( objectType === "all" || objectType === "streamline" ) {
       super.updateFocusMode({ mode : mode, objectType : objectType });
     } else {
       this.object.layers.disable( CONSTANTS.LAYER_SYS_RAYCASTER_ALL_15 );

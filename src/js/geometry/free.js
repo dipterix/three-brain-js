@@ -908,7 +908,7 @@ class FreeMesh extends AbstractThreeBrainObject {
   }
 
   updateFocusMode({ mode, objectType } = {}) {
-    if( mode === "ruler" || objectType === "all" || objectType === "surface mesh" ) {
+    if( objectType === "all" || objectType === "surface mesh" ) {
       // make sure the bounds tree matches the morph state about to be picked
       this.prepareForRaycast();
       super.updateFocusMode({ mode : mode, objectType : objectType });

@@ -9,9 +9,12 @@ const FOCUS_OBJECT_TYPES = [ 'all', 'surface mesh', '2D slice', '3D voxel', 'str
  * restricted to one kind of object.
  *
  * Normal left-click only reaches the "clickable" layer -- in practice
- * electrodes. This uses the geometry type tags (layers 16-20) instead, so
- * surfaces, slices, volumes and streamlines become answerable without becoming
+ * electrodes. This uses the raycaster opt-in layer instead, so surfaces,
+ * slices, volumes and streamlines become answerable without becoming
  * clickable, and without disturbing `object_chosen`.
+ *
+ * The ruler (hold `R`) honours the same type, and additionally lands on
+ * electrodes.
  */
 function registerPresetFocusObject( ViewerControlCenter ){
 
@@ -25,9 +28,11 @@ function registerPresetFocusObject( ViewerControlCenter ){
       .onChange(( v ) => {
         if( typeof v !== 'string' ) { return; }
         this.canvas.set_state( 'focusModeObjectType', v );
-        // the type decides who is raycastable, so re-ask if F is already held
+        // the type decides who is raycastable, so re-ask if F or R is already held
         if( this.canvas.get_state( 'focus_mode_activated' ) ) {
           this.canvas.prepareFocusMode({ mode : 'focus', objectType : v });
+        } else if( this.canvas.get_state( 'ruler_activated' ) ) {
+          this.canvas.prepareFocusMode({ mode : 'ruler', objectType : v });
         }
         this.broadcast();
       });
