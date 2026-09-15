@@ -97,7 +97,9 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
 
     this.finish_init();
 
-    // Do not use object. This is not regular mesh
+    // Do not use object. This is not regular mesh. `dispose()` still has to
+    // take it out of the scene.
+    this._lineSegments = this.object;
     this.object = null;
 
   }
@@ -291,7 +293,7 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
   }
 
   dispose() {
-    this.object.removeFromParent();
+    this._lineSegments.removeFromParent();
     this.geometry.dispose();
     this.material.dispose();
     this.disposed = true;

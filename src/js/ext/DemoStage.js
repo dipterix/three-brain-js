@@ -86,8 +86,8 @@ class DemoStage {
     this.background = new DemoBackground({
       palettes : [0xffffff, 0xffffff]
     })
-    this.bgColor0 = this.background.scene.background;
-    this.bgColor1 = this.background.object.material.color;
+    this.bgColor0 = this.background.backgroundColor;
+    this.bgColor1 = this.background.foregroundColor;
 
     this.onMobile = mobileCheck();
 
