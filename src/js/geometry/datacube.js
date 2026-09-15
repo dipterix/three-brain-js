@@ -5,7 +5,7 @@ import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedF
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType, Color } from 'three';
-import { SliceShader, SliceMaterial } from '../shaders/SliceShader.js';
+import { SliceMaterial } from '../shaders/SliceMaterial.js';
 import { formatDataValue } from '../utility/formatDataValue.js';
 
 
@@ -365,6 +365,8 @@ class DataCube extends AbstractThreeBrainObject {
     if( this.dataTexture.magFilter !== megFilter ) {
       this.dataTexture.magFilter = megFilter;
       this.dataTexture.needsUpdate = true;
+      // filtered and unfiltered textures bind differently
+      this.sliceMaterial.needsUpdate = true;
     }
 
     /*
@@ -401,17 +403,9 @@ class DataCube extends AbstractThreeBrainObject {
             displayOverlay === "anat. slices";
     }
 
-    if( useOverlay ) {
-      if( typeof this.sliceMaterial.defines.USE_OVERLAY !== "string" ) {
-        this.sliceMaterial.defines.USE_OVERLAY = "";
-        this.sliceMaterial.needsUpdate = true;
-      }
-    } else {
-      if( typeof this.sliceMaterial.defines.USE_OVERLAY === "string" ) {
-        delete this.sliceMaterial.defines.USE_OVERLAY;
-        this.sliceMaterial.needsUpdate = true;
-      }
-    }
+    // can differ between the main and side passes of one frame; a uniform, so
+    // switching it does not rebuild the shader
+    this.sliceMaterial.useOverlay = useOverlay;
 
     const brightness = this._canvas.get_state("sliceBrightness", 0.0);
     this.sliceMaterial.underlayBrightness = brightness;
