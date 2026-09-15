@@ -34,6 +34,16 @@ module.exports = {
           path.resolve(__dirname, 'inspector-extensions-loader.js'),
         ]
       },
+      {
+        // three's Inspector expects `three` to be the WebGPU build, as in three's
+        // own WebGPU examples: the TSL graph hands its `import * as THREE` to the
+        // node code it generates. The plain `three` would also pull the WebGL
+        // renderer into the bundle.
+        test: /[\\/]three[\\/]examples[\\/]jsm[\\/]inspector[\\/]/,
+        resolve: {
+          alias: { three$: 'three/webgpu' },
+        },
+      },
     ],
   },
   resolve: {

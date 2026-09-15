@@ -8,6 +8,7 @@ import { asColor } from '../utility/color.js';
 import { ColorMapKeywords, addToColorMapKeywords } from './CustomLut.js';
 import { testColorString } from '../utility/color.js';
 import { normalizeImageName } from '../utility/normalizeImageName.js';
+import { setShaderProperty } from '../utils.js';
 
 // 1. Background colors
 import { registerPresetBackground } from '../controls/PresetBackground.js';
@@ -992,10 +993,10 @@ class ViewerControlCenter extends EventDispatcher {
       ctrl.onChange(v => {
         if(!v) { v = 0; }
         if( v < 0.99 ) {
-          inst.object.material.transparent = true;
+          setShaderProperty( inst.object.material, 'transparent', true );
           inst.object.material.opacity = v;
         } else {
-          inst.object.material.transparent = false;
+          setShaderProperty( inst.object.material, 'transparent', false );
         }
         this.canvas.needsUpdate = true;
       }).setValue( defaultValue );
@@ -1112,7 +1113,7 @@ class ViewerControlCenter extends EventDispatcher {
 
         if( inst.isFreeMesh ) {
           inst._materialColor.set( v );
-          inst.object.material.vertexColors = false;
+          setShaderProperty( inst.object.material, 'vertexColors', false );
         } else if( inst.isDataCube2 ) {
           const lut = this.continuousLookUpTables.default;
           inst.useColorLookupTable( lut, v );
@@ -1142,7 +1143,7 @@ class ViewerControlCenter extends EventDispatcher {
           const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom measurement]`];
           if( data ) {
             inst._materialColor.set( "#FFFFFF" );
-            inst.object.material.vertexColors = true;
+            setShaderProperty( inst.object.material, 'vertexColors', true );
 
             // re-selecting the data would reset the color range
             const ctrlVertData = this.gui.getController("Surface Color Data");

@@ -298,11 +298,27 @@ function as_Matrix4(m) {
   return( re );
 }
 
+/**
+ * Sets a material property that decides how its shader is built, such as
+ * `transparent` (opaque shaders force alpha to 1) or `vertexColors`.
+ * `WebGPURenderer` builds a material's shader once and only rebuilds it after
+ * `needsUpdate`, so a plain assignment after the first draw has no effect.
+ * This requests the rebuild, but only when the value changes, so it's cheap
+ * to call every frame.
+ * @returns {boolean} whether the value changed
+ */
+function setShaderProperty( material, name, value ) {
+  if( material[ name ] === value ) { return false; }
+  material[ name ] = value;
+  material.needsUpdate = true;
+  return true;
+}
+
 export { padZero, to_dict, to_array,
   get_element_size, get_or_default, debounce, min2,
   sub2, float_to_int32, as_Matrix4,
   set_visibility, set_display_mode, remove_comments,
-  storageAvailable };
+  storageAvailable, setShaderProperty };
 
 
 

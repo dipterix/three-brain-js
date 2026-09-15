@@ -3,7 +3,7 @@ import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
          BufferGeometry, Mesh, Data3DTexture, Color, Vector4 } from 'three';
 import { CONSTANTS } from '../core/constants.js';
-import { to_array, min2, sub2 } from '../utils.js';
+import { to_array, min2, sub2, setShaderProperty } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
 import {
   SurfacePhysicalMaterial, SurfaceLambertMaterial, createSurfaceMaterialOptions
@@ -656,7 +656,7 @@ class FreeMesh extends AbstractThreeBrainObject {
      * This requires vertexAlphas to be true
      * https://github.com/mrdoob/three.js/blob/be137e6da5fd682555cdcf5c8002717e4528f879/src/renderers/WebGLRenderer.js#L1442
     */
-    this._mesh.material.vertexColors = true;
+    setShaderProperty( this._mesh.material, 'vertexColors', true );
     // this._material_options.sampler_bias.value = bias;
     // this._material_options.sampler_step.value = bias / 2;
     this._volume_texture.needsUpdate = true;
@@ -886,6 +886,9 @@ class FreeMesh extends AbstractThreeBrainObject {
 
       this._material_options.elec_size.value = elec_size;
       this._material_options.elec_active_size.value = elec_size;
+      // the textures are part of the shader's cache key (see
+      // `SurfaceMaterial.customProgramCacheKey()`)
+      this._mesh.material.needsUpdate = true;
     }
 
     const e_size = this._linked_electrodes.length;
@@ -1242,7 +1245,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     let col_code, material_needs_update = false;
 
-    this._mesh.material.transparent = this._mesh.material.opacity < 0.99;
+    setShaderProperty( this._mesh.material, 'transparent', this._mesh.material.opacity < 0.99 );
     switch (ctype) {
       case 'vertices':
         col_code = CONSTANTS.VERTEX_COLOR;
@@ -1301,7 +1304,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
       case 'sync from voxels':
         col_code = CONSTANTS.VOXEL_COLOR;
-        this._mesh.material.transparent = true;
+        setShaderProperty( this._mesh.material, 'transparent', true );
 
         // get current frame
         if( this.time_stamp.length ){
