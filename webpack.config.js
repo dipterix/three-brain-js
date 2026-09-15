@@ -27,6 +27,13 @@ module.exports = {
           'file-loader',
         ]
       },
+      {
+        // see inspector-extensions-loader.js
+        test: /[\\/]three[\\/]examples[\\/]jsm[\\/]inspector[\\/]tabs[\\/]Settings\.js$/,
+        use: [
+          path.resolve(__dirname, 'inspector-extensions-loader.js'),
+        ]
+      },
     ],
   },
   resolve: {

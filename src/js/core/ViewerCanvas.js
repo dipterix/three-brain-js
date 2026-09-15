@@ -9,7 +9,7 @@ import {
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
 } from 'three';
-import Stats from 'stats-gl';
+import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
 
@@ -1225,30 +1225,26 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // return loadGroups();
   }
 
-  // Debug stats (framerate)
+  // Debug performance panel: three's Inspector (CPU and GPU time per frame,
+  // draw calls, memory, a console), attached to the main renderer only.
+  // Frames need no marking here: after `init()`, three runs its own loop that
+  // opens and closes an inspector frame every animation frame, and renders
+  // made outside it (like the viewer's) join the latest frame.
   addNerdStats(){
-    // if debug, add stats information
     if( this.__nerdStatsEnabled ) { return; }
-    this.nerdStats = new Stats({
-      trackGPU: true,
-      trackHz: true,
-      trackCPT: true,
-      logsPerSecond: 4,
-      graphsPerSecond: 30,
-      samplesLog: 40,
-      samplesGraph: 10,
-      precision: 1,
-      horizontal: true,
-      minimal: false,
-      mode: 2
-    });
-    this.nerdStats.dom.style.display = 'block';
-    this.nerdStats.dom.style.position = 'absolute';
-    this.nerdStats.dom.style.top = '0';
-    this.nerdStats.dom.style.left = '0';
-    this.nerdStats.init( this.main_renderer );
-    // this.nerdStats.init( this.main_renderer );
-    this.$el.appendChild( this.nerdStats.dom );
+    this.inspector = new Inspector();
+    // Mount the panel on the page rather than where three would put it, next to
+    // the renderer's canvas in `$mainCanvas`. The camera controls capture every
+    // pointer pressed inside `$mainCanvas`, so the panel's buttons never got a
+    // click, and hovering the panel counted as hovering the viewer, so typing
+    // in it fired keyboard shortcuts. Its toggle and panel are `position: fixed`.
+    this.$wrapper.appendChild( this.inspector.domElement );
+    this.main_renderer.inspector = this.inspector;
+    // the renderer calls `inspector.init()` at the end of its own `init()`; if
+    // that has already happened, call it here
+    if( this.main_renderer.initialized ) {
+      this.inspector.init();
+    }
     this.__nerdStatsEnabled = true;
   }
 
@@ -1304,6 +1300,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   dispose(){
     super.dispose();
+
+    // The Inspector is mounted on the page, outside `$el`; remove it first so
+    // a failure further down can't leave it behind
+    if( this.inspector ) {
+      this.inspector.domElement.remove();
+    }
 
     // Remove all objects, listeners, and dispose all
     this._disposed = true;
@@ -2209,10 +2211,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     if( this._renderFlag == CanvasState.NoRender ) { return; }
 
-    if( this.__nerdStatsEnabled ) {
-      // this.nerdStats.begin();
-    }
-
     const _width = this.domElement.width;
     const _height = this.domElement.height;
 
@@ -2380,11 +2378,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // reset render flag
     this._renderFlag = this._renderFlag & 0b110;
     this.needsUpdate = undefined;
-
-    if( this.__nerdStatsEnabled ) {
-      // this.nerdStats.end();
-      this.nerdStats.update();
-    }
 
   }
 
