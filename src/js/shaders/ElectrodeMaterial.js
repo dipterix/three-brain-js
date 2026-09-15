@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial } from 'three/webgpu';
 import {
-  Fn, If, Discard, select, uniform, texture, varying, attribute, uv,
+  Fn, If, Discard, select, uniform, texture, varying, attribute, uv, materialReference,
   positionGeometry, normalGeometry, diffuseColor, depth,
   vec2, vec3, vec4, float, abs, dot, normalize, length, mix, any, greaterThan, lessThan
 } from 'three/tsl';
@@ -23,6 +23,25 @@ import {
  * The silhouette test uses the geometry's own positions and normals, before an
  * `InstancedMesh`'s instance matrices, like the GLSL patch did.
  */
+
+/**
+ * The uniforms as the shader reads them. three shares one shader between
+ * electrode materials whose cache keys match, so a uniform node captured from
+ * the material the shader was built for would be read for every electrode. The
+ * shader reads each value from the material being drawn (`materialReference`)
+ * instead. The data texture stays this material's own node, and
+ * `customProgramCacheKey()` includes it, so only materials with the same
+ * texture share a shader.
+ */
+function electrodeUniformNodes( uniforms ) {
+  return {
+    outlineThreshold  : materialReference( 'uniforms.outlineThreshold.value', 'float' ),
+    dataTexture       : uniforms.dataTexture,
+    darken            : materialReference( 'uniforms.darken.value', 'float' ),
+    tangent           : materialReference( 'uniforms.tangent.value', 'vec3' ),
+    maxLength         : materialReference( 'uniforms.maxLength.value', 'float' ),
+  };
+}
 
 // Per-vertex terms, in model coordinates
 function createElectrodeVaryings( u ) {
@@ -71,7 +90,8 @@ function makeElectrodeMaterial( SuperClass ) {
         // 0 ~ l: show max of l
         maxLength         : uniform( -1 ),
       };
-      this._varyings = createElectrodeVaryings( this.uniforms );
+      this._uniformNodes = electrodeUniformNodes( this.uniforms );
+      this._varyings = createElectrodeVaryings( this._uniformNodes );
 
       // shader switches (the GLSL defines); see `customProgramCacheKey()`
       this._useOutline = false;           // USE_OUTLINE
@@ -86,12 +106,14 @@ function makeElectrodeMaterial( SuperClass ) {
     }
 
     // `needsUpdate` only rebuilds the shader when this key changes; see
-    // `SurfaceMaterial.customProgramCacheKey()`
+    // `SurfaceMaterial.customProgramCacheKey()`. The data texture is in it when
+    // the shader samples it (see `electrodeUniformNodes()`).
     customProgramCacheKey() {
+      const dataTexture = this.uniforms.dataTexture.value;
       return `${ super.customProgramCacheKey() },electrode:${ this._useOutline },` +
         `${ this._outlineActiveOnly },${ this._alwaysDepth },${ this._outlineAlwaysDepth },` +
         `${ this._useInactiveAlpha },${ this._hideInactive },${ this._useDataTexture },` +
-        `${ textureBindingKey( this.uniforms.dataTexture.value ) }`;
+        `${ this._useDataTexture ? dataTexture.uuid : '' }:${ textureBindingKey( dataTexture ) }`;
     }
 
     // sets a shader switch; rebuilds only when it changes
@@ -191,7 +213,7 @@ function makeElectrodeMaterial( SuperClass ) {
     }
 
     _setupElectrodeColor( builder ) {
-      const u = this.uniforms;
+      const u = this._uniformNodes;
       const { reflectProd, positionAlongTrajectory } = this._varyings;
       const useDataTexture = this._useDataTexture;
       const useOutline = this._useOutline;

@@ -3,7 +3,7 @@ import { NodeMaterial } from 'three/webgpu';
 import {
   Fn, If, float, vec2, vec3, vec4, uniform, attribute, select, max,
   smoothstep, fwidth, positionGeometry, modelViewMatrix, cameraProjectionMatrix,
-  varyingProperty, diffuseColor, materialLineWidth
+  varyingProperty, diffuseColor, materialLineWidth, materialReference
 } from 'three/tsl';
 
 /**
@@ -31,9 +31,16 @@ const segmentWidth = varyingProperty( 'float', 'streamlineWidth' );
 const segmentWeight = varyingProperty( 'float', 'streamlineWeight' );
 const segmentDistance = varyingProperty( 'float', 'streamlineDistance' );
 
+// Uniforms of the material being drawn. three shares one shader between
+// streamline materials whose cache keys match (for example every bundle), so
+// the shader must not read the uniform nodes of the material it was built for.
+const distanceThreshold = materialReference( '_distanceThreshold.value', 'float' );
+const fadedWidth = materialReference( '_fadedWidth.value', 'float' );
+const shadowStrength = materialReference( '_shadowStrength.value', 'float' );
+
 // Whether a segment is far enough from the targets to be faded
-const isFaded = ( material, distance ) => material._distanceThreshold.greaterThan( 0.0 )
-  .and( material._distanceThreshold.lessThanEqual( distance ) );
+const isFaded = ( distance ) => distanceThreshold.greaterThan( 0.0 )
+  .and( distanceThreshold.lessThanEqual( distance ) );
 
 const mvpStreamline = Fn( ( { material } ) => {
 
@@ -59,9 +66,9 @@ const mvpStreamline = Fn( ( { material } ) => {
 
     const distance = attribute( 'distanceToTargets', 'float' );
     segmentDistance.assign( distance );
-    If( isFaded( material, distance ), () => {
+    If( isFaded( distance ), () => {
 
-      halfWidth.mulAssign( material._fadedWidth );
+      halfWidth.mulAssign( fadedWidth );
 
     } );
 
@@ -92,7 +99,6 @@ const streamlineShade = Fn( ( { material } ) => {
   const delta = quadPosition.xyz.sub( onAxis );
   const norm = vec2( delta.x, delta.y ).length().div( segmentWidth ).toVar( 'norm' );
 
-  const shadowStrength = material._shadowStrength;
   const interpMax = select( shadowStrength.lessThan( 0.2 ), float( 1.2 ).sub( shadowStrength ), float( 1.2 ) );
 
   // `norm` changes by about 1 / width-in-pixels per pixel. Once a line is a
@@ -107,7 +113,7 @@ const streamlineShade = Fn( ( { material } ) => {
 
   if ( material._useDistanceThreshold ) {
 
-    return select( isFaded( material, segmentDistance ), float( 0.5 ), shade );
+    return select( isFaded( segmentDistance ), float( 0.5 ), shade );
 
   }
 

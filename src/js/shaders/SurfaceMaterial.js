@@ -1,7 +1,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { MeshPhysicalNodeMaterial, MeshLambertNodeMaterial } from 'three/webgpu';
 import {
-  Fn, If, Loop, Discard, select, uniform, texture, texture3D, attribute,
+  Fn, If, Loop, Discard, select, uniform, texture, texture3D, attribute, materialReference,
   vertexColor, varying, positionLocal, positionGeometry, normalLocal,
   cameraPosition, cameraProjectionMatrix, cameraViewMatrix, modelWorldMatrix,
   vec2, vec3, vec4, float, int, abs, dot, normalize, length, min, max, mix,
@@ -57,6 +57,47 @@ function createSurfaceMaterialOptions({ volumeTexture, volumeScaleInverse, clipp
     'brightness'                    : uniform( 0.0 ),
     'contrast'                      : uniform( 0.0 ),
   };
+}
+
+// The options the shader reads, and their types
+const OPTION_TYPES = {
+  'volumeMatrixInverse'           : 'mat4',
+  'scale_inv'                     : 'vec3',
+  'shift'                         : 'vec3',
+  'elec_size'                     : 'float',
+  'elec_active_size'              : 'float',
+  'elec_radius'                   : 'float',
+  'elec_decay'                    : 'float',
+  'blend_factor'                  : 'float',
+  'mask_threshold'                : 'float',
+  'clippingNormal'                : 'vec3',
+  'clippingThrough'               : 'vec3',
+  'clippingMapMatrixWorldInverse' : 'mat4',
+  'brightness'                    : 'float',
+  'contrast'                      : 'float',
+};
+
+/**
+ * The options as the shader reads them. three shares one shader between
+ * materials whose cache keys match, such as the two hemispheres, so a uniform
+ * node captured from the material the shader was built for would be read for
+ * every material sharing it. So the shader reads each option from the material
+ * being drawn (`materialReference`). three has no such reference for 3D
+ * textures, so textures stay this material's own nodes, and
+ * `customProgramCacheKey()` includes the ones the shader samples: materials
+ * share a shader only when they share those textures.
+ */
+function surfaceOptionNodes( options ) {
+  const nodes = {
+    'volume_map'  : options.volume_map,
+    'elec_cols'   : options.elec_cols,
+    'elec_locs'   : options.elec_locs,
+    'clippingMap' : options.clippingMap,
+  };
+  for( const name in OPTION_TYPES ) {
+    nodes[ name ] = materialReference( `surfaceOptions.${ name }.value`, OPTION_TYPES[ name ] );
+  }
+  return nodes;
 }
 
 // A voxel counts as colored when it is not transparent and not near black
@@ -174,7 +215,8 @@ function makeSurfaceMaterial( BaseMaterial ) {
 
       // `clone()` constructs without options, then `copy()` fills them in
       if( options ) {
-        this._clippingNodes = createClippingNodes( options );
+        this._optionNodes = surfaceOptionNodes( options );
+        this._clippingNodes = createClippingNodes( this._optionNodes );
         // how directly the surface faces the camera, for `mask_threshold`
         this._facingCamera = varying( abs( dot(
           normalize( normalLocal ), normalize( positionLocal.sub( cameraPosition ) ) ) ) );
@@ -255,12 +297,25 @@ function makeSurfaceMaterial( BaseMaterial ) {
     // `needsUpdate` only rebuilds the shader when this key changes, and three
     // builds it from the `*Node` properties plus un-prefixed material fields
     // (numbers reduced to zero / non-zero). Add everything that changes the
-    // shader: the mapping, the mask, and how the clipping texture binds.
+    // shader: the mapping, the mask, and how the clipping texture binds. Also
+    // add the textures the shader samples: three shares a shader between
+    // materials with the same key, and textures are read from the material it
+    // was built for (see `surfaceOptionNodes()`).
     customProgramCacheKey() {
       const options = this.surfaceOptions;
-      const clippingMapKey = options ? textureBindingKey( options.clippingMap.value ) : '';
+      let textureKeys = '';
+      if( options ) {
+        const sampled = [];
+        if( this._mappingType === CONSTANTS.VOXEL_COLOR ) { sampled.push( 'volume_map' ); }
+        if( this._mappingType === CONSTANTS.ELECTRODE_COLOR ) { sampled.push( 'elec_cols', 'elec_locs' ); }
+        if( this._clippingSliceEnabled ) { sampled.push( 'clippingMap' ); }
+        textureKeys = sampled.map( name => {
+          const texture = options[ name ].value;
+          return `${ texture ? texture.uuid : 'none' }:${ textureBindingKey( texture ) }`;
+        } ).join( ',' );
+      }
       return `${ super.customProgramCacheKey() },surface:${ this._mappingType },` +
-        `${ this._overlayMaskEnabled },${ this._clippingSliceEnabled },${ clippingMapKey }`;
+        `${ this._overlayMaskEnabled },${ this._clippingSliceEnabled },${ textureKeys }`;
     }
 
     setupOutput( builder, outputNode ) {
@@ -271,7 +326,7 @@ function makeSurfaceMaterial( BaseMaterial ) {
     }
 
     _setupSurfaceOutput( builder, outputNode ) {
-      const options = this.surfaceOptions;
+      const options = this._optionNodes;
       const useColor = this.vertexColors === true && builder.geometry.hasAttribute( 'color' );
       const clipping = this._clippingSliceEnabled;
       if( !useColor && !clipping ) { return outputNode; }
@@ -341,6 +396,7 @@ function makeSurfaceMaterial( BaseMaterial ) {
       this._mappingType = source._mappingType;
       this._overlayMaskEnabled = source._overlayMaskEnabled;
       this._clippingSliceEnabled = source._clippingSliceEnabled;
+      this._optionNodes = source._optionNodes;
       this._clippingNodes = source._clippingNodes;
       this._facingCamera = source._facingCamera;
       return this;
