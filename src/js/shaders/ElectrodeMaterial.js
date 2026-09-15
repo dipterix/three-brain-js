@@ -1,68 +1,117 @@
-import { MeshBasicMaterial, MeshPhysicalMaterial, Vector3, Matrix4 } from 'three';
-import { remove_comments } from '../utils.js';
+import { Vector3 } from 'three';
+import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial } from 'three/webgpu';
+import {
+  Fn, If, Discard, select, uniform, texture, varying, attribute, uv,
+  positionGeometry, normalGeometry, diffuseColor, depth,
+  vec2, vec3, vec4, float, abs, dot, normalize, length, mix, any, greaterThan, lessThan
+} from 'three/tsl';
+import {
+  PLACEHOLDER_TEXTURE, textureBindingKey, nearPlaneOrigin, fragmentDepth
+} from './nodeHelpers.js';
 
-function makeElectrodeMaterial(SuperClass) {
+/**
+ * Electrode materials (`geometry/electrode.js`), as node (TSL) subclasses of
+ * three's Basic and Physical materials. On top of the base material they:
+ *   - darken towards the silhouette (`darken`), or paint it black as an outline
+ *     (`useOutline`), optionally only on contacts with values;
+ *   - color a prototype through its data texture (`useDataTexture`), drawing
+ *     the lead outside the texture translucent gray, up to `setMaxRenderLength`;
+ *   - hide contacts without values (`setHideInactives`; needs the per-instance
+ *     `instanceActive` attribute, `useInactiveAlpha`);
+ *   - draw in front of everything, or only their outlines (`setTranslucent`).
+ *
+ * The silhouette test uses the geometry's own positions and normals, before an
+ * `InstancedMesh`'s instance matrices, like the GLSL patch did.
+ */
+
+// Per-vertex terms, in model coordinates
+function createElectrodeVaryings( u ) {
+  // the camera ray to this vertex; along a shaft (`tangent`), only its part
+  // across the shaft, so the shaft's silhouette runs along its length
+  const cameraRay = positionGeometry.sub( nearPlaneOrigin() );
+  const hasTangent = length( u.tangent ).greaterThan( 0.5 );
+  const rayAcross = select( hasTangent, cameraRay.sub( u.tangent.mul( dot( cameraRay, u.tangent ) ) ), cameraRay );
+  return {
+    // 1 facing the camera, 0 at the silhouette
+    reflectProd             : varying( abs( dot( normalize( normalGeometry ), normalize( rayAcross ) ) ) ),
+    positionAlongTrajectory : varying( select( hasTangent, dot( positionGeometry, u.tangent ), float( 0.0 ) ) ),
+  };
+}
+
+// Materials pass `reflectivity: 0`. The Physical node material has no
+// `reflectivity`, only `ior`, which the WebGL material derived from it.
+function toNodeParameters( material, parameters ) {
+  if( !material.isMeshPhysicalNodeMaterial || parameters.reflectivity === undefined ) {
+    return parameters;
+  }
+  const { reflectivity, ...rest } = parameters;
+  rest.ior = ( 1 + 0.4 * reflectivity ) / ( 1 - 0.4 * reflectivity );
+  return rest;
+}
+
+function makeElectrodeMaterial( SuperClass ) {
   class ElectrodeMaterial extends SuperClass {
 
-    constructor( parameters ) {
-      super( parameters );
+    constructor( parameters = {} ) {
+      super();
+      this.isElectrodeMaterial = true;
 
-      /**
-       * Defines:
-       * USE_OUTLINE
-       * USE_DATATEXTURE
-       */
+      // named like the GLSL uniforms; every entry has a `.value`
       this.uniforms = {
-        outlineThreshold  : { value : 0 },
-        dataTexture       : { value : null },
-        darken            : { value : 0 },
+        outlineThreshold  : uniform( 0 ),
+        dataTexture       : texture( PLACEHOLDER_TEXTURE ),
+        darken            : uniform( 0 ),
 
         // model direction for calculating outlines
-        tangent           : { value : new Vector3() },
+        tangent           : uniform( new Vector3() ),
 
         // max length along the trajectory to show,
         // `tangent` must be set
         // -Inf ~ -0: show all
         // 0 ~ l: show max of l
-        maxLength         : { value : -1 },
+        maxLength         : uniform( -1 ),
+      };
+      this._varyings = createElectrodeVaryings( this.uniforms );
 
-        // inverse(Projection * Model * View) - inverse(pmv)
-        modelViewProjectionInversed : { value : new Matrix4() },
+      // shader switches (the GLSL defines); see `customProgramCacheKey()`
+      this._useOutline = false;           // USE_OUTLINE
+      this._outlineActiveOnly = false;    // OUTLINE_ACTIVE_ONLY
+      this._alwaysDepth = false;          // ALWAYS_DEPTH
+      this._outlineAlwaysDepth = false;   // OUTLINE_ALWAYS_DEPTH
+      this._useInactiveAlpha = false;     // USE_INACTIVE_ALPHA
+      this._hideInactive = false;         // HIDE_INACTIVE_CONTACTS
+      this._useDataTexture = false;       // USE_DATATEXTURE
 
-      }
+      this.setValues( toNodeParameters( this, parameters ) );
+    }
 
-      this.defines = {};
+    // `needsUpdate` only rebuilds the shader when this key changes; see
+    // `SurfaceMaterial.customProgramCacheKey()`
+    customProgramCacheKey() {
+      return `${ super.customProgramCacheKey() },electrode:${ this._useOutline },` +
+        `${ this._outlineActiveOnly },${ this._alwaysDepth },${ this._outlineAlwaysDepth },` +
+        `${ this._useInactiveAlpha },${ this._hideInactive },${ this._useDataTexture },` +
+        `${ textureBindingKey( this.uniforms.dataTexture.value ) }`;
+    }
 
-
+    // sets a shader switch; rebuilds only when it changes
+    _setSwitch( name, value ) {
+      if( this[ name ] === value ) { return; }
+      this[ name ] = value;
+      this.needsUpdate = true;
     }
 
     useOutline( outlineThreshold, activeOnly = false ) {
       if( outlineThreshold > 0.01 ) {
         this.uniforms.outlineThreshold.value = outlineThreshold;
-        if( this.defines.USE_OUTLINE === undefined ) {
-          this.defines.USE_OUTLINE = "";
-          this.needsUpdate = true;
-        }
+        this._setSwitch( '_useOutline', true );
       } else {
-        if( this.defines.USE_OUTLINE !== undefined ) {
-          delete this.defines.USE_OUTLINE;
-          this.needsUpdate = true;
-        }
+        this._setSwitch( '_useOutline', false );
       }
 
       // Only outline contacts that have values (requires `instanceActive`,
-      // hence a no-op unless `USE_INACTIVE_ALPHA` is also defined)
-      if( activeOnly ) {
-        if( this.defines.OUTLINE_ACTIVE_ONLY === undefined ) {
-          this.defines.OUTLINE_ACTIVE_ONLY = "";
-          this.needsUpdate = true;
-        }
-      } else {
-        if( this.defines.OUTLINE_ACTIVE_ONLY !== undefined ) {
-          delete this.defines.OUTLINE_ACTIVE_ONLY;
-          this.needsUpdate = true;
-        }
-      }
+      // hence a no-op unless `useInactiveAlpha` is also on)
+      this._setSwitch( '_outlineActiveOnly', !!activeOnly );
     }
 
     setTranslucent( level ) {
@@ -70,58 +119,31 @@ function makeElectrodeMaterial(SuperClass) {
       // level = 1 or true: contact is translucent, outline depth = always
       // level = 2: depth = always for all
       if( level === 0 || level === false ) {
-        if( this.defines.ALWAYS_DEPTH === undefined ) {
-          this.defines.ALWAYS_DEPTH = "";
-          this.needsUpdate = true;
-        }
+        this._setSwitch( '_alwaysDepth', true );
         return;
       }
 
-      if( this.defines.ALWAYS_DEPTH === "" ) {
-        delete this.defines.ALWAYS_DEPTH;
-        this.needsUpdate = true;
-      }
+      this._setSwitch( '_alwaysDepth', false );
 
       if( level === 1 || level === true ) {
         // outline is always at the front
-        if( this.defines.OUTLINE_ALWAYS_DEPTH === undefined ) {
-          this.defines.OUTLINE_ALWAYS_DEPTH = "";
-          this.needsUpdate = true;
-        }
+        this._setSwitch( '_outlineAlwaysDepth', true );
         return;
       }
 
-      if( this.defines.OUTLINE_ALWAYS_DEPTH === "" ) {
-        delete this.defines.OUTLINE_ALWAYS_DEPTH;
-        this.needsUpdate = true;
-      }
-
+      this._setSwitch( '_outlineAlwaysDepth', false );
     }
 
     useInactiveAlpha( enable ) {
-      if ( enable && this.defines.USE_INACTIVE_ALPHA === undefined ) {
-        this.defines.USE_INACTIVE_ALPHA = "";
-        this.needsUpdate = true;
-      } else if ( !enable && this.defines.USE_INACTIVE_ALPHA !== undefined ) {
-        delete this.defines.USE_INACTIVE_ALPHA;
-        this.needsUpdate = true;
-      }
+      this._setSwitch( '_useInactiveAlpha', !!enable );
     }
 
     setHideInactives( hide ) {
       if( hide ) {
         // Lazily enable instanceActive attribute wiring and hiding
         this.useInactiveAlpha( true );
-        if( this.defines.HIDE_INACTIVE_CONTACTS === undefined ) {
-          this.defines.HIDE_INACTIVE_CONTACTS = "";
-          this.needsUpdate = true;
-        }
-      } else {
-        if( this.defines.HIDE_INACTIVE_CONTACTS !== undefined ) {
-          delete this.defines.HIDE_INACTIVE_CONTACTS;
-          this.needsUpdate = true;
-        }
       }
+      this._setSwitch( '_hideInactive', !!hide );
     }
 
     setMaxRenderLength( len ) {
@@ -131,9 +153,7 @@ function makeElectrodeMaterial(SuperClass) {
         len = -1;
       }
 
-      if( this.uniforms.maxLength.value != len ) {
-        this.uniforms.maxLength.value = len;
-      }
+      this.uniforms.maxLength.value = len;
     }
 
     setModelDirection( dir ) {
@@ -142,273 +162,129 @@ function makeElectrodeMaterial(SuperClass) {
 
     useDataTexture( texture, enabled = true ) {
       const previousTexture = this.uniforms.dataTexture.value;
-      if( texture ) {
-        this.uniforms.dataTexture.value = texture;
-      } else {
-        this.uniforms.dataTexture.value = null;
+      if( !texture ) {
         enabled = false;
       }
 
-      if( previousTexture !== texture ) {
-        if( texture ) {
-          this.uniforms.dataTexture.value = texture;
-        } else {
-          this.uniforms.dataTexture.value = null;
-          enabled = false;
-        }
-        if( previousTexture ) {
+      if( previousTexture !== ( texture || PLACEHOLDER_TEXTURE ) ) {
+        this.uniforms.dataTexture.value = texture || PLACEHOLDER_TEXTURE;
+        if( previousTexture !== PLACEHOLDER_TEXTURE ) {
           previousTexture.dispose();
         }
-      } else if( !texture ) {
-        enabled = false;
+        // another texture may bind differently
+        this.needsUpdate = true;
       }
 
-      if( enabled ) {
-        if( this.defines.USE_DATATEXTURE === undefined ) {
-          this.defines.USE_DATATEXTURE = "";
-          this.needsUpdate = true;
+      this._setSwitch( '_useDataTexture', !!enabled );
+    }
+
+    setupDiffuseColor( builder ) {
+      super.setupDiffuseColor( builder );
+
+      // The GLSL patch replaced three's `color_fragment`, before opaque
+      // materials get alpha 1, and read that alpha for the depth. `super` has
+      // already set it here, so set it again afterwards.
+      diffuseColor.assign( this._setupElectrodeColor( builder ) );
+      if( builder.isOpaque() ) {
+        diffuseColor.a.assign( 1.0 );
+      }
+    }
+
+    _setupElectrodeColor( builder ) {
+      const u = this.uniforms;
+      const { reflectProd, positionAlongTrajectory } = this._varyings;
+      const useDataTexture = this._useDataTexture;
+      const useOutline = this._useOutline;
+      const alwaysDepth = this._alwaysDepth;
+      const outlineAlwaysDepth = this._outlineAlwaysDepth;
+      const useInactiveAlpha = this._useInactiveAlpha;
+      const hideInactive = useInactiveAlpha && this._hideInactive;
+      const outlineActiveOnly = useInactiveAlpha && this._outlineActiveOnly;
+
+      // like three's `setupDepth()`: only with a depth buffer to write to
+      const renderTarget = builder.renderer.getRenderTarget();
+      const hasDepthBuffer = renderTarget !== null ?
+        renderTarget.depthBuffer === true : builder.renderer.depth === true;
+      const writesDepth = ( this.depthWrite || this.depthTest ) && hasDepthBuffer;
+
+      return Fn( () => {
+        const color = vec4( diffuseColor ).toVar();
+
+        if( useDataTexture ) {
+          const vUv = uv();
+          color.mulAssign( u.dataTexture.sample( vUv ) );
+
+          // the lead outside the texture: translucent gray, cut at `maxLength`
+          If( any( greaterThan( vUv, vec2( 1.0001 ) ) ).or( any( lessThan( vUv, vec2( -0.0001 ) ) ) ), () => {
+            const beyondCutoff = u.maxLength.greaterThan( 0.0 )
+              .and( abs( positionAlongTrajectory ).greaterThan( u.maxLength ) );
+            color.assign( vec4( vec3( 0.78125 ), select( beyondCutoff, 0.0, 0.4 ) ) );
+          } );
         }
-      } else {
-        if( this.defines.USE_DATATEXTURE !== undefined ) {
-          delete this.defines.USE_DATATEXTURE;
-          this.needsUpdate = true;
+
+        color.rgb.assign( mix( color.rgb, vec3( 0.0 ), reflectProd.oneMinus().mul( u.darken ) ) );
+
+        const isActive = useInactiveAlpha ?
+          attribute( 'instanceActive', 'float' ).greaterThanEqual( 0.5 ) : null;
+        if( hideInactive ) {
+          If( isActive.not(), () => {
+            Discard();
+          } );
+        }
+
+        // depth: always in front (0) or where the fragment is
+        const inFront = float( 0.0 );
+        let fragmentDepthNode = alwaysDepth ? inFront : fragmentDepth();
+
+        if( useOutline ) {
+          let outlined = u.outlineThreshold.greaterThan( 0.001 )
+            .and( reflectProd.lessThan( u.outlineThreshold ) );
+          if( outlineActiveOnly ) {
+            outlined = isActive.and( outlined );
+          }
+          If( outlined, () => {
+            color.rgb.assign( vec3( 0.0 ) );
+          } );
+          if( alwaysDepth || outlineAlwaysDepth ) {
+            fragmentDepthNode = select( outlined, inFront, fragmentDepthNode );
+          }
+        }
+
+        if( writesDepth ) {
+          // a fully transparent fragment (beyond `maxLength`) hides nothing
+          depth.assign( select( color.a.lessThanEqual( 0.0001 ), float( 1.0 ), fragmentDepthNode ) ).toStack();
+        }
+
+        return color;
+      } )();
+    }
+
+    copy( source ) {
+      super.copy( source );
+      for( const name in this.uniforms ) {
+        const value = source.uniforms[ name ].value;
+        if( value && value.isVector3 ) {
+          this.uniforms[ name ].value.copy( value );
+        } else {
+          this.uniforms[ name ].value = value;
         }
       }
-    }
-
-    onBeforeCompile ( shader, renderer ) {
-      this._shader = shader;
-      for( let uniformKey in this.uniforms ) {
-        shader.uniforms[ uniformKey ] = this.uniforms[ uniformKey ];
-      }
-
-      // vertexShader par vars
-      shader.vertexShader = remove_comments(`
-
-uniform vec3 tangent;
-uniform mat4 modelViewProjectionInversed;
-varying float reflectProd;
-
-#if defined( USE_DATATEXTURE )
-
-  varying vec2 vUv;
-  varying float positionAlongTrjectory;
-
-#endif
-
-#if defined( USE_INACTIVE_ALPHA )
-
-  attribute float instanceActive;
-  varying float vInstanceActive;
-
-#endif
-      `) + shader.vertexShader;
-
-      // vertexShader body
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <fog_vertex>",
-        remove_comments(
-  `#include <fog_vertex>
-
-#if defined( USE_DATATEXTURE )
-
-  vUv = uv;
-
-#endif
-
-
-mat4 pmv = projectionMatrix * modelViewMatrix;
-
-// Orthopgraphic camera, camera position in theory is at infinite,
-
-// Ideally the following calculation should generate correct results
-// vOrigin will be interpolated in fragmentShader, hence project and unproject
-vec4 vOriginProjected = pmv * vec4( position, 1.0 );
-vOriginProjected.z = -vOriginProjected.w;
-// vec3 vOrigin = (inverse(pmv) * vOriginProjected).xyz;
-vec3 vOrigin = (modelViewProjectionInversed * vOriginProjected).xyz;
-
-// cameraRay is in model
-vec3 cameraRay = position.xyz - vOrigin.xyz;
-
-if( length(tangent) > 0.5 ) {
-  cameraRay = cameraRay - tangent * dot( cameraRay, tangent );
-
-#if defined( USE_DATATEXTURE )
-
-  positionAlongTrjectory = dot( position, tangent );
-
-} else {
-  positionAlongTrjectory = 0.0;
-
-#endif
-}
-
-
-reflectProd = abs( dot( normalize( normal ), normalize( cameraRay ) ) );
-
-#if defined( USE_INACTIVE_ALPHA )
-
-  vInstanceActive = instanceActive;
-
-#endif
-
-  `)
-      );
-
-      // fragmentShader par vars
-      shader.fragmentShader = remove_comments(`
-#if defined( USE_OUTLINE )
-
-  uniform float outlineThreshold;
-
-#endif
-
-uniform float darken;
-varying float reflectProd;
-
-
-#if defined( USE_DATATEXTURE )
-
-  uniform mediump sampler2D dataTexture;
-  uniform float maxLength;
-  varying float positionAlongTrjectory;
-  varying vec2 vUv;
-
-#endif
-
-#if defined( USE_INACTIVE_ALPHA )
-
-  varying float vInstanceActive;
-
-#endif
-
-      `) + shader.fragmentShader;
-
-      // fragmentShader body
-      shader.fragmentShader = shader.fragmentShader.replace(
-        "#include <color_fragment>",
-        remove_comments(
-  `
-#if defined( USE_DATATEXTURE )
-
-  vec4 dColor = texture( dataTexture, vUv ).rgba;
-  diffuseColor.rgb *= dColor.rgb;
-  diffuseColor.a *= dColor.a;
-
-  if( any( greaterThan( vUv , vec2(1.0001) ) ) || any( lessThan( vUv , vec2(-0.0001) ) ) ) {
-    diffuseColor.rgba = vec4( 0.78125 );
-
-    if( maxLength > 0.0 && abs( positionAlongTrjectory ) > maxLength ) {
-      diffuseColor.a = 0.0;
-    } else {
-      diffuseColor.a = 0.4;
-    }
-  }
-
-#else
-
-  #include <color_fragment>
-
-#endif
-
-diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.0 ), ( 1.0 - reflectProd ) * darken );
-
-#if defined( USE_INACTIVE_ALPHA )
-
-  if( vInstanceActive < 0.5 ) {
-
-    #if defined( HIDE_INACTIVE_CONTACTS )
-      discard;
-    #endif
-
-  }
-
-#endif
-
-float fDepth = gl_FragCoord.z;
-
-#if defined( USE_OUTLINE )
-
-  #if defined ( ALWAYS_DEPTH )
-
-    fDepth = gl_DepthRange.near;
-
-  #elif defined ( OUTLINE_ALWAYS_DEPTH )
-
-    fDepth = gl_FragCoord.z;
-
-  #endif
-
-  #if defined( USE_INACTIVE_ALPHA ) && defined( OUTLINE_ACTIVE_ONLY )
-
-    if( vInstanceActive >= 0.5 && outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
-
-  #else
-  
-    if( outlineThreshold > 0.001 && reflectProd < outlineThreshold ) {
-
-  #endif
-  
-    diffuseColor.rgb = vec3( 0.0 );
-
-    #if defined ( ALWAYS_DEPTH ) || defined ( OUTLINE_ALWAYS_DEPTH )
-
-      fDepth = gl_DepthRange.near;
-
-    #endif
-  }
-
-#else
-
-  #if defined ( ALWAYS_DEPTH )
-
-    fDepth = gl_DepthRange.near;
-
-  #else
-
-    fDepth = gl_FragCoord.z;
-
-  #endif
-
-
-#endif
-
-if( diffuseColor.a <= 0.0001 ) {
-
-  // Hide the fragment if alpha is 0 (reaching maxLength)
-  gl_FragDepth = gl_DepthRange.far;
-
-} else {
-
-  // It's important to set this because gl_FragDepth does not automatically
-  // reset to gl_FragCoord.z
-  gl_FragDepth = fDepth;
-}
-
-        `)
-      );
-
-    }
-
-    // https://threejs.org/docs/?q=onBeforeRender#Material
-    // .onBeforeRender( renderer : WebGLRenderer, scene : Scene, camera : Camera, geometry : BufferGeometry, object : Object3D, group : Object )
-    onBeforeRender ( renderer, scene, camera, geometry, object, group ) {
-      super.onBeforeRender( renderer, scene, camera, geometry, object, group );
-
-      // Update modelViewProjectionInversed
-      this.uniforms.modelViewProjectionInversed.value
-        .copy( object.modelViewMatrix )
-        .invert()
-        .multiply( camera.projectionMatrixInverse );
+      this._useOutline = source._useOutline;
+      this._outlineActiveOnly = source._outlineActiveOnly;
+      this._alwaysDepth = source._alwaysDepth;
+      this._outlineAlwaysDepth = source._outlineAlwaysDepth;
+      this._useInactiveAlpha = source._useInactiveAlpha;
+      this._hideInactive = source._hideInactive;
+      this._useDataTexture = source._useDataTexture;
+      return this;
     }
   }
 
   return ElectrodeMaterial;
 }
 
-const ElectrodeBasicMaterial = makeElectrodeMaterial(MeshBasicMaterial);
+const ElectrodeBasicMaterial = makeElectrodeMaterial( MeshBasicNodeMaterial );
 
-const ElectrodePhysicalMaterial = makeElectrodeMaterial(MeshPhysicalMaterial);
+const ElectrodePhysicalMaterial = makeElectrodeMaterial( MeshPhysicalNodeMaterial );
 
 export { ElectrodeBasicMaterial, ElectrodePhysicalMaterial };

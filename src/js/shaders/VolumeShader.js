@@ -5,14 +5,13 @@ import {
 import { NodeMaterial } from 'three/webgpu';
 import {
   Fn, If, Loop, Break, Continue, Discard, select, uniform, texture, texture3D, varying,
-  positionGeometry, modelViewMatrix, cameraProjectionMatrix, modelWorldMatrixInverse,
-  cameraWorldMatrix, cameraProjectionMatrixInverse, screenCoordinate, depth,
+  positionGeometry, modelViewMatrix, cameraProjectionMatrix, screenCoordinate, depth,
   vec2, vec3, vec4, float, int, abs, min, max, mix, clamp, pow, floor, fract, sin,
   dot, normalize, length, distance, all, any, equal, notEqual
 } from 'three/tsl';
 import { Lut } from '../core/CustomLut.js'
 import { MatCapPresets } from '../utils/createMatCapTexture.js';
-import { textureBindingKey, fromDisplayColor } from './nodeHelpers.js';
+import { textureBindingKey, fromDisplayColor, nearPlaneOrigin } from './nodeHelpers.js';
 
 /**
  * Ray-marched voxel volumes (`DataCube2`, `geometry/datacube2.js`), as a node
@@ -53,17 +52,6 @@ const MAX_FAST_PASS_STEPS = 65536;
 
 // Per-vertex ray ends, in model coordinates
 function createRayVaryings() {
-  const nearPlaneOrigin = Fn( ( builder ) => {
-    const clipPosition = cameraProjectionMatrix.mul( modelViewMatrix ).mul( vec4( positionGeometry, 1.0 ) );
-    // the vertex moved onto the near plane, which is z = 0 in WebGPU clip
-    // space and z = -w in WebGL's
-    const nearZ = builder.renderer.coordinateSystem === WebGPUCoordinateSystem ?
-      float( 0.0 ) : clipPosition.w.negate();
-    const origin = modelWorldMatrixInverse.mul( cameraWorldMatrix ).mul( cameraProjectionMatrixInverse )
-      .mul( vec4( clipPosition.xy, nearZ, clipPosition.w ) );
-    return origin.xyz.div( origin.w );
-  } );
-
   return {
     origin    : varying( nearPlaneOrigin() ),
     position  : varying( positionGeometry ),
