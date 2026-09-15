@@ -1,5 +1,6 @@
 import { CONSTANTS } from './constants.js';
-import { Vector3, Matrix4, OrthographicCamera, DirectionalLight, WebGLRenderer, Quaternion } from 'three';
+import { Vector3, Matrix4, OrthographicCamera, DirectionalLight, Quaternion } from 'three';
+import { createRenderer } from './createRenderer.js';
 import { get_element_size } from '../utils.js';
 import { makeDraggable } from '../utility/draggable.js';
 import { makeResizable } from '../utility/resizable.js';
@@ -353,6 +354,8 @@ class SideCanvas {
 
   render() {
     if( !this._enabled ) { return; }
+    // the renderer throws until it is initialized
+    if( !this.mainCanvas.rendererReady ) { return; }
     this.renderer.clear();
 
     // whether Radiographic?
@@ -567,7 +570,6 @@ class SideCanvas {
 		this.$canvas.style.height = '100%';
 		this.$canvas.style.position = 'absolute';
 		this.$el.appendChild( this.$canvas );
-		this.context = this.$canvas.getContext('webgl2');
 
 		// Add footer
 		this.$footer = document.createElement('div');
@@ -576,11 +578,11 @@ class SideCanvas {
     this.$footer.id = this._container_id + '__' + type + 'footer';
     this.$el.appendChild( this.$footer );
 
-		this.renderer = new WebGLRenderer({
-    	  antialias: false, alpha: true,
-    	  canvas: this.$canvas, context: this.context,
-    	  depths: false
-    	});
+		// initialized together with the main renderer, see `ViewerCanvas`
+		this.renderer = createRenderer({
+		  canvas: this.$canvas,
+		  forceWebGL: this.mainCanvas.forceWebGL
+		});
   	this.renderer.setPixelRatio( this.mainCanvas.pixel_ratio[1] );
   	this.renderer.autoClear = false; // Manual update so that it can render two scenes
   	this.renderer.setSize( this._renderHeight, this._renderHeight );

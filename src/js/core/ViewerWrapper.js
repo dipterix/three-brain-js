@@ -1,7 +1,6 @@
 // External libraries
 import { CONSTANTS } from './constants.js';
 import { MathUtils } from 'three';
-import WebGL from 'three/addons/capabilities/WebGL.js'
 import { StorageCache } from './StorageCache.js';
 import { ViewerApp } from './ViewerApp.js';
 
@@ -83,17 +82,11 @@ class ViewerWrapper {
     // this will be the root element of the viewer
     this.$viewerWrapper = undefined;
 
-    // For debug purposes, turn this.webgl2Enabled = true to force
-    // render even though only WebGL1 is available
-    // This is most likely to fail
-    this._webgl2Enabled = WebGL.isWebGL2Available();
-    this.webgl2Enabled = this._webgl2Enabled;
-
-    if( !this.webgl2Enabled ) {
-      const $warning = WebGL.getWebGL2ErrorMessage();
-      this.$container.replaceChildren( $warning );
-      return;
-    }
+    // Debug switch: `?forceWebGL` (or `=1`, `=true`) in the page URL runs the
+    // renderers on their WebGL2 backend even when WebGPU is available. Without
+    // it, the renderers pick WebGPU and fall back to WebGL2 by themselves.
+    const forceWebGL = new URLSearchParams( window.location.search ).get( "forceWebGL" );
+    this.forceWebGL = forceWebGL === "" || forceWebGL === "1" || forceWebGL === "true";
 
 
     if( this.viewer === undefined ) {
@@ -117,12 +110,10 @@ class ViewerWrapper {
   }
 
   addModal = () => {
-    if( !this.webgl2Enabled ) { return; }
     if( this.$modal ) { return; }
     this.$container.classList.add("threejs-brain-blank-container");
     this.$modal = document.createElement("div");
     this.$modal.classList.add("threejs-brain-modal");
-    // check webgl2 availability
     this.$modal.innerText = "Click me to load 3D viewer.";
     this.$container.innerHTML = "";
     this.$container.appendChild( modal );
@@ -130,7 +121,6 @@ class ViewerWrapper {
   }
 
   activateViewer = () => {
-    if( !this.webgl2Enabled ) { return; }
     this.$container.removeEventListener( "click", this.activateViewer );
 
     if( this.$modal ) {
@@ -152,7 +142,6 @@ class ViewerWrapper {
 
   // 1-op: this function will be executed once and then will always no-op
   createViewer( insertViewer = false ) {
-    if( !this.webgl2Enabled ) { return; }
     if( this.initialized ) {
       return this.useCachedViewer( insertViewer );
     }
@@ -168,7 +157,7 @@ class ViewerWrapper {
       width : this.width, height : this.height,
       cache : this.cache,
       debug : this.debug || CONSTANTS.DEBUG,
-      webgl2Enabled : this._webgl2Enabled
+      forceWebGL : this.forceWebGL
     });
 
     this.cacheViewer();

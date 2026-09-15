@@ -1,12 +1,11 @@
 import {
   Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4,
   // OrthographicCamera,
-  WebGLRenderer,
   DirectionalLight, AmbientLight,
   Raycaster, ArrowHelper, BoxHelper, AlwaysDepth,
   LoadingManager, FileLoader,
   AnimationClip, AnimationMixer,
-  Mesh, SubtractiveBlending,
+  Mesh,
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
 } from 'three';
@@ -25,6 +24,7 @@ import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
+import { createRenderer } from './createRenderer.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
@@ -133,7 +133,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._app = viewerApp;
 
     const el = viewerApp.$wrapper,
-          has_webgl2 = viewerApp.webgl2Enabled,
           debug = viewerApp.debug,
           fileLoader = viewerApp.fileLoader;
 
@@ -159,9 +158,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     };
     this.globalClock = viewerApp.globalClock;
     this.timeChanged = true;
-    // Is system supporting WebGL2? some customized shaders might need this feature
-    // As of 08-2019, only chrome, firefox, and opera support full implementation of WebGL.
-    this.has_webgl2 = has_webgl2;
+    // Debug switch: run the renderers on their WebGL2 backend even when WebGPU
+    // is available
+    this.forceWebGL = viewerApp.forceWebGL === true;
 
     // Side panel initial size in pt
     this.side_width = side_width;
@@ -357,18 +356,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.add_to_scene( ambientLight, true ); // soft white light
 
 
-    // Set Main renderer, strongly recommend WebGL2
-    // We need to use webgl2 for VolumeRenderShader1 to work
-    let main_canvas_el = document.createElement('canvas'),
-        main_context = main_canvas_el.getContext( 'webgl2', {preserveDrawingBuffer: true} );
-  	this.main_renderer = new WebGLRenderer({
-  	  antialias: false, alpha: true,
-  	  canvas: main_canvas_el, context: main_context
+    // Main renderer; it is not usable until `rendererReady` (see below)
+  	this.main_renderer = createRenderer({
+  	  canvas: document.createElement('canvas'),
+  	  forceWebGL: this.forceWebGL
   	});
   	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
   	this.main_renderer.setSize( width, height );
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
-  	this.main_renderer.localClippingEnabled=true; // Enable clipping
   	// transparent background if the bg is white
   	this.main_renderer.setClearColor( this.background_color, 0.0 );
 
@@ -390,6 +385,23 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.sideCanvasList.coronal = new SideCanvas( this, "coronal" );
     this.sideCanvasList.axial = new SideCanvas( this, "axial" );
     this.sideCanvasList.sagittal = new SideCanvas( this, "sagittal" );
+
+    // Renderers initialize asynchronously and throw if asked to render before
+    // that, so rendering waits for `rendererReady`
+    this.rendererReady = false;
+    this.rendererInitialized = Promise.all([
+      this.main_renderer.init(),
+      this.sideCanvasList.coronal.renderer.init(),
+      this.sideCanvasList.axial.renderer.init(),
+      this.sideCanvasList.sagittal.renderer.init(),
+    ]).then(() => {
+      this.rendererReady = true;
+      this.isWebGPU = this.main_renderer.backend.isWebGPUBackend === true;
+      this.debugVerbose( `Renderer backend: ${ this.isWebGPU ? "WebGPU" : "WebGL2" }` );
+      this.needsUpdate = true;
+    }, ( e ) => {
+      console.error( "[threeBrain] Unable to initialize the renderer.", e );
+    });
 
     // Add video
     this.video_canvas = document.createElement('video');
@@ -2159,7 +2171,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.domContext.fillRect(0, 0, _width, _height);
     this.domContext.clearRect( 0, 0, _width, _height );
 
-    // copy the main_renderer context
+    // copy the main_renderer context. A WebGPU canvas does not preserve its
+    // drawing buffer: it can only be read in the same task that rendered it, so
+    // this must run synchronously right after the renderers draw, never after an
+    // `await` or from a timer.
     if( this.capturer_recording ) {
       this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
 
@@ -2187,6 +2202,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   // Main render function, automatically scheduled
   render(){
+
+    // the renderers throw until they are initialized; the render flags are kept,
+    // and `rendererInitialized` requests a render once they are ready
+    if( !this.rendererReady ) { return; }
 
     if( this._renderFlag == CanvasState.NoRender ) { return; }
 
@@ -3580,8 +3599,8 @@ mapped = false,
 
     // set scenes
     if( this.background_color === "#ffffff" || this.background_color === "#FFFFFF" ) {
-      // transparent
-      this.scene.background = undefined;
+      // transparent; must be `null`, as `WebGPURenderer` fails on `undefined`
+      this.scene.background = null;
     } else {
       this.scene.background = this._backgroundObject.set( this.background_color );
     }

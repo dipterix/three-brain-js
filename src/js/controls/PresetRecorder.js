@@ -2,6 +2,7 @@ import { CONSTANTS } from '../core/constants.js';
 import { CCanvasRecorder } from '../capture/CCanvasRecorder.js';
 import { PDFContext } from '../core/context.js';
 import { exportScene } from '../formats/exportScene.js'
+import { getMaxTextureSize } from '../core/createRenderer.js';
 
 // 2. Record Videos
 function formatLocalYYMMDDTHHmmss(date) {
@@ -84,6 +85,9 @@ function registerPresetRecorder( ViewerControlCenter ){
     this.gui.addController('Screenshot', () => {
       // const doc = this.canvas.mapToPDF();
 
+      // the renderers throw until they are initialized
+      if( !this.canvas.rendererReady ) { return; }
+
       const glCanvas = this.canvas.main_renderer.domElement,
             pixelRatio = this.canvas.main_renderer.getPixelRatio();
       let totalHeight = glCanvas.height,
@@ -165,12 +169,13 @@ function registerPresetRecorder( ViewerControlCenter ){
     }, {folder_name: folder_name });
 
     this.gui.addController('Download GLTF', async () => {
+      await this.canvas.rendererInitialized;
       const scene = this.canvas.cloneForExporter();
       exportScene(
         scene,
         "GLB",
         {
-          maxTextureSize: this.canvas.main_renderer.capabilities.maxTextureSize,
+          maxTextureSize: getMaxTextureSize( this.canvas.main_renderer ),
         }
       );
     });

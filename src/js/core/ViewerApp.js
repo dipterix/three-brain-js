@@ -52,7 +52,8 @@ class ViewerApp extends ThrottledEventDispatcher {
     // debug mode?
     debug = false,
 
-    webgl2Enabled = true,
+    // run the renderers on their WebGL2 backend even when WebGPU is available
+    forceWebGL = false,
 
   }) {
 
@@ -60,7 +61,7 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // Flags
     this.debug = debug;
-    this.webgl2Enabled = webgl2Enabled;
+    this.forceWebGL = forceWebGL === true;
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
