@@ -1,447 +1,252 @@
+import { Vector2, LineBasicMaterial } from 'three';
+import { NodeMaterial } from 'three/webgpu';
 import {
-	ShaderLib,
-	ShaderMaterial,
-	UniformsLib,
-	UniformsUtils,
-	Vector2,
-} from 'three';
+  Fn, If, float, vec2, vec3, vec4, uniform, attribute, select, max,
+  smoothstep, fwidth, positionGeometry, modelViewMatrix, cameraProjectionMatrix,
+  varyingProperty, diffuseColor, materialLineWidth
+} from 'three/tsl';
 
-UniformsLib.line = {
+/**
+ * Streamlines (tractography), as a node (TSL) material for `Line2` with a
+ * `StreamlineGeometry` (`geometry/streamline.js`).
+ *
+ * Each segment is a quad expanded in view space. Its width is `linewidth`
+ * divided by the camera zoom, so tracts keep their on-screen thickness while
+ * zooming, in every view. Segments with a negative `instanceWeight` (filtered
+ * out, or the gap between two tracts) are not drawn.
+ *
+ * The color is shaded darker towards the edges, like a tube, unless the line
+ * is only a pixel or two wide. With `distanceThreshold`, segments at least that
+ * far from the targets (`distanceToTargets` attribute) are drawn `fadedWidth`
+ * times as wide, at half brightness.
+ */
 
-	linewidth: { value: 1 },
-	shadowStrengh: { value: 0 },
-	distanceThreshold: { value: -1 },
-	resolution: { value: new Vector2( 1, 1 ) },
-	fadedWidth: { value: 0.005 },
+const _defaultValues = /*@__PURE__*/ new LineBasicMaterial();
 
-};
+// camera-space varyings, written in the vertex stage
+const segmentStart = varyingProperty( 'vec3', 'streamlineStart' );
+const segmentEnd = varyingProperty( 'vec3', 'streamlineEnd' );
+const quadPosition = varyingProperty( 'vec4', 'streamlinePosition' );
+const segmentWidth = varyingProperty( 'float', 'streamlineWidth' );
+const segmentWeight = varyingProperty( 'float', 'streamlineWeight' );
+const segmentDistance = varyingProperty( 'float', 'streamlineDistance' );
 
-const StreamlineVertexShader = /* glsl */`
-#include <common>
-#include <color_pars_vertex>
-#include <fog_pars_vertex>
-#include <logdepthbuf_pars_vertex>
-#include <clipping_planes_pars_vertex>
+// Whether a segment is far enough from the targets to be faded
+const isFaded = ( material, distance ) => material._distanceThreshold.greaterThan( 0.0 )
+  .and( material._distanceThreshold.lessThanEqual( distance ) );
 
-uniform float linewidth;
+const mvpStreamline = Fn( ( { material } ) => {
 
-attribute vec3 instanceStart;
-attribute vec3 instanceEnd;
-attribute float lineWeight;
+  const start = modelViewMatrix.mul( vec4( attribute( 'instanceStart', 'vec3' ), 1.0 ) ).toVar( 'start' );
+  const end = modelViewMatrix.mul( vec4( attribute( 'instanceEnd', 'vec3' ), 1.0 ) ).toVar( 'end' );
 
-attribute vec3 instanceColorStart;
-attribute vec3 instanceColorEnd;
-attribute float instanceWeight;
+  segmentStart.assign( start.xyz );
+  segmentEnd.assign( end.xyz );
 
-varying vec4 worldPos;
-varying vec3 worldStart;
-varying vec3 worldEnd;
-varying vec3 worldUp;
-varying float vWeight;
-varying float vLineWidth;
+  const lineDir = end.xyz.sub( start.xyz ).normalize();
+  const lineUp = vec3( lineDir.y.negate(), lineDir.x, 0.0 ).normalize();
 
-#ifdef USE_DISTANCE_THRESHOLD
+  // An orthographic camera's `projectionMatrix[0][0]` is 2 * zoom / (right -
+  // left); the main camera keeps right - left at 300, so this is the zoom.
+  // The side views zoom through `setViewOffset`, which this also accounts for.
+  const zoomScale = max( cameraProjectionMatrix.element( 0 ).element( 0 ).mul( 150.0 ), 1e-6 );
+  const lineWidth = materialLineWidth.div( zoomScale );
+  segmentWidth.assign( lineWidth );
 
-  uniform float distanceThreshold;
-  uniform float fadedWidth;
+  const halfWidth = lineWidth.mul( 0.5 ).toVar( 'halfWidth' );
 
-  attribute float distanceToTargets;
+  if ( material._useDistanceThreshold ) {
 
-  varying float vDistanceToTargets;
+    const distance = attribute( 'distanceToTargets', 'float' );
+    segmentDistance.assign( distance );
+    If( isFaded( material, distance ), () => {
 
-#endif
+      halfWidth.mulAssign( material._fadedWidth );
 
-void main() {
+    } );
 
-	#ifdef USE_COLOR
+  }
 
-		vColor.xyz = ( position.y < 0.5 ) ? instanceColorStart : instanceColorEnd;
+  // the quad: x is -1 / 1 across the line, y is -1 at the start and 2 at the end
+  const across = positionGeometry.x.lessThan( 0.0 ).select( lineUp.mul( halfWidth ), lineUp.mul( halfWidth ).negate() );
+  const along = positionGeometry.y.lessThan( 0.5 ).select( lineDir.mul( halfWidth ).negate(), lineDir.mul( halfWidth ) );
+  const center = positionGeometry.y.lessThan( 0.5 ).select( start, end );
+  const position = vec4( center.xyz.add( across ).add( along ), center.w );
+  quadPosition.assign( position );
 
-	#endif
+  const weight = attribute( 'instanceWeight', 'float' );
+  segmentWeight.assign( weight );
 
-	// For orthographic camera, ray direction is fixed and equals camera's -Z axis in world space.
-  // You can get this by taking the view matrix's third row (inverse of camera rotation)
-  // vec3 rayDir = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]) * -1.0;
-  // To operate in camera space, this is easier
-  // vec3 rayDir = vec3(0.0, 0.0, -1.0);
-  // rayDir = normalize( rayDir );
+  // outside the clip volume when not drawn
+  return select( weight.lessThan( 0.0 ).or( halfWidth.lessThanEqual( 0.0 ) ),
+    vec4( 2.0, 2.0, 2.0, 1.0 ), cameraProjectionMatrix.mul( position ) );
 
-	// camera space
-	vec4 start = modelViewMatrix * vec4( instanceStart, 1.0 );
-	vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );
+} )();
 
-	worldStart = start.xyz;
-	worldEnd = end.xyz;
+// How much to darken this fragment: 1 on the axis, less towards the edges
+const streamlineShade = Fn( ( { material } ) => {
 
-	vec3 worldDirOrig = worldEnd - worldStart;
+  // distance from the axis, in line widths (0 to 0.5), in the view plane
+  const lineDir = segmentEnd.sub( segmentStart ).normalize();
+  const onAxis = segmentStart.add( lineDir.mul( quadPosition.xyz.sub( segmentStart ).dot( lineDir ) ) );
+  const delta = quadPosition.xyz.sub( onAxis );
+  const norm = vec2( delta.x, delta.y ).length().div( segmentWidth ).toVar( 'norm' );
 
-	// lineLengthSq = dot(worldDirOrig, worldDirOrig);
+  const shadowStrength = material._shadowStrength;
+  const interpMax = select( shadowStrength.lessThan( 0.2 ), float( 1.2 ).sub( shadowStrength ), float( 1.2 ) );
 
-	vec3 worldDir = normalize( worldDirOrig );
+  // `norm` changes by about 1 / width-in-pixels per pixel. Once a line is a
+  // pixel or two wide, no bright core is left to see and the edge ramp would
+  // just darken the whole line, so fade the shading out. (`fwidth` is |dFdx| +
+  // |dFdy|, under-reporting diagonal lines by up to sqrt(2); the band was
+  // chosen against measured widths.) Derivatives need uniform control flow, so
+  // this stays outside any branch.
+  const pixelWidth = float( 1.0 ).div( max( fwidth( norm ), 1e-5 ) );
+  const shadeAmount = smoothstep( 1.5, 4.5, pixelWidth );
+  const shade = smoothstep( 0.0, interpMax, norm ).mul( shadeAmount ).oneMinus();
 
-	worldUp = normalize( vec3( -worldDir.y, worldDir.x, 0.0 ) );
+  if ( material._useDistanceThreshold ) {
 
-	worldPos = position.y < 0.5 ? start: end;
+    return select( isFaded( material, segmentDistance ), float( 0.5 ), shade );
 
-	// height offset
-	// The line is expanded in view space, so a fixed linewidth would thicken on
-	// screen as the camera zooms in. For an orthographic camera
-	// projectionMatrix[0][0] is 2 * zoom / (right - left); the main camera keeps
-	// right - left pinned at 300, so projectionMatrix[0][0] * 150 is exactly
-	// camera.zoom. Dividing by it holds the on-screen width steady, per camera --
-	// side panels included, which zoom through setViewOffset and used to be
-	// ignored entirely.
-	float zoomScale = max( projectionMatrix[0][0] * 150.0, 1e-6 );
-	vLineWidth = linewidth / zoomScale;
+  }
 
-	float hw = vLineWidth * 0.5;
+  return shade;
 
-	#ifdef USE_DISTANCE_THRESHOLD
+} )();
 
-	  vDistanceToTargets = distanceToTargets;
+class StreamlineMaterial extends NodeMaterial {
 
-    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToTargets ) {
-      // hw = 0.01;
-      hw *= fadedWidth;
-    }
+  static get type() {
 
-	#endif
+    return 'StreamLineMaterial';
 
-	worldPos.xyz += position.x < 0.0 ? hw * worldUp : - hw * worldUp;
+  }
 
-	worldPos.xyz += position.y < 0.5 ? - hw * worldDir : hw * worldDir;
+  constructor( parameters = {} ) {
 
-	// add width to the box
-	// worldPos.xyz += worldFwd * hw;
+    super();
 
-	// project the worldpos
-	if( instanceWeight < 0.0 || hw <= 0.0 ) {
-	  gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside clip space
-	} else {
-	  gl_Position = projectionMatrix * worldPos;
-	}
+    this.isStreamLineMaterial = true;
 
-	vWeight = instanceWeight;
+    this.setDefaultValues( _defaultValues );
 
-	vec4 mvPosition = ( position.y < 0.5 ) ? start : end; // this is an approximation
+    this.lights = false;
 
-	#include <logdepthbuf_vertex>
-	#include <clipping_planes_vertex>
-	#include <fog_vertex>
+    // for `Line2.raycast`, which measures screen-space widths against it;
+    // `streamline.js` sets it to the main canvas size
+    this.resolution = new Vector2( 1, 1 );
 
-}
-`;
+    this._shadowStrength = uniform( 0.0 );
+    this._distanceThreshold = uniform( 0.0 );
+    this._fadedWidth = uniform( 0.005 );
+    this._useDistanceThreshold = false;
 
-const StreamlineFragmentShader = /* glsl */`
-uniform vec3 diffuse;
-uniform float opacity;
-uniform float shadowStrengh;
-uniform float distanceThreshold;
+    this.setValues( parameters );
 
-varying vec4 worldPos;
-varying vec3 worldStart;
-varying vec3 worldEnd;
-varying vec3 worldUp;
-varying float vWeight;
-varying float vLineWidth;
+  }
 
-#ifdef USE_DISTANCE_THRESHOLD
+  // `needsUpdate` only rebuilds the shader when this key changes; see
+  // `SurfaceMaterial.customProgramCacheKey()`
+  customProgramCacheKey() {
 
-  varying float vDistanceToTargets;
+    return `${ super.customProgramCacheKey() },streamline:${ this._useDistanceThreshold }`;
 
-#endif
+  }
 
-// out vec4 color;
+  setupDiffuseColor( builder ) {
 
-#include <common>
-#include <color_pars_fragment>
-#include <fog_pars_fragment>
-#include <logdepthbuf_pars_fragment>
-#include <clipping_planes_pars_fragment>
+    // the gap between two tracts, or filtered out
+    segmentWeight.lessThan( 0.0 ).discard();
 
-void main() {
+    super.setupDiffuseColor( builder );
 
-  if( vWeight < 0.0 ) { discard; }
+    diffuseColor.rgb.mulAssign( streamlineShade );
 
-	#include <clipping_planes_fragment>
+  }
 
-	float alpha = opacity;
-	float shade = 1.0;
+  setupModelViewProjection( /*builder*/ ) {
 
-	// Find the closest points on the view ray and the line segment
-	vec3 lineDir = worldEnd - worldStart;
-	vec3 lineDirUnit = normalize(lineDir);
+    return mvpStreamline;
 
-	vec3 p1 = worldStart + lineDirUnit * dot( worldPos.xyz - worldStart, lineDirUnit );
-	vec3 delta = worldPos.xyz - p1;
-	delta.z = 0.0;
+  }
 
-	float len = length( delta );
-	float norm = len / vLineWidth;
+  // sets the opacity, and makes the material transparent
+  set lineOpacity( value ) {
 
-	// Only apply shading to the sides (not endcaps/joints)
-	// Check if we're on the main body of the line (not endcaps)
-	float interpMax = 1.2;
-	if( shadowStrengh < 0.2 ) {
-	  interpMax = 1.2 - shadowStrengh;
-	}
+    if ( typeof value !== 'number' ) {
 
-	// norm runs 0 at the axis to 0.5 at the edge, so its screen-space derivative is
-	// roughly 1 / width-in-pixels. Once a line is down to a pixel or two there is no
-	// bright core left to see and the edge ramp just darkens the whole thing, so fade
-	// the shading out and let thin tracts keep their true colour. Note fwidth is
-	// |dFdx| + |dFdy|, which under-reports a diagonal line by up to sqrt(2); the band
-	// below is chosen against measured widths rather than derived.
-	float pixelWidth = 1.0 / max( fwidth( norm ), 1e-5 );
-	float shadeAmount = smoothstep( 1.5, 4.5, pixelWidth );
-
-	#ifdef USE_DISTANCE_THRESHOLD
-
-    if( distanceThreshold > 0.0 && distanceThreshold <= vDistanceToTargets ) {
-
-      shade = 0.5;
-
-    } else {
-
-      shade = 1.0 - shadeAmount * smoothstep(0.0, interpMax, norm);
+      value = 1.0;
 
     }
+    this.transparent = true;
+    this.opacity = value;
 
-  #else
+  }
 
-    shade = 1.0 - shadeAmount * smoothstep(0.0, interpMax, norm);
+  get lineOpacity() {
 
-  #endif
+    return this.opacity;
 
-	vec4 diffuseColor = vec4( diffuse * shade, alpha );
+  }
 
-	#include <logdepthbuf_fragment>
-	#include <color_fragment>
+  get shadowStrengh() {
 
-	gl_FragColor = vec4( diffuseColor.rgb, alpha );
-	// color = vec4( diffuseColor.rgb, alpha );
+    return this._shadowStrength.value;
 
-	#include <tonemapping_fragment>
-	#include <colorspace_fragment>
-	#include <fog_fragment>
-	#include <premultiplied_alpha_fragment>
+  }
 
-}
-`
+  set shadowStrengh( value ) {
 
-ShaderLib[ 'streamline' ] = {
+    this._shadowStrength.value = value;
 
-	uniforms: UniformsUtils.merge( [
-		UniformsLib.common,
-		UniformsLib.fog,
-		UniformsLib.line
-	] ),
+  }
 
-	vertexShader: StreamlineVertexShader,
-	fragmentShader: StreamlineFragmentShader
+  // Infinity when off
+  get distanceThreshold() {
 
-};
+    return this._useDistanceThreshold ? this._distanceThreshold.value : Infinity;
 
+  }
 
-class StreamlineMaterial extends ShaderMaterial {
+  set distanceThreshold( value ) {
 
-	constructor( parameters ) {
+    const enabled = value > 0 && isFinite( value );
+    this._distanceThreshold.value = enabled ? value : 0;
+    if ( this._useDistanceThreshold !== enabled ) {
 
-		super( {
-			type: 'StreamLineMaterial',
-			uniforms: UniformsUtils.clone( ShaderLib[ 'streamline' ].uniforms ),
+      this._useDistanceThreshold = enabled;
+      this.needsUpdate = true;
 
-			vertexShader: ShaderLib[ 'streamline' ].vertexShader,
-			fragmentShader: ShaderLib[ 'streamline' ].fragmentShader,
-
-			clipping: true // required for clipping support
-
-		} );
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		this.isStreamLineMaterial = true;
-
-		this.setValues( parameters );
-
-	}
-
-	get color() {
-
-		return this.uniforms.diffuse.value;
-
-	}
-
-	set color( value ) {
-
-		this.uniforms.diffuse.value = value;
-
-	}
-
-	get linewidth() {
-
-		return this.uniforms.linewidth.value;
-
-	}
-
-	set linewidth( value ) {
-
-		if ( ! this.uniforms.linewidth ) return;
-		this.uniforms.linewidth.value = value;
-
-	}
-
-	set lineOpacity( value ) {
-
-	  if( typeof value !== 'number' ) {
-	    value = 1.0;
-	  }
-	  this.transparent = true;
-	  this.opacity = value;
-
-	}
-
-	get lineOpacity() {
-
-	  return this.opacity;
-
-	}
-
-	get shadowStrengh() {
-	  return this.uniforms.shadowStrengh.value;
-	}
-
-	set shadowStrengh( value ) {
-	  if ( ! this.uniforms.shadowStrengh ) return;
-		this.uniforms.shadowStrengh.value = value;
-	}
-
-	get distanceThreshold() {
-	  if( this.defines.USE_DISTANCE_THRESHOLD === undefined ) {
-	    return Infinity;
-	  }
-	  return this.uniforms.distanceThreshold.value;
-	}
-
-	set distanceThreshold( value ) {
-
-	  if ( ! this.uniforms.distanceThreshold ) return;
-	  if( value <= 0 || !isFinite( value ) ) {
-	    this.uniforms.distanceThreshold.value = 0;
-	    if( this.defines.USE_DISTANCE_THRESHOLD !== undefined ) {
-	      delete this.defines.USE_DISTANCE_THRESHOLD;
-	      this.needsUpdate = true;
-	    }
-	  } else {
-	    if( this.defines.USE_DISTANCE_THRESHOLD === undefined ) {
-	      this.defines.USE_DISTANCE_THRESHOLD = '';
-	      this.needsUpdate = true;
-	    }
-	    this.uniforms.distanceThreshold.value = value;
-	  }
-	}
-
-	get fadedWidth() {
-	  return this.uniforms.distanceThreshold.value;
-	}
-
-	set fadedWidth( value ) {
-	  if ( ! this.uniforms.fadedWidth ) return;
-	  if( value <= 0 || !isFinite( value ) ) {
-	    this.uniforms.fadedWidth.value = 0;
-	  } else {
-	    this.uniforms.fadedWidth.value = value;
-	  }
-	}
-
-  get stride() {
-
-    if( this.defines.USE_STRIDE === '' ) {
-      return this.uniforms.strideLineId.value;
-    } else {
-      return 1;
     }
 
   }
 
-  set stride( value ) {
+  get fadedWidth() {
 
-    if( value <= 1 ) {
-      value = 1;
-    }
+    return this._fadedWidth.value;
 
-
-    if ( value === 1 ) {
-      if( this.defines.USE_STRIDE !== undefined ) {
-        delete this.defines.USE_STRIDE;
-        this.needsUpdate = true;
-      }
-    } else {
-      if( this.defines.USE_STRIDE !== '' ) {
-        this.defines.USE_STRIDE = '';
-        this.needsUpdate = true;
-      }
-      this.uniforms.strideLineId.value = value;
-    }
   }
 
-	get opacity() {
+  set fadedWidth( value ) {
 
-		return this.uniforms.opacity.value;
+    this._fadedWidth.value = ( value <= 0 || ! isFinite( value ) ) ? 0 : value;
 
-	}
+  }
 
-	set opacity( value ) {
+  copy( source ) {
 
-		if ( ! this.uniforms ) return;
-		this.uniforms.opacity.value = value;
+    super.copy( source );
 
-	}
+    this.resolution.copy( source.resolution );
+    this._shadowStrength.value = source._shadowStrength.value;
+    this._distanceThreshold.value = source._distanceThreshold.value;
+    this._fadedWidth.value = source._fadedWidth.value;
+    this._useDistanceThreshold = source._useDistanceThreshold;
 
-	get resolution() {
+    return this;
 
-		return this.uniforms.resolution.value;
-
-	}
-
-	set resolution( value ) {
-
-		this.uniforms.resolution.value.copy( value );
-
-	}
-
-	get alphaToCoverage() {
-
-		return 'USE_ALPHA_TO_COVERAGE' in this.defines;
-
-	}
-
-	set alphaToCoverage( value ) {
-
-		if ( ! this.defines ) return;
-
-		if ( ( value === true ) !== this.alphaToCoverage ) {
-
-			this.needsUpdate = true;
-
-		}
-
-		if ( value === true ) {
-
-			this.defines.USE_ALPHA_TO_COVERAGE = '';
-
-		} else {
-
-			delete this.defines.USE_ALPHA_TO_COVERAGE;
-
-		}
-
-	}
+  }
 
 }
 

@@ -655,6 +655,13 @@ class Streamline extends AbstractThreeBrainObject {
     this.object.material.linewidth = linewidth;
     this.object.material.lineOpacity = lineOpacity;
 
+    // `Line2.raycast` measures screen-space widths against this. (The GLSL
+    // material had it refreshed through `uniforms` by `Line2.onBeforeRender`.)
+    this.object.material.resolution.set(
+      this._canvas.client_width || window.innerWidth,
+      this._canvas.client_height || window.innerHeight
+    );
+
     if( !this.object.visible ) { return; }
 
     let minLen = this._canvas.get_state('streamline_minlen', 0);

@@ -365,12 +365,12 @@ class SliceMaterial extends NodeMaterial {
 
     if( inst.isDataCube2 ) {
 
-      // the volume's own material holds its colors
+      // the volume's own material (`RayMarchingMaterial`) holds its colors
       const volumeMaterial = inst.object.material;
       const volumeUniforms = volumeMaterial.uniforms;
 
       if ( inst.isDataContinuous ) {
-        overlayColorCount = volumeMaterial.defines.N_SINGLE_CHANNEL_COLORS;
+        overlayColorCount = volumeMaterial.colorCount;
         u.colorRampPalette.value = volumeUniforms.colorRampPalette.value;
         this.overlayValueLB = volumeUniforms.singleChannelColorRangeLB.value;
         this.overlayValueUB = volumeUniforms.singleChannelColorRangeUB.value;
