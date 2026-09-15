@@ -223,8 +223,6 @@ class DataCube2 extends AbstractThreeBrainObject {
       0.5
     );
 
-    this.object.material.uniformsNeedUpdate = true;
-
     this.colorTexture.needsUpdate = true;
 
     // Update gradient texture when color changes
@@ -370,7 +368,6 @@ class DataCube2 extends AbstractThreeBrainObject {
       ),
       0.5
     );
-    this.object.material.uniformsNeedUpdate = true;
     this.colorTexture.needsUpdate = true;
 
     // Update gradient texture when color changes
@@ -424,9 +421,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
         // Update material to use gradient texture
         if (this.object && this.object.material) {
-          this.object.material.uniforms.gradientMap.value = this.gradientTexture;
-          this.object.material.defines.USE_GRADIENT_MAP = 1;
-          this.object.material.needsUpdate = true;
+          this.object.material.gradientMap = this.gradientTexture;
         }
       } else {
         // Update existing texture data
@@ -1314,12 +1309,15 @@ class DataCube2 extends AbstractThreeBrainObject {
         tryLinearFilter = true;
       }
     }
+    // the filter decides how shaders bind the texture, so the volume's shader
+    // is rebuilt (the slices and surfaces check theirs)
     if( tryLinearFilter ) {
 
       if( this.colorTexture.magFilter !== LinearFilter ) {
         this.colorTexture.magFilter = LinearFilter;
         this.colorTexture.minFilter = LinearFilter;
         this.colorTexture.needsUpdate = true;
+        this.object.material.needsUpdate = true;
       }
 
     } else {
@@ -1328,6 +1326,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.colorTexture.magFilter = NearestFilter;
         this.colorTexture.minFilter = NearestFilter;
         this.colorTexture.needsUpdate = true;
+        this.object.material.needsUpdate = true;
       }
 
     }
@@ -1452,7 +1451,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // Make sure the colormap is compatible
     const wasContinuous = this.isDataContinuous;
-    const uniforms = this.object.material.uniforms;
+    const material = this.object.material;
 
     if(
       lut && this.lut !== lut && lut.map && lut.mapDataType &&
@@ -1473,16 +1472,14 @@ class DataCube2 extends AbstractThreeBrainObject {
         if( this.isDataContinuous ) {
           this.colorFormat = RedFormat;
           this.nColorChannels = 1;
-
-          this.object.material.useSingleChannel = true;
-
         } else {
           this.colorFormat = RGBAFormat;
           this.nColorChannels = 4;
-
-          this.object.material.useSingleChannel = false;
         }
 
+        // A GPU texture keeps the format it was created with, so release it;
+        // the next render creates one in the new format
+        this.colorTexture.dispose();
         this.colorTexture.minFilter = NearestFilter;
         this.colorTexture.magFilter = NearestFilter;
         this.colorTexture.format = this.colorFormat;
@@ -1490,10 +1487,10 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.colorTexture.unpackAlignment = 1;
         this.colorTexture.needsUpdate = true;
 
-        uniforms.cmap.value = this.colorTexture;
+        material.uniforms.cmap.value = this.colorTexture;
+        // rebuilds the shader for one or four channels
         material.colorChannels = this.nColorChannels;
-
-        this.object.material.defines.N_SINGLE_CHANNEL_COLORS = nColors;
+        material.colorCount = nColors;
       }
 
       if( this.isDataContinuous ) {
@@ -1510,8 +1507,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.updatePalette();
     }
 
-    this.object.material.changePalette( paletteName );
-    this.object.material.uniformsNeedUpdate = true;
+    material.changePalette( paletteName );
 
     this.dispatchEvent( {
       type: CONSTANTS.EVENTS.onDataCube2ColorUpdated,
