@@ -403,6 +403,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       console.error( "[threeBrain] Unable to initialize the renderer.", e );
     });
 
+    // A lost GPU device (a driver reset or crash, the GPU being switched)
+    // stops every renderer for good: three's own handler logs the loss and
+    // turns the renderer off. Tell the user as well. three ignores losses
+    // caused by `dispose()` on WebGPU; `showDeviceLostMessage()` ignores them
+    // on WebGL.
+    [
+      this.main_renderer,
+      this.sideCanvasList.coronal.renderer,
+      this.sideCanvasList.axial.renderer,
+      this.sideCanvasList.sagittal.renderer,
+    ].forEach( ( renderer ) => {
+      const threeHandler = renderer.onDeviceLost.bind( renderer );
+      renderer.onDeviceLost = ( info ) => {
+        threeHandler( info );
+        this.showDeviceLostMessage( info );
+      };
+    });
+
     // Add video
     this.video_canvas = document.createElement('video');
     this.video_canvas.setAttribute( "autoplay", "false" );
@@ -1296,6 +1314,40 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         }
       }
     }
+  }
+
+  /**
+   * Covers the main view with a message asking to reload, once the renderers'
+   * GPU device is lost (see the constructor). Shown once, for all renderers.
+   * @param {Object} info - three's device-loss info (`api`, `message`, `reason`)
+   */
+  showDeviceLostMessage( info ) {
+    // disposing the WebGL fallback loses its context on purpose
+    if( this._disposed || this.$deviceLostMessage ) { return; }
+
+    const $message = document.createElement( 'div' );
+    $message.className = 'threejs-brain-device-lost';
+    // positioned like the 2D overlay canvas, over the main view
+    $message.style.width = `${ this.main_canvas.clientWidth }px`;
+    $message.style.height = `${ this.main_canvas.clientHeight }px`;
+
+    const $text = document.createElement( 'p' );
+    $text.innerText = "The 3D viewer lost its graphics device and stopped drawing. " +
+      "Reload the page to restore it.";
+    $message.appendChild( $text );
+
+    const $reload = document.createElement( 'button' );
+    $reload.innerText = "Reload";
+    $reload.addEventListener( 'click', () => { window.location.reload(); } );
+    $message.appendChild( $reload );
+
+    // the camera controls capture the pointer on the main view, which would
+    // swallow the button's click
+    $message.addEventListener( 'pointerdown', ( event ) => { event.stopPropagation(); } );
+
+    this.main_canvas.appendChild( $message );
+    this.$deviceLostMessage = $message;
+    this.debugVerbose( `Device lost (${ info?.api }): ${ info?.message }` );
   }
 
   dispose(){

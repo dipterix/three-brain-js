@@ -375,6 +375,34 @@
   color: #eee;
 }
 
+/* Shown over the main view when the renderers lose their GPU device */
+.threejs-brain-device-lost {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  padding: 2em;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 1.2em;
+  background: rgba(255, 255, 255, 0.9);
+  color: #333;
+}
+
+.threejs-brain-canvas.dark-viewer .threejs-brain-device-lost {
+  background: rgba(0, 0, 0, 0.85);
+  color: #eee;
+}
+
+.threejs-brain-device-lost button {
+  font-size: 1em;
+  padding: 0.3em 1.2em;
+  cursor: pointer;
+}
+
 
 .threejs-brain-loader {
   border: 16px solid #f3f3f3; /* Light grey */
