@@ -1169,7 +1169,8 @@ class ViewerApp extends ThrottledEventDispatcher {
   // Only use 0 or 1
   animate(){
 
-    if( this._disposed ){ return; }
+    // a disposed canvas has no scene or renderers left to draw with
+    if( this._disposed || this.canvas._disposed ){ return; }
     this.canvas.rendering = true;
 
     requestAnimationFrame( this.animate.bind(this) );

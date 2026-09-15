@@ -1,38 +1,4 @@
-import { WebGPURenderer, NodeMaterial } from 'three/webgpu';
-import { vec4 } from 'three/tsl';
-
-/**
- * Stands in for materials that are not ported to TSL yet (`ShaderMaterial`,
- * `RawShaderMaterial` and their subclasses). three.js cannot convert those, and
- * would otherwise draw them with an opaque default material; this one puts
- * every vertex outside the clip volume instead, so the object is simply hidden.
- * (Discarding every fragment instead lets the WebGL2 compiler strip the color
- * output, which makes each draw an `INVALID_OPERATION`.)
- *
- * Migration scaffolding: remove once every custom material is a node material.
- */
-class UnportedMaterial extends NodeMaterial {
-  constructor() {
-    super();
-    this.vertexNode = vec4( 2, 2, 2, 1 );
-  }
-}
-
-const reportedUnportedTypes = new Set();
-
-function installUnportedMaterialFallback( renderer ) {
-  const library = renderer.library;
-  const fromMaterial = library.fromMaterial.bind( library );
-  library.fromMaterial = ( material ) => {
-    const nodeMaterial = fromMaterial( material );
-    if( nodeMaterial !== null ) { return nodeMaterial; }
-    if( !reportedUnportedTypes.has( material.type ) ) {
-      reportedUnportedTypes.add( material.type );
-      console.warn( `[threeBrain] "${ material.type }" is not ported to WebGPU yet; objects using it are hidden.` );
-    }
-    return new UnportedMaterial();
-  };
-}
+import { WebGPURenderer } from 'three/webgpu';
 
 /**
  * Creates a renderer for one of the viewer canvases. `WebGPURenderer` switches
@@ -49,7 +15,6 @@ function createRenderer({ canvas, forceWebGL = false } = {}) {
     alpha       : true,
     forceWebGL  : forceWebGL,
   });
-  installUnportedMaterialFallback( renderer );
   return renderer;
 }
 
