@@ -1,12 +1,13 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
-         MeshPhysicalMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
-         Data3DTexture, Color, Vector4 } from 'three';
+         BufferGeometry, Mesh, Data3DTexture, Color, Vector4 } from 'three';
 import { CONSTANTS } from '../core/constants.js';
 import { to_array, min2, sub2 } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
-import { compile_free_material } from '../shaders/SurfaceShader.js';
+import {
+  SurfacePhysicalMaterial, SurfaceLambertMaterial, createSurfaceMaterialOptions
+} from '../shaders/SurfaceMaterial.js';
 import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
 import { buildBoundsTreeAsync } from '../Math/meshBVH.js';
@@ -22,18 +23,24 @@ const BASE_MORPH_KEY = "__base__";
 // pial, white, smoothwm, inflated, sphere.reg
 const BOUNDS_TREE_CACHE_LIMIT = 6;
 
-const MATERIAL_PARAMS_BASIC = {
+const MATERIAL_PARAMS_COMMON = {
   'transparent' : true,
   'side': DoubleSide,
   'wireframeLinewidth' : 0.1,
   'vertexColors' : true,
   'forceSinglePass' : false,
-  'reflectivity' : 0,
   'flatShading' : false
 };
 
+const MATERIAL_PARAMS_BASIC = {
+  ...MATERIAL_PARAMS_COMMON,
+  'reflectivity' : 0
+};
+
+// no `reflectivity`: the physical node material does not have it, and `ior`
+// sets the same thing
 const MATERIAL_PARAMS_MORE = {
-  ...MATERIAL_PARAMS_BASIC,
+  ...MATERIAL_PARAMS_COMMON,
   'roughness' : 0.3,
   'ior' : 1.6,
   'clearcoat' : 0,
@@ -800,7 +807,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     for( let ii = 0 ; ii < this.__nvertices; ii++ ) {
       const ii3 = ii * 3;
-      // masked-out vertices display the underlay color (see SurfaceShader.js)
+      // masked-out vertices display the underlay color (see SurfaceMaterial.js)
       const overlaySource = ( maskActive && maskArray[ ii ] < 128 ) ? underlayArray : overlayArray;
 
       // gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
@@ -1602,48 +1609,21 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._volume_texture.unpackAlignment = 1;
 
 
-    this._material_options = {
-      // 'mapping_type'      : { value : CONSTANTS.DEFAULT_COLOR },
-      'volume_map'        : { value : this._volume_texture },
-      'volumeMatrixInverse':{ value : new Matrix4() },
-      'scale_inv'         : {
-        value : new Vector3(
-          1 / this._volume_margin_size, 1 / this._volume_margin_size,
-          1 / this._volume_margin_size
-        )
-      },
-      'shift'             : { value : new Vector3() },
-      // 'sampler_bias'      : { value : 3.0 },
-      // 'sampler_step'      : { value : 1.5 },
-      'elec_cols'         : { value : null },
-      'elec_locs'         : { value : null },
-      'elec_size'         : { value : 0 },
-      'elec_active_size'  : { value : 0 },
-      'elec_radius'       : { value: 10.0 },
-      'elec_decay'        : { value : 0.15 },
-      'blend_factor'      : { value : 0.4 },
-
-      // for mesh clipping (rename?)
-      'mask_threshold'    : { value : 0.0 },
-
-      'clippingNormal'    : { value : new Vector3() },
-      'clippingThrough'   : { value : this._canvas.crosshairGroup.position },
-      'clippingMap'       : { value : null },
-      'clippingMapMatrixWorldInverse' : { value : new Matrix4() },
-      'brightness'        : { value : 0.0 },
-      'contrast'          : { value : 0.0 },
-
-    };
+    // shader uniforms; each has a `.value`
+    this._material_options = createSurfaceMaterialOptions({
+      volumeTexture : this._volume_texture,
+      volumeScaleInverse : new Vector3(
+        1 / this._volume_margin_size, 1 / this._volume_margin_size,
+        1 / this._volume_margin_size
+      ),
+      clippingThrough : this._canvas.crosshairGroup.position,
+    });
 
     this._materials = {
-      'MeshPhysicalMaterial' : compile_free_material(
-        new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ),
-        this._material_options
-      ),
-      'MeshLambertMaterial': compile_free_material(
-        new MeshLambertMaterial( MATERIAL_PARAMS_BASIC ),
-        this._material_options
-      )
+      'MeshPhysicalMaterial' : new SurfacePhysicalMaterial(
+        MATERIAL_PARAMS_MORE, this._material_options ),
+      'MeshLambertMaterial' : new SurfaceLambertMaterial(
+        MATERIAL_PARAMS_BASIC, this._material_options )
     };
     this._materials.MeshPhysicalMaterial.color = this._materialColor;
     this._materials.MeshLambertMaterial.color = this._materialColor;

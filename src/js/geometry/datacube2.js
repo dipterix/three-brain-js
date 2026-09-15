@@ -945,7 +945,6 @@ class DataCube2 extends AbstractThreeBrainObject {
   }
 
   async updatePalette( selectedDataValues ){
-    if( !this._canvas.has_webgl2 ){ return; }
     if( this._holdePalette ) {
       return;
     }
@@ -983,10 +982,6 @@ class DataCube2 extends AbstractThreeBrainObject {
 
 
     super( g, canvas );
-
-    if( !canvas.has_webgl2 ){
-      throw 'DataCube2, i.e. voxel cube must need WebGL2 support';
-    }
 
     // this._params is g
     // this.name = this._params.name;
