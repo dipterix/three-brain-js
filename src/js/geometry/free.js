@@ -735,6 +735,16 @@ class FreeMesh extends AbstractThreeBrainObject {
         this.object.morphTargetInfluences[ morphTargetIndex ] = 0;
         morphAttributes.position[ morphTargetIndex ] = new BufferAttribute( morphArrayDstPosition, 3);
         morphAttributes.normal[ morphTargetIndex ] = new BufferAttribute( morphArrayDstNormal, 3);
+
+        // A shader only reads morph targets when the geometry had them while it
+        // was built, and three compares the render object's cache key (which
+        // lists the morph attributes) only after the material's version
+        // changes. Without this, a new morph target animates its influences and
+        // nothing moves. `WebGLRenderer` rebuilt by itself, because its program
+        // cache key counted the morph targets.
+        for( const materialType in this._materials ) {
+          this._materials[ materialType ].needsUpdate = true;
+        }
       }
 
       targetInfluence = isNaN(targetInfluence) ? 1 : targetInfluence;

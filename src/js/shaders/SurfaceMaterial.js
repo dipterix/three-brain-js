@@ -186,7 +186,12 @@ const onCameraSide = ( planeToCameraDistance, vertexToCameraDistance ) =>
 // Vertices between the camera and the clipping plane are moved onto the plane;
 // the fragment stage paints the slice image there
 function createClippingNodes( options ) {
-  const worldPosition = modelWorldMatrix.mul( vec4( positionGeometry, 1.0 ) ).xyz;
+  // `positionLocal`, not `positionGeometry`: this node replaces the whole
+  // vertex stage (`NodeMaterial.setup()` takes `this.vertexNode` over the
+  // position it computed), and only `positionLocal` carries the morph target
+  // that `FreeMesh.useMorphTarget()` sets up. They are the same vertex while
+  // nothing morphs.
+  const worldPosition = modelWorldMatrix.mul( vec4( positionLocal, 1.0 ) ).xyz;
   const planeToCameraDistance = dot( options.clippingThrough.sub( cameraPosition ), options.clippingNormal );
   const vertexToCameraDistance = dot( worldPosition.sub( cameraPosition ), options.clippingNormal );
   const planePosition = dot( options.clippingThrough.sub( worldPosition ), options.clippingNormal )
