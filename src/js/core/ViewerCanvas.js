@@ -2408,16 +2408,16 @@ class ViewerCanvas extends ThrottledEventDispatcher {
         this.domContext.fillStyle = "#e2e2e2";
         this.domContext.font = `${ sideCanvasTitleSize }px ${ this._fontType }`;
 
-        this.context.fillText(
-          this.canvas.sideCanvasList.axial._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.axial._headerText,
           sideCanvasTitleSize, 0 + sideCanvasTitleSize
         );
-        this.context.fillText(
-          this.canvas.sideCanvasList.sagittal._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.sagittal._headerText,
           sideCanvasTitleSize, sideHeight + sideCanvasTitleSize
         );
-        this.context.fillText(
-          this.canvas.sideCanvasList.coronal._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.coronal._headerText,
           sideCanvasTitleSize, sideHeight * 2 + sideCanvasTitleSize
         );
       }

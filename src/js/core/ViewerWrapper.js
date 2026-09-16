@@ -116,7 +116,7 @@ class ViewerWrapper {
     this.$modal.classList.add("threejs-brain-modal");
     this.$modal.innerText = "Click me to load 3D viewer.";
     this.$container.innerHTML = "";
-    this.$container.appendChild( modal );
+    this.$container.appendChild( this.$modal );
     this.$container.addEventListener( "click", this.activateViewer );
   }
 
@@ -129,8 +129,11 @@ class ViewerWrapper {
       this.$modal = undefined;
     }
 
-    // check if viewer has been initialized
-    if( this.initialized ) {
+    // Reuse the viewer whenever there is one: this wrapper may have been built
+    // around a fresh element that Shiny put in place of the old one (same id,
+    // so `getCachedViewer()` finds it), and rebuilding would strand the cached
+    // viewer's renderers, each holding a GPU device or WebGL2 context.
+    if( this.initialized || ( this.viewer && this.viewer.isViewerApp ) ) {
       this.useCachedViewer( true );
     } else {
       this.createViewer( true );
@@ -161,7 +164,7 @@ class ViewerWrapper {
     });
 
     this.cacheViewer();
-    this.initalized = true;
+    this.initialized = true;
 
     if( insertViewer ) {
       // clear the container element
@@ -178,27 +181,28 @@ class ViewerWrapper {
   }
 
   useCachedViewer( insertViewer = false ) {
-    if( !this.initialized ) {
-      return this.createViewer();
-    }
-    if( !this.viewer ) {
+    if( !this.viewer || !this.viewer.isViewerApp ) {
       this.viewer = this.getCachedViewer();
       this.cacheViewer();
     }
-    if( !this.viewer ) { throw 'THREEBRAIN: Trying to use a cached/existing viewer, but the viewer is nowhere to be found!'; }
+    if( !this.viewer || !this.viewer.isViewerApp ) {
+      return this.createViewer( insertViewer );
+    }
     if( this.debug ) {
       console.debug('[ViewerWrapper.useCachedViewer]: Re-using an existing/cached viewer.');
     }
 
 
-    this.$viewerWrapper = this.viewer.el;
+    // the viewer's root element, which `createViewer()` made and the removed
+    // container held until now
+    this.$viewerWrapper = this.viewer.$wrapper;
     if( this.viewerMode ) {
       this.$viewerWrapper.style.height = '100vh';
       this.$viewerWrapper.style.width = '100vw';
     }
 
     // make sure (can be overkill)
-    this.initalized = true;
+    this.initialized = true;
     if( insertViewer ) {
       // clear the container element
       this.$container.innerHTML = '';
@@ -228,7 +232,7 @@ class ViewerWrapper {
     };
     this.debug = data.settings.debug || CONSTANTS.DEBUG;
 
-    if( !this.initalized ) {
+    if( !this.initialized ) {
       if( data.force_render ) {
         this.activateViewer();
       }
