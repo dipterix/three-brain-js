@@ -87,7 +87,7 @@ class StreamlineHandler extends FileDataHandler {
 
       try {
         inst.removeEventListener( CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart, disposeItem );
-        inst.dispose();
+        inst._dispose();
         // delete app.canvas.surfaces.get( inst.subject_code )[ inst.name ];
       } catch (e) {
         console.warn(e);

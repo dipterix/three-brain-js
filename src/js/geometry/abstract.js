@@ -38,11 +38,12 @@ class AbstractThreeBrainObject extends EventDispatcher {
       const currentInstance = canvas.threebrain_instances.get( this.name );
       if( currentInstance !== this ) {
         try {
-          currentInstance.dispose();
+          currentInstance._dispose();
         } catch (e) {}
       }
     }
     canvas.threebrain_instances.set( this.name, this );
+    this._disposed = false;
     this.clickable = g.clickable === true;
     this.world_position = new Vector3();
 
@@ -57,6 +58,10 @@ class AbstractThreeBrainObject extends EventDispatcher {
     // cannot be skipped.
     this._canvas.$el.addEventListener(
       "viewerApp.canvas.prepareFocusMode", this._onPrepareFocusMode );
+
+    // The canvas drops its scene by announcing it; every instance frees itself.
+    this._canvas.$el.addEventListener(
+      "viewerApp.canvas.clearScene", this._dispose );
   }
 
   setLayers( addition = [], object = null ){
@@ -153,21 +158,60 @@ class AbstractThreeBrainObject extends EventDispatcher {
     });
   }
 
+  /**
+   * Free what this object allocated -- its materials, geometries and textures, and
+   * nothing else. Freeing an object this one merely borrows is how a teardown breaks
+   * the rest of the viewer: three.js reuses one geometry for every `Sprite`, and one
+   * line plus one cone for every `ArrowHelper`, and `dispose()` is not reference
+   * counted, so releasing one releases it for every object still drawing with it.
+   *
+   * Each subclass implements its own and calls `super.dispose()` first, so the chain
+   * still works if a class is ever derived from another geometry rather than from here.
+   *
+   * Teardown that every object needs does **not** belong here -- it goes in `_dispose`,
+   * which runs before this and cannot be skipped. By the time this is called the
+   * bookkeeping is already done, and it runs once however often disposal is requested.
+   */
   dispose() {
+    // Reaching here with `_disposed` still false means someone called the hook instead
+    // of `_dispose()`, so this object keeps its clickable entry, its registry entries
+    // and its two `$el` listeners while its GPU resources go away. That leaks quietly,
+    // so say so. `_dispose` sets the flag before it calls this, so the proper path is
+    // silent.
+    // `this.type`, not `this.constructor.name`: the bundle is minified, so the class
+    // name reaches the console as a single letter
+    if( !this._disposed ) {
+      console.warn(
+        `[${ this.type }] ${ this.name }: dispose() is the subclass hook. ` +
+        `Call _dispose() to release an instance.` );
+    }
+  }
+
+  /**
+   * Hidden from child classes
+   */
+  _dispose = () => {
+    if( this._disposed ) { return; }
+    this._disposed = true;
+
     this.dispatchEvent({
       type: CONSTANTS.EVENTS.onThreeBrainObjectDisposeStart,
       instanceName: this.name
     });
     this._canvas.removeClickable( this.name );
     this._canvas.threebrain_instances.delete( this.name );
-    try {
-      this._canvas.$el.removeEventListener(
-        "viewerApp.canvas.prepareFocusMode", this._onPrepareFocusMode );
-    } catch (e) {}
+    // `registerToMap` unregisters from the typed registries on the event above; `mesh`
+    // is written by `finish_init` and has no such listener
+    this._canvas.mesh.delete( this.name );
     // focus mode holds a strong reference to the instance and its Object3D
-    if( typeof this._canvas.clearFocusModeTarget === "function" ) {
-      this._canvas.clearFocusModeTarget( this );
-    }
+    this._canvas.clearFocusModeTarget( this );
+
+    this.dispose();
+    
+    this._canvas.$el.removeEventListener(
+      "viewerApp.canvas.prepareFocusMode", this._onPrepareFocusMode );
+    this._canvas.$el.removeEventListener(
+      "viewerApp.canvas.clearScene", this._dispose );
   }
 
   get_track_data( track_name, reset_material ){
@@ -206,6 +250,24 @@ class AbstractThreeBrainObject extends EventDispatcher {
     return groupData;
   }
 
+  /**
+   * Puts this object into the canvas registries named in `names` -- `electrodes`,
+   * `surfaces`, `atlases`, `tracts`, `slices` -- under `canvas[ name ]`, keyed by
+   * subject and then by this object's `name`.
+   *
+   * This owns **both** halves of that entry's lifetime. It writes the entry here, and
+   * the listener below removes it on `onThreeBrainObjectDisposeStart`, which `_dispose`
+   * fires as its first act, before the subclass's `dispose()` hook runs. That covers
+   * every way an object can be released -- the canvas-wide `clearScene` broadcast, and
+   * a direct `inst._dispose()` from `ViewerCanvas.clearElectrodes`, the `formats/*`
+   * drag-and-drop handlers, `controls/localization.js` or `drivers/RShinyDriver.js`.
+   *
+   * So a subclass `dispose()` must **not** delete its own registry entry. Several used
+   * to try, with `if( list[ this.name ] === this ) delete list[ this.name ]`, which
+   * could never fire: the value stored here is `this.object`, not `this`. In
+   * `streamline.js` that dead branch also threw once `clear_all()` had emptied the map,
+   * taking the rest of the method with it.
+   */
   registerToMap( names ){
     const mapNames = asArray(names);
     const subjectCode = this.subject_code;
@@ -259,7 +321,6 @@ class AbstractThreeBrainObject extends EventDispatcher {
 
       if( this.object.isObject3D ){
         this.object.userData.instance = this;
-        this.object.userData.dispose = () => { this.dispose(); };
         this.object.renderOrder = CONSTANTS.RENDER_ORDER[ this.type ] || 0;
       }
 

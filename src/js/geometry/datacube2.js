@@ -1173,7 +1173,6 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     mesh.position.fromArray( g.position );
 
-    mesh.userData.dispose = () => { this.dispose(); };
 
     this._mesh = mesh;
     this.object = mesh;
@@ -1220,10 +1219,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
         // this._map_data = undefined;
         // this.voxelData = undefined;
-        const dataCube2List = this._canvas.atlases.get( this.subject_code )
-        if( dataCube2List[ this.name ] === this ) {
-          delete dataCube2List[ this.name ];
-        }
+        // `registerToMap( ['atlases'] )` owns the `canvas.atlases` entry and removes it
+        // on the dispose event, which `_dispose` fires before this hook -- on every
+        // path, including a direct `inst._dispose()`. Do not delete it here.
       }
     } catch (e) {}
 

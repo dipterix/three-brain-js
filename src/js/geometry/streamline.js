@@ -304,6 +304,7 @@ class Streamline extends AbstractThreeBrainObject {
     material.alphaToCoverage = false;
     material.needsUpdate = true;
     this.object = new Line2( geometry, material );
+    this.object.name = 'streamline_' + g.name;
     this.object.scale.set( 1, 1, 1 );
 
     // filter mode
@@ -338,10 +339,6 @@ class Streamline extends AbstractThreeBrainObject {
     super.dispose();
     if( this.isInvalid ) { return; }
     this.object.removeFromParent();
-    const trackList = this._canvas.tracts.get( this.subject_code )
-    if( trackList[ this.name ] === this ) {
-      delete trackList[ this.name ];
-    }
 
     try {
       this._canvas.$el.removeEventListener( "viewerApp.canvas.setStreamlineHighlight", this._setHighlightMode );

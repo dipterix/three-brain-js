@@ -294,11 +294,13 @@ class Electrode extends AbstractThreeBrainObject {
   }
 
   dispose(){
+    super.dispose();
+
     try {
       this._textSprite.removeFromParent();
       this._textSprite.material.map.dispose();
       this._textSprite.material.dispose();
-      this._textSprite.geometry.dispose();
+      // not the geometry: three shares one across every Sprite on the page
     } catch (e) {}
 
     try {
@@ -429,7 +431,6 @@ class Electrode extends AbstractThreeBrainObject {
     this._textSprite.visible = false;
     this.object.add( this._textSprite );
 
-    this.object.userData.dispose = () => { this.dispose(); };
   }
 
   // After everything else is set (including controllers)
@@ -1013,7 +1014,6 @@ class Sphere extends AbstractThreeBrainObject {
     // this._mesh.userData.get_track_data = ( track_name, reset_material ) => {
     //   return( this.get_track_data( track_name, reset_material ) );
     // };
-    this._mesh.userData.dispose = () => { this.dispose(); };
   }
 
   get hasAnimationTracks () {
@@ -1050,11 +1050,13 @@ class Sphere extends AbstractThreeBrainObject {
   }
 
   dispose(){
+    super.dispose();
+
     try {
       this._text_sprite.removeFromParent();
       this._text_sprite.material.map.dispose();
       this._text_sprite.material.dispose();
-      this._text_sprite.geometry.dispose();
+      // not the geometry: three shares one across every Sprite on the page
     } catch (e) {}
 
     try {

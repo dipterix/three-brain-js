@@ -679,7 +679,7 @@ class RShinyDriver {
     ids.forEach( (decorId) => {
       const inst = this.canvas.textDecorators.get( decorId );
       if ( inst ) {
-        inst.dispose();
+        inst._dispose();
       }
     });
     this.canvas.needsUpdate = true;

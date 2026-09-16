@@ -80,6 +80,11 @@ const _newObjectFocusedEvent = {
   immediate: false
 };
 
+const _clearScene = {
+  type : "viewerApp.canvas.clearScene",
+  immediate: true
+}
+
 const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
 const BLACK_COLOR = new Color().set(0, 0, 0);
@@ -972,6 +977,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       if( idx > -1 ){
         this.clickableArray.splice(idx, 1);
       }
+      this.clickable.delete( name );
     }
   }
 
@@ -1266,56 +1272,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.__nerdStatsEnabled = true;
   }
 
-  /*---- Remove, dispose objects --------------------------------------------*/
-  remove_object( obj, resursive = true, dispose = true, depth = 100 ){
-    if( !obj && depth < 0 ){ return; }
-    if( resursive ){
-      if( Array.isArray( obj.children ) ){
-        for( let ii = obj.children.length - 1; ii >= 0; ii = Math.min(ii-1, obj.children.length) ){
-          if( ii < obj.children.length ){
-            this.remove_object( obj.children[ ii ], resursive, dispose, depth - 1 );
-          }
-        }
-      }
-    }
-    if( obj.parent ){
-      this.debugVerbose( 'removing object - ' + (obj.name || obj.type) );
-      obj.parent.remove( obj );
-    }
-
-    if( dispose ){
-      this.dispose_object( obj );
-    }
-  }
-  dispose_object( obj, quiet = false ){
-    if( !obj || typeof obj !== 'object' ) { return; }
-    const obj_name = obj.name || obj.type || 'unknown';
-    if( !quiet ){
-      this.debugVerbose('Disposing - ' + obj_name);
-    }
-    if( obj.userData && typeof obj.userData.dispose === 'function' ){
-      this._try_dispose( obj.userData, obj.name, quiet );
-    }else{
-      // Not implemented, try to guess dispose methods
-      this._try_dispose( obj.material, obj_name + '-material', quiet );
-      this._try_dispose( obj.geometry, obj_name + '-geometry', quiet );
-      this._try_dispose( obj, obj_name, quiet );
-    }
-  }
-
-  _try_dispose( obj, obj_name = undefined, quiet = false ){
-    if( !obj || typeof obj !== 'object' ) { return; }
-    if( typeof obj.dispose === 'function' ){
-      try {
-        obj.dispose();
-      } catch(e) {
-        if( !quiet ){
-          console.warn( 'Failed to dispose ' + (obj_name || obj.name || 'unknown') );
-        }
-      }
-    }
-  }
-
   /**
    * Covers the main view with a message asking to reload, once the renderers'
    * GPU device is lost (see the constructor). Shown once, for all renderers.
@@ -1363,7 +1319,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._disposed = true;
     this.activated = false;
     this.clearFocusModeTarget();
-    this.focusModeMarker.dispose();
     this.animParameters.dispose();
 
     // Remove listeners
@@ -1377,11 +1332,31 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.trackball.enabled = false;
     this.trackball.dispose();
 
-    // Remove the rest objects in the scene
-    this.remove_object( this.scene );
-
-    // Remove customized objects
+    // Drop the loaded data: every instance hears this and frees itself
     this.clear_all();
+
+    // ... leaving only what this canvas built, which nothing else will free.
+    // `crossArrowHelper`'s geometries are three's, shared with every other
+    // `ArrowHelper` on the page, so only its materials are ours to dispose.
+    // Guarded as a block: the renderers below hold a GPU device each, and on a page
+    // that caches several viewers those must be released even if this part fails.
+    try {
+      this.crosshairGroup.children.forEach(( lineSegments ) => {
+        lineSegments.geometry.dispose();
+        lineSegments.material.dispose();
+      });
+      this.crossArrowHelper.children.forEach(( child ) => { child.material.dispose(); });
+      this.crosshairCompass.dispose();
+      this.compass.dispose();
+      this.rulerHelper.dispose();
+      this.focusModeMarker.dispose();
+      this.highlightBox.dispose();
+      this.bounding_box.dispose();
+      this.highlightTarget.geometry.dispose();
+      this.highlightTarget.material.dispose();
+    } catch (e) {
+      console.warn( "Failed to dispose the viewer's built-in objects", e );
+    }
 
     // dispose scene
     // this.scene.dispose();
@@ -1400,16 +1375,42 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   }
 
-  // Function to clear all meshes, but still keep canvas valid
+  /**
+   * Drops the current subject's data, leaving the canvas usable for the next one.
+   *
+   * The scene is never walked. Announcing the teardown is all this has to do: every
+   * instance listens and frees what it built, because only the instance knows what
+   * that is. Walking the graph meant guessing from each `Object3D`'s `.geometry` and
+   * `.material`, which freed resources the viewer does not own -- three shares one
+   * geometry across every `Sprite` and every `ArrowHelper` -- and so destroyed the
+   * buffers behind the built-in components that have to survive: the ruler, the
+   * highlight box, the compass, the crosshair and the focus marker.
+   *
+   * What is left below belongs to the canvas: its registries and scene state.
+   */
   clear_all(){
+    // synchronous, so the instances are gone by the time this returns
+    this.dispatch( _clearScene );
+
     // Stop showing information of any selected objects
     this.object_chosen=undefined;
-    // the focus target pins an instance and its Object3D; drop it before the
-    // geometry it points at is torn down
     this.clearFocusModeTarget();
     this.clickable.clear();
     this.clickableArray.length = 0;
     this.title = undefined;
+
+    // Group nodes are plain `Object3D`s built by `_addBasicGroup`: nothing to free,
+    // they just have to leave the scene. `DataCube` re-parents its group onto
+    // `crosshairGroup`, so detach from whatever the current parent is.
+    this.group.forEach((g) => {
+      try {
+        g.removeFromParent();
+      } catch (e) {}
+    });
+
+    this.threebrain_instances.clear();
+    this.group.clear();
+    this.mesh.clear();
 
     this.subject_codes.length = 0;
     this.electrodes.clear();
@@ -1429,31 +1430,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.debugVerbose('TODO: Need to dispose animation clips');
     this.animation_clips.clear();
 
-    this.group.forEach((g) => {
-      // g.parent.remove( g );
-      this.remove_object( g );
-    });
-    this.mesh.forEach((m) => {
-      this.remove_object( m );
-      // m.parent.remove( m );
-      // this.dispose_object(m);
-      // this.scene.remove( m );
-    });
-    this.mesh.clear();
-    // Call dispose method
-    this.threebrain_instances.forEach((el) => {
-      el.dispose();
-    });
-    this.threebrain_instances.clear();
-    this.group.clear();
-
-    this.singletons.forEach( (el) => {
-      try {
-        el.dispose();
-      } catch (e) {}
-    });
-    this.singletons.clear();
-
     // set default values
     this._crosshairPosition.set( 0, 0, 0 );
 
@@ -1465,21 +1441,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     this.object_chosen=undefined;
 
+    // Scoped to one subject, so this cannot use the all-or-nothing scene event; the
+    // electrode still frees itself, and `_dispose` does the registry bookkeeping.
     const deleteElectrode = (obj) => {
       if(!obj) { return; }
       const inst = getThreeBrainInstance( obj );
       if(!inst) { return; }
-      this.clickable.delete( inst.name );
-      const idx = this.clickableArray.indexOf( inst.object );
-      if( idx >= 0 ) {
-        this.clickableArray.splice( idx, 1 );
-      }
-      this.mesh.delete( inst.name );
-      this.threebrain_instances.delete( inst.name );
-
-      this.remove_object( inst.object );
-      inst.dispose();
-
+      inst.object.removeFromParent();
+      inst._dispose();
     };
 
     const electrodeList = this.electrodes.get(subjectCode);

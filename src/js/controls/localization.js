@@ -3,6 +3,7 @@ import { vector3ToString } from '../utility/vector3ToString.js';
 import { getDataCube2 } from '../utility/getDataCube2.js';
 import { CONSTANTS } from '../core/constants.js';
 import { is_electrode } from '../geometry/electrode.js';
+import { getThreeBrainInstance } from '../geometry/abstract.js';
 import { intersect_volume, electrode_from_ct } from '../Math/raycast_volume.js';
 import { projectOntoMesh } from '../Math/projectOntoMesh.js';
 import { getAnatomicalLabelFromPosition } from '../Math/getAnatomicalLabelFromPosition.js';
@@ -379,7 +380,8 @@ class LocElectrode {
   }
 
   dispose() {
-    this.object.userData.dispose();
+    const instance = getThreeBrainInstance( this.object );
+    if( instance ) { instance._dispose(); }
     try {
       const collection = this._canvas.electrodes.get(this.subject_code);
       if( collection.hasOwnProperty(this._orig_name) ){
@@ -1216,7 +1218,7 @@ function register_controls_localization( ViewerControlCenter ){
     if( plist && typeof plist === "object" ) {
       for( let k in plist ) {
         const inst = plist[ k ];
-        inst.dispose();
+        inst._dispose();
       }
     }
     const electrodes = this.localizationData.electrodes;
@@ -1230,7 +1232,7 @@ function register_controls_localization( ViewerControlCenter ){
     const electrodePrototype = this.localizationData.electrodePrototype;
     this.localizationData.electrodePrototype = null;
     if( electrodePrototype && electrodePrototype.isThreeBrainObject ) {
-      electrodePrototype.dispose();
+      electrodePrototype._dispose();
     }
 
     if( fireEvents ) {

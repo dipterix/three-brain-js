@@ -293,10 +293,10 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
   }
 
   dispose() {
+    super.dispose();
     this._lineSegments.removeFromParent();
     this.geometry.dispose();
     this.material.dispose();
-    this.disposed = true;
   }
 }
 

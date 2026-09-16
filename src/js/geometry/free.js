@@ -1093,28 +1093,19 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.__initialized = true;
   }
 
-  disposeGPU() {
-    super.disposeGPU();
-    try {
-      this._volume_texture.dispose();
-    } catch (e) {}
-  }
-
   dispose(){
     super.dispose();
     this.disposeBoundsTrees();
+    // `registerToMap( ['surfaces'] )` owns the `canvas.surfaces` entry and removes it on
+    // the dispose event, which `_dispose` fires before this hook -- on every path,
+    // including a direct `inst._dispose()`. Do not delete it here.
     try {
       this.object.removeFromParent();
-      const surfaceList = this._canvas.surfaces.get( this.subject_code )
-      if( surfaceList[ this.name ] === this ) {
-        delete surfaceList[ this.name ];
-      }
     } catch (e) {}
 
     try {
       this.object.material.dispose();
       this.object.geometry.dispose();
-      this._volume_texture.dispose();
     } catch (e) {}
   }
 

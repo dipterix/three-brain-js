@@ -495,8 +495,8 @@ class RulerHelper extends Object3D {
     this.dashedLine.geometry.dispose();
     this.dashedLine.material.dispose();
 
-    this.coneSource.geometry.dispose();
-    this.coneTarget.geometry.dispose();
+    // not the cone geometries: they are module-level, shared with every other
+    // `RulerHelper`, so a second viewer on this page still draws with them
     this.coneMaterial.dispose();
 
   }

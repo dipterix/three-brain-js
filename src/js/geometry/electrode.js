@@ -350,7 +350,7 @@ class Electrode extends AbstractThreeBrainObject {
       this._textSprite.removeFromParent();
       this._textSprite.material.map.dispose();
       this._textSprite.material.dispose();
-      this._textSprite.geometry.dispose();
+      // not the geometry: three shares one across every Sprite on the page
       if( this._dataTexture ) {
         this._dataTexture.dispose();
       }
@@ -770,7 +770,6 @@ class Electrode extends AbstractThreeBrainObject {
       this.arrowHelper = null;
     }
 
-    this.object.userData.dispose = () => { this.dispose(); };
   }
 
   resetBuiltinTransforms() {
