@@ -1,4 +1,51 @@
-import { WebGPURenderer, CanvasTarget } from 'three/webgpu';
+import { WebGPURenderer, CanvasTarget, Lighting } from 'three/webgpu';
+
+/**
+ * Lighting with a lights node per camera instead of three's one per scene.
+ *
+ * The views are lit differently on purpose: all cameras see the ambient light,
+ * but the main camera carries its own directional light (so rotating it does
+ * not relight the side slices) and each side view has one of its own (to light
+ * the slice planes). three keys a render object by the lights node, not the
+ * camera, and hashes the light ids into its cache key. With one lights node per
+ * scene, the four views on a shared renderer all used the same render object
+ * and changed its key at every switch; three then disposed it, which evicted its
+ * built shader and released its pipeline, and rebuilt both for the next view,
+ * several times a frame. It also made per-pass pipeline state, like the slices'
+ * `depthWrite`, recreate pipelines. With a node per camera, each view keeps
+ * render objects of its own; the compiled programs are still shared because
+ * three caches them by shader source.
+ *
+ * `camera` is set by `RendererInterface.render()` for the duration of a render.
+ * Renders made outside it (none in the viewer) get three's lights node per scene.
+ */
+class ViewLighting extends Lighting {
+
+  constructor() {
+    super();
+    this.camera = null;
+    // scene -> camera -> lights node
+    this._viewNodes = new WeakMap();
+  }
+
+  getNode( scene ) {
+    if( this.camera === null || ( scene.isScene !== true && scene.isGroup !== true ) ) {
+      return super.getNode( scene );
+    }
+    let nodes = this._viewNodes.get( scene );
+    if( nodes === undefined ) {
+      nodes = new WeakMap();
+      this._viewNodes.set( scene, nodes );
+    }
+    let node = nodes.get( this.camera );
+    if( node === undefined ) {
+      node = this.createNode();
+      nodes.set( this.camera, node );
+    }
+    return node;
+  }
+
+}
 
 /**
  * Creates a renderer for one of the viewer canvases. `WebGPURenderer` switches
@@ -15,6 +62,8 @@ function createRenderer({ canvas, forceWebGL = false } = {}) {
     alpha       : true,
     forceWebGL  : forceWebGL,
   });
+  // before `init()`, which hands the lighting to the render lists
+  renderer.lighting = new ViewLighting();
   return renderer;
 }
 
@@ -116,9 +165,16 @@ class RendererInterface {
     this.renderer.clear();
   }
 
+  // the lights node follows the camera (see `ViewLighting`)
   render( scene, camera ) {
     this.activate();
-    this.renderer.render( scene, camera );
+    const lighting = this.renderer.lighting;
+    lighting.camera = camera;
+    try {
+      this.renderer.render( scene, camera );
+    } finally {
+      lighting.camera = null;
+    }
   }
 
   dispose() {}
