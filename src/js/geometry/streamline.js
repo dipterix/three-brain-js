@@ -15,6 +15,7 @@ import { LineMaterial }from '../shaders/LineMaterial.js';
 import { mulberry32 } from '../utility/mulberry32.js'
 import { formatDataValue } from '../utility/formatDataValue.js';
 import { computeStreamlineToTargets, makeSinglePointTree } from '../Math/computeStreamlineToTargets.js';
+import { simplifyStreamlines } from '../Math/simplifyStreamlines.js';
 import { startWorker, stopWorker } from '../core/Workers.js';
 import { CONSTANTS } from '../core/constants.js';
 
@@ -23,6 +24,13 @@ const tmpVec3 = new Vector3();
 const _start = new Vector3();
 const _end = new Vector3();
 const tmpMat4 = new Matrix4();
+
+// `Line Simplify Factor` as a tolerance: 0 (off) up to the controller's limit
+function normalizeSimplifyTolerance( tolerance ) {
+  if( typeof tolerance !== "number" || !( tolerance > 0 ) ) { return 0; }
+  const maxTolerance = CONSTANTS.GEOMETRY["streamline-simplify-tolerance-max"];
+  return tolerance > maxTolerance ? maxTolerance : tolerance;
+}
 
 class StreamlineGeometry extends InstancedBufferGeometry {
 
@@ -144,6 +152,12 @@ class StreamlineGeometry extends InstancedBufferGeometry {
 
     this.setPositions( pointPositions );
 
+    // The points that distances to targets are measured on, indexed by tract ID.
+    // These are the drawn points, unless the owner hands in the full-resolution
+    // ones they were simplified from.
+    this.sourcePoints = pointPositions;
+    this.sourceOffset = this.pointOffset;
+
     this.instanceCount = this.nSegments;
     this.computeBoundingBox();
     this.computeBoundingSphere();
@@ -217,8 +231,6 @@ class StreamlineGeometry extends InstancedBufferGeometry {
           instanceWeight = instanceWeightAttr.array,
           distanceToTargetsAttr = this.getAttribute('distanceToTargets'),
           distanceToTargets = distanceToTargetsAttr.array,
-          pointOffset = this.pointOffset,
-          pointPositions = this.pointPositions,
           tractRange = this.tractRange;
 
     if( reset ) {
@@ -239,8 +251,8 @@ class StreamlineGeometry extends InstancedBufferGeometry {
       targets,                  // Float32Array or kdtree
       distanceToTargets,        // Float32Array, output: distance per segment
       instanceWeight,           // Float32Array, one per segment
-      pointOffset,              // Int32Array, length nTracts+1
-      pointPositions,           // Float32Array, length ~ 3*(total segments+1)
+      this.sourceOffset,        // Uint32Array, length nTracts+1
+      this.sourcePoints,        // Float32Array, full-resolution xyz
       tractRange,               // Uint32Array, nTracts * 3
       maxInstanceCount,         // Maximum number of instances
       matrixWorld
@@ -284,13 +296,16 @@ class Streamline extends AbstractThreeBrainObject {
       return;
     }
 
-    const geometry = new StreamlineGeometry( fiber.points, fiber.pointOffset );
-    // geometry.workerScript = this._canvas.workerScript;
-    geometry.setWeights( fiber.lengthPerStreamline );
+    // Held by reference (it is the cached data): the geometry is rebuilt from
+    // it whenever `Line Simplify Factor` changes.
+    this._fiber = fiber;
     this.lengthPerStreamline = fiber.lengthPerStreamline;
     this._retentionRatio = 1;
     this._streamlineLengthMin = 0;
     this._streamlineLengthMax = Infinity;
+    this._simplifyTolerance = normalizeSimplifyTolerance( canvas.get_state(
+      "streamline_simplify_tolerance", CONSTANTS.GEOMETRY["streamline-simplify-tolerance"] ) );
+    const geometry = this._buildGeometry( this._simplifyTolerance );
 
     const material = new StreamlineMaterial( {
       color: 0xff0000,
@@ -315,6 +330,7 @@ class Streamline extends AbstractThreeBrainObject {
       // should be the model space
       center: new Vector3(),
     };
+    this._canvas.$el.addEventListener( "viewerApp.canvas.setStreamlineSimplify", this._setSimplifyTolerance );
     this._canvas.$el.addEventListener( "viewerApp.canvas.setStreamlineHighlight", this._setHighlightMode );
     this._canvas.$el.addEventListener( "viewerApp.canvas.setSliceCrosshair", this._setCrosshairHandler );
     this._canvas.$el.addEventListener( "viewerApp.canvas.newObjectFocused", this._setFocusedObjectHandler );
@@ -341,6 +357,7 @@ class Streamline extends AbstractThreeBrainObject {
     this.object.removeFromParent();
 
     try {
+      this._canvas.$el.removeEventListener( "viewerApp.canvas.setStreamlineSimplify", this._setSimplifyTolerance );
       this._canvas.$el.removeEventListener( "viewerApp.canvas.setStreamlineHighlight", this._setHighlightMode );
       this._canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._setCrosshairHandler );
       this._canvas.$el.removeEventListener( "viewerApp.canvas.newObjectFocused", this._setFocusedObjectHandler );
@@ -350,6 +367,70 @@ class Streamline extends AbstractThreeBrainObject {
       this.object.material.dispose();
       this.object.geometry.dispose();
     } catch (e) {}
+    this._fiber = null;
+  }
+
+  /**
+   * A geometry drawing `this._fiber` simplified to `tolerance` (mm; 0 draws
+   * every point). Lengths and distances to targets still use the full points.
+   */
+  _buildGeometry( tolerance ) {
+    const fiber = this._fiber;
+    const simplified = simplifyStreamlines( fiber.points, fiber.pointOffset, tolerance );
+    const geometry = new StreamlineGeometry( simplified.points, simplified.pointOffset );
+    geometry.setWeights( fiber.lengthPerStreamline );
+    geometry.sourcePoints = fiber.points;
+    geometry.sourceOffset = fiber.pointOffset;
+    return geometry;
+  }
+
+  /**
+   * `ViewerCanvas.setStreamlineSimplify()`, throttled, so a slider drag rebuilds
+   * at most once every `dispatch` window, with the value it ended on.
+   */
+  _setSimplifyTolerance = ( event ) => {
+    if( !event.detail ) { return; }
+    const tolerance = normalizeSimplifyTolerance( event.detail.tolerance );
+    // nothing to redraw while nobody can see it; `set_visibility()` picks it up
+    if( !this._visible ) {
+      this._pendingSimplifyTolerance = tolerance;
+      return;
+    }
+    this.setSimplifyTolerance( tolerance );
+  }
+
+  /**
+   * A bundle that was hidden while `Line Simplify Factor` moved rebuilds here,
+   * because being shown is when its geometry is needed again.
+   */
+  set_visibility( visible ) {
+    super.set_visibility( visible );
+    if( !visible || this._pendingSimplifyTolerance === undefined ) { return; }
+    const tolerance = this._pendingSimplifyTolerance;
+    this._pendingSimplifyTolerance = undefined;
+    this.setSimplifyTolerance( tolerance );
+  }
+
+  /**
+   * Redraw the streamlines simplified to `tolerance` (mm; 0 draws every point).
+   * The geometry is replaced, so the length filter and the highlight distances
+   * are applied to the new one.
+   */
+  setSimplifyTolerance( tolerance ) {
+    if( this.isInvalid ) { return; }
+    tolerance = normalizeSimplifyTolerance( tolerance );
+    if( tolerance === this._simplifyTolerance ) { return; }
+    const fiber = this._fiber;
+    if( !fiber || !fiber.points || !fiber.pointOffset ) { return; }
+
+    const oldGeometry = this.object.geometry;
+    this.object.geometry = this._buildGeometry( tolerance );
+    this._simplifyTolerance = tolerance;
+    // frees the old buffers on the GPU as well
+    oldGeometry.dispose();
+
+    this.filterByLength({ forceHighlightUpdate : true });
+    this._canvas.needsUpdate = true;
   }
 
   setHighlightMode({ mode, distanceToTargetsThreshold, fadedLinewidth, forceUpdate = false } = {}) {
@@ -566,7 +647,7 @@ class Streamline extends AbstractThreeBrainObject {
     }
   }
 
-  filterByLength({ min, max, retentionRatio } = {}) {
+  filterByLength({ min, max, retentionRatio, forceHighlightUpdate = false } = {}) {
     if ( typeof retentionRatio !== "number" ) {
       retentionRatio = this._retentionRatio;
     } else {
@@ -616,9 +697,12 @@ class Streamline extends AbstractThreeBrainObject {
       }
     }
     this.object.geometry.setWeights( streamlineWeights );
-    this.object.geometry.instanceCount = instanceCount;
+    // `len` counts a tract's points: its segments, plus the connector to the next
+    // tract. The last tract has no connector, so a scan that reaches it counts one
+    // instance past the end of the buffers, which WebGPU rejects, dropping the frame
+    this.object.geometry.instanceCount = Math.min( instanceCount, this.object.geometry.nSegments );
 
-    this.setHighlightMode();
+    this.setHighlightMode({ forceUpdate : forceHighlightUpdate });
 
   }
 

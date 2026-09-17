@@ -262,6 +262,10 @@ CONSTANTS.GEOMETRY = {
   "electrode-outline-threhsold" : 0.7,
   "streamline-retention-count": 200,
   "streamline-linewidth-factor": 0.5,
+  // `Line Simplify Factor`: how far (mm) a drawn streamline may stray from its
+  // points, and the controller's upper limit; 0 draws every point
+  "streamline-simplify-tolerance": 0.05,
+  "streamline-simplify-tolerance-max": 0.2,
   // On-screen radius of the focus-mode marker at `mainCamera.zoom === 1`; the
   // marker divides by the live zoom each frame to stay this size.
   "focus-marker-size": 3.0,

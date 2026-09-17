@@ -229,6 +229,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     */
     this._renderFlag = CanvasState.NoRender;
     this.needsUpdate = undefined;
+    /* Whether the side views have to be drawn again. Raised by every
+      `needsUpdate`, but not by the trackball, which only moves the main camera:
+      rotating the main view leaves the side views as they were, so they are
+      not redrawn for it (see `render()`). */
+    this._sideViewsNeedUpdate = true;
 
     // Disable raycasting, soft deprecated
     this.disable_raycast = true;
@@ -1538,6 +1543,22 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
   }
 
+  /**
+   * How far (mm) a drawn streamline may stray from its points, or 0 to draw
+   * every point (`Line Simplify Factor`). Each bundle rebuilds its geometry,
+   * which is far too expensive for a slider to do on every step, so this goes
+   * out throttled: during a drag only the value it rests on is acted on.
+   */
+  setStreamlineSimplify({ tolerance, immediate = false } = {}) {
+    // read by bundles that are created later
+    this.set_state( 'streamline_simplify_tolerance', tolerance );
+    this.dispatch({
+      type : "viewerApp.canvas.setStreamlineSimplify",
+      data : { tolerance : tolerance },
+      immediate : immediate
+    });
+  }
+
   setStreamlineHighlight({
     mode, distanceToTargetsThreshold, fadedLinewidth,
     forceUpdate = false, immediate = true
@@ -2166,6 +2187,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( this.needsUpdate === undefined ) { return; }
     let persistLevel = this.needsUpdate;
     this.needsUpdate = undefined;
+    if( persistLevel ) {
+      this._sideViewsNeedUpdate = true;
+    }
 
     if( persistLevel === true ) {
       persistLevel = CanvasState.RenderOnce;
@@ -2358,7 +2382,18 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.main_renderer.clear();
     this.mainRendererInterface.render( this.scene, this.mainCamera );
 
-    if(this.sideCanvasEnabled){
+    // The side views keep their last picture unless something besides the main
+    // camera changed. A canvas that is not drawn into keeps showing its last
+    // frame. They are always drawn while animating, while their cameras follow
+    // the main camera, and while recording, which copies them every frame.
+    const sideViewsNeedUpdate = this._sideViewsNeedUpdate ||
+      ( this._renderFlag & CanvasState.Animate ) !== 0 ||
+      this.capturer_recording ||
+      this.get_state( "sideCameraTrackMainCamera", "canonical" ) !== "canonical";
+
+    if( this.sideCanvasEnabled && sideViewsNeedUpdate ){
+
+      this._sideViewsNeedUpdate = false;
 
       // Pre render all meshes
       this.mesh.forEach((m) => {

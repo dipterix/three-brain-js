@@ -95,6 +95,20 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.needsUpdate = true;
       });
 
+    // How far (mm) a drawn streamline may stray from its points; 0 draws every
+    // point. Finely resampled tracts put many segments under each pixel, and the
+    // GPU transforms every one of them in every view. Rebuilding the geometry
+    // (on `alic/*`, 6.7M points, about 150ms) happens in the bundles, off a
+    // throttled event, and each one asks for a render when it is done.
+    this.gui.addController(
+      "Line Simplify Factor", CONSTANTS.GEOMETRY["streamline-simplify-tolerance"],
+      {folderName: folderName})
+      .min(0.0).max(CONSTANTS.GEOMETRY["streamline-simplify-tolerance-max"]).step(0.01)
+      .onChange(v => {
+        this.canvas.setStreamlineSimplify({ tolerance : v });
+        this.broadcast();
+      });
+
     const highlightStreamlineConfig = {
       mode              : 'none',
       distanceToTargetsThreshold : 1,
