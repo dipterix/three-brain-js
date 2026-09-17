@@ -475,7 +475,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     // the signature is not stored and the next render retries)
     const disableThreshold = ( resolved ) => {
       if( thresholdState.active ) {
-        maskArray.fill( 255 );
+        maskArray.fill( 1 );
         maskAttribute.needsUpdate = true;
       }
       thresholdState.active = false;
@@ -569,7 +569,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       // `vertexData`
       const values = dataObject.vertexData;
       for( let ii = 0; ii < this.__nvertices; ii++ ) {
-        maskArray[ ii ] = isPassed( values[ ii ] ) ? 255 : 0;
+        maskArray[ ii ] = isPassed( values[ ii ] ) ? 1 : 0;
       }
 
     } else if ( dataObject.isSurfaceAnnotation ) {
@@ -593,7 +593,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       });
 
       for( let ii = 0; ii < this.__nvertices; ii++ ) {
-        maskArray[ ii ] = passingKeys.has( vertexKeys[ ii ] ) ? 255 : 0;
+        maskArray[ ii ] = passingKeys.has( vertexKeys[ ii ] ) ? 1 : 0;
       }
 
     } else {
@@ -818,7 +818,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     for( let ii = 0 ; ii < this.__nvertices; ii++ ) {
       const ii3 = ii * 3;
       // masked-out vertices display the underlay color (see SurfaceMaterial.js)
-      const overlaySource = ( maskActive && maskArray[ ii ] < 128 ) ? underlayArray : overlayArray;
+      const overlaySource = ( maskActive && maskArray[ ii ] < 0.5 ) ? underlayArray : overlayArray;
 
       // gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
       blendArray[ ii * 4 ] = underlayArray[ ii3 ] * (1 - blendFactor) + overlaySource[ ii3 ] * blendFactor;
@@ -1511,9 +1511,10 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.overlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
     this._geometry.setAttribute( 'overlayColor', new BufferAttribute( this.overlayArray, 3, true ) );
 
-    // overlay threshold mask: 255 = pass (show overlay), 0 = masked out (show underlay)
-    this.overlayMaskArray = new Uint8Array( this.__nvertices ).fill(255);
-    this._geometry.setAttribute( 'overlayMask', new BufferAttribute( this.overlayMaskArray, 1, true ) );
+    // overlay threshold mask: 1 = pass (show overlay), 0 = masked out (show underlay)
+    // Float32Array because WebGPU has no single-component 8-bit vertex format
+    this.overlayMaskArray = new Float32Array( this.__nvertices ).fill(1);
+    this._geometry.setAttribute( 'overlayMask', new BufferAttribute( this.overlayMaskArray, 1 ) );
 
     this.state = {
       defaultColorMap : "BlueRed",
