@@ -105,8 +105,8 @@ async function buildBoundsTreeAsync({ positionArray, indexArray, app, token } = 
     serialized = await app.invokeWorker({
       name : "buildSurfaceBVH",
       args : [ positionArray, indexArray ],
-      // `invokeWorker` only uses this when no worker is available; a worker that
-      // starts and then fails rejects instead, hence the catch below.
+      // used whenever the worker cannot do it, whether it never loaded or the
+      // build itself failed
       fallback : () => MeshBVH.serialize(
         buildBoundsTreeSync( positionArray, indexArray ),
         { cloneBuffers : false }
@@ -118,8 +118,10 @@ async function buildBoundsTreeAsync({ positionArray, indexArray, app, token } = 
     });
   } catch (e) {
     // A failed build must never break picking -- the caller simply gets a tree
-    // built here instead, and the stock raycast covers the interim.
-    console.warn( "buildBoundsTreeAsync: worker build failed, building on the main thread.", e );
+    // built here instead, and the stock raycast covers the interim. Quiet on
+    // purpose: `invokeWorker` already ran the fallback for every recoverable
+    // case, and `Workers.js` reports an unusable worker once per page.
+    console.debug( "buildBoundsTreeAsync: building on the main thread.", e );
     return buildBoundsTreeSync( positionArray, indexArray );
   }
 

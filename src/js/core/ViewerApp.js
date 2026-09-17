@@ -271,15 +271,26 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     if ( available !== false ) {
       // Workers available - use them
-      return await startWorker( workerScript, {
-        methodNames: available,
-        args: args,
-        onProgress: onProgress,
-        logger: this.debugVerbose.bind(this),
-        token: token,
-        timeOut: timeOut,
-        transferables: transferables
-      });
+      try {
+        return await startWorker( workerScript, {
+          methodNames: available,
+          args: args,
+          onProgress: onProgress,
+          logger: this.debugVerbose.bind(this),
+          token: token,
+          timeOut: timeOut,
+          transferables: transferables
+        });
+      } catch (e) {
+        // A superseded call is a cancellation, not a failure: running its
+        // fallback would compute an already-obsolete result on the main thread.
+        if ( e && e._muffle === true ) { throw e; }
+        if ( typeof fallback !== "function" ) { throw e; }
+        // Anything else - a worker that cannot load, a task that threw - is
+        // recoverable here, because every caller hands us a way to do the work
+        // in this thread. `Workers.js` reports the cause once.
+        this.debugVerbose( `[invokeWorker] ${ name } failed in a worker; using the fallback.` );
+      }
     }
 
     // Workers unavailable - use fallback if provided

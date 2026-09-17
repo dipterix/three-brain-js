@@ -431,8 +431,12 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.gradientTexture.needsUpdate = true;
 
     } catch (error) {
+      // `invokeWorker` falls back to `computeGradientsFromRGBA` on this thread
+      // whenever the worker cannot do it, so reaching here means the
+      // computation itself failed (an allocation on a very large volume, say).
+      // Give up on precomputed gradients for this volume and let the shader
+      // take central differences instead.
       console.warn('Failed to compute gradient texture:', error);
-      // Fallback to shader-based gradient computation
       this.usePrecomputedGradients = false;
     }
   }
@@ -525,7 +529,9 @@ class DataCube2 extends AbstractThreeBrainObject {
           timeOut : 60000,
         });
       } catch (e) {
-        console.warn( `DataCube2: worker build of the distance tree failed for [${ this.name }]; building on the main thread.`, e );
+        // quiet for the same reason as `buildBoundsTreeAsync`: the fallback
+        // already ran for every recoverable case
+        console.debug( `DataCube2: building the distance tree for [${ this.name }] on the main thread.`, e );
         built = buildLocally();
       }
     } else {

@@ -1,14 +1,80 @@
 import { EventDispatcher } from 'three';
 import { workerMethodNames } from './workerMethodNames.js';
+import { decodeEmbeddedBlob } from './EmbeddedData.js';
 const workerLoaders = {};
+
+// Debug switch: `?noWorkers` (or `=1`, `=true`) computes everything on the main
+// thread, which is what happens anyway wherever a worker cannot start
 let useWorkerLoaders = true;
+try {
+  const noWorkers = new URLSearchParams( window.location.search ).get( "noWorkers" );
+  if( noWorkers === "" || noWorkers === "1" || noWorkers === "true" ) {
+    useWorkerLoaders = false;
+  }
+} catch (e) {}   // no `window` in the worker bundle, which imports this too
+
+// A worker script that has already failed to load. Keyed by the script as the
+// settings gave it, so one bad script does not disable workers for a viewer
+// elsewhere on the page that uses another.
+const brokenWorkerScripts = new Map();
+
+// `#`-prefixed scripts are embedded in the page (see `EmbeddedData.js`); each
+// becomes one object URL for the life of the page, since a new worker is
+// spawned per call. A `null` is remembered too, so the DOM is queried once.
+const workerScriptObjectURLs = new Map();
+
+/**
+ * The URL to hand `new Worker()`: a path as given, or an object URL holding the
+ * worker embedded in the page. `null` when the page claims an embedded worker
+ * it does not carry — an old saved page opened with a newer bundle.
+ */
+function resolveWorkerScript( workerScript ) {
+  if( typeof workerScript !== "string" || workerScript === "" ) { return null; }
+  if( !workerScript.startsWith("#") ) { return workerScript; }
+  if( workerScriptObjectURLs.has( workerScript ) ) {
+    return workerScriptObjectURLs.get( workerScript );
+  }
+  let objectURL = null;
+  try {
+    const blob = decodeEmbeddedBlob( workerScript, {
+      mimeType : "text/javascript",
+      // the bundle is code, never text to re-encode
+      binary : true,
+    });
+    if( blob ) {
+      objectURL = URL.createObjectURL( blob );
+    }
+  } catch (e) {
+    objectURL = null;
+  }
+  workerScriptObjectURLs.set( workerScript, objectURL );
+  return objectURL;
+}
+
+/**
+ * Remembers that a worker script cannot be loaded, and says so once. Callers
+ * fall back to the main thread, so this is a note, not an error.
+ */
+function markWorkerScriptBroken( workerScript, error ) {
+  if( brokenWorkerScripts.has( workerScript ) ) { return; }
+  brokenWorkerScripts.set( workerScript, error );
+  const detail = ( error && ( error.message || error.type ) ) || String( error );
+  console.warn(
+    `[threeBrain] Web worker unavailable (${ detail }); computing on the main ` +
+    `thread instead. Worker script: ${ workerScript }`
+  );
+  try { stopWorker( workerScript ); } catch (e) {}
+}
 
 function asyncLoaderAvailable( name, workerScript ) {
   if( typeof workerScript !== "string") { return false; }
   if( !useWorkerLoaders ) { return false; }
   if( typeof name !== "string") { return false; }
-  if(!window) { return false; }
+  if( typeof window === "undefined" || !window ) { return false; }
   if(!window.Worker) { return false; }
+  if( brokenWorkerScripts.has( workerScript ) ) { return false; }
+  // an embedded worker the page turns out not to carry
+  if( resolveWorkerScript( workerScript ) === null ) { return false; }
   // `workerLoaders` only carries the loaders registered by `DataLoaders.js`,
   // which both bundles import. Compute methods are registered in `worker.js`,
   // which the main bundle never loads, so fall back to the shared name manifest.
@@ -19,7 +85,13 @@ function asyncLoaderAvailable( name, workerScript ) {
 
 class WorkerPool {
   constructor( workerScript, logger, softSize = 0, maxSize = 8 ) {
+    // the original string identifies the pool (`stopWorker` looks it up by it);
+    // `scriptURL` is what a worker is actually built from
     this.workerScript = workerScript;
+    this.scriptURL = resolveWorkerScript( workerScript );
+    // set by the first message from a worker: proof the script loaded and runs,
+    // which separates "cannot load" from "this task threw"
+    this._everResponded = false;
     this.softSize = Math.ceil( softSize );
     if( this.softSize <= 0 ) { this.softSize = 0; }
     this.maxSize = Math.ceil( maxSize );
@@ -61,7 +133,6 @@ class WorkerPool {
         }
       }
     }
-    this._pool.set(uuid, item);
 
     let timeStarted = 0;
 
@@ -90,8 +161,21 @@ class WorkerPool {
       }
     }
 
-    const worker = new window.Worker( this.workerScript );
+    let worker;
+    try {
+      worker = new window.Worker( this.scriptURL );
+    } catch (e) {
+      // Blocked outright: a `file://` page starting a worker from a path, a
+      // CSP, a browser refusing blob workers. Never retried.
+      markWorkerScriptBroken( this.workerScript, e );
+      throw e;
+    }
     const errorHandler = (e) => {
+      // A worker that never answered could not load; one that did has a bug in
+      // the task, which is worth reporting every time.
+      if( !this._everResponded ) {
+        markWorkerScriptBroken( this.workerScript, e );
+      }
       if( item.idle ) { return; }
       const f = item.onError;
       item.onError = undefined;
@@ -128,6 +212,7 @@ class WorkerPool {
     worker.onerror = errorHandler;
     worker.onmessageerror = errorHandler;
     worker.onmessage = (e) => {
+      this._everResponded = true;
       if( item.idle ) { return; }
       if( e.data && typeof e.data === "object" && typeof e.data.status === "string") {
         switch ( e.data.status ) {
@@ -210,6 +295,9 @@ class WorkerPool {
     // setIdle( true ); cannot call this, might terminate
     item.idle = true;
     item.token = undefined;
+    // Registered last: an entry whose worker failed to build would have no
+    // `elapsed`/`terminate`, and `_spawn()` would trip over it forever after.
+    this._pool.set(uuid, item);
     return uuid;
   }
 
@@ -239,7 +327,7 @@ class WorkerPool {
       if( item.idle ) {
         anyIdle = true;
       }
-      const e = item.elapsed();
+      const e = typeof item.elapsed === "function" ? item.elapsed() : 0;
       if( maxElapsed < e ) {
         maxElapsed = e;
       }
@@ -327,6 +415,15 @@ class WorkerPool {
           e._muffle = true;
           throw e;
         } catch (e) {
+          // `_muffle` marks the one error that means "all workers are busy,
+          // wait for one" — anything else (above all a worker that cannot be
+          // built) has to reject, or this promise never settles and the
+          // caller's fallback never runs.
+          if( !e || e._muffle !== true ) {
+            running = true;
+            reject( e );
+            return;
+          }
           this.logger(`Awaiting... (${e.message})`);
           running = false;
           this._dispatcher.addEventListener("WorkerPool.idle", handler);
@@ -360,6 +457,9 @@ const workerPool = {};
 async function startWorker( url, { methodNames, args, onProgress, logger, token, timeOut = 15000, transferables } = {} ) {
   if( !useWorkerLoaders ) {
     throw new Error("Async workers disabled.");
+  }
+  if( brokenWorkerScripts.has( url ) ) {
+    throw brokenWorkerScripts.get( url );
   }
   let pool;
   let idx = workerURL.indexOf(url);
