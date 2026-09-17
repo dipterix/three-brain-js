@@ -296,9 +296,9 @@ class DemoStage {
       }
 
       this.canvas.pixel_ratio[1] = 1;
-      this.canvas.sideCanvasList.coronal.renderer.setPixelRatio(1);
-      this.canvas.sideCanvasList.axial.renderer.setPixelRatio(1);
-      this.canvas.sideCanvasList.sagittal.renderer.setPixelRatio(1);
+      this.canvas.sideCanvasList.coronal.rendererInterface?.setPixelRatio(1);
+      this.canvas.sideCanvasList.axial.rendererInterface?.setPixelRatio(1);
+      this.canvas.sideCanvasList.sagittal.rendererInterface?.setPixelRatio(1);
     } catch (e) {}
 
     // Add background

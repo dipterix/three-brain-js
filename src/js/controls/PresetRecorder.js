@@ -88,8 +88,10 @@ function registerPresetRecorder( ViewerControlCenter ){
       // the renderers throw until they are initialized
       if( !this.canvas.rendererReady ) { return; }
 
-      const glCanvas = this.canvas.main_renderer.domElement,
-            pixelRatio = this.canvas.main_renderer.getPixelRatio();
+      // the canvas the main view draws into; `renderer.domElement` follows
+      // whichever canvas target the renderer is pointed at
+      const glCanvas = this.canvas.$mainGLCanvas,
+            pixelRatio = this.canvas.mainRendererInterface.getPixelRatio();
       let totalHeight = glCanvas.height,
           sideWidth = this.canvas.sideCanvasEnabled ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
           sideHeight = sideWidth - pixelRatio,
@@ -103,27 +105,27 @@ function registerPresetRecorder( ViewerControlCenter ){
       // copy the main_renderer context
       pdf_wrapper.background_color = this.canvas.background_color;
 
-      this.canvas.main_renderer.clear();
-      this.canvas.main_renderer.render( this.canvas.scene, this.canvas.mainCamera );
+      this.canvas.mainRendererInterface.clear();
+      this.canvas.mainRendererInterface.render( this.canvas.scene, this.canvas.mainCamera );
       pdf_wrapper.draw_image( glCanvas, sideWidth, 0, mainWidth, totalHeight );
 
       // draw side panels
       if( this.canvas.sideCanvasEnabled ) {
         this.canvas.sideCanvasList.axial.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.axial.renderer.domElement,
+          this.canvas.sideCanvasList.axial.$canvas,
           0, 0, sideWidth, sideWidth
         );
 
         this.canvas.sideCanvasList.sagittal.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.sagittal.renderer.domElement,
+          this.canvas.sideCanvasList.sagittal.$canvas,
           0, sideHeight, sideWidth, sideWidth
         );
 
         this.canvas.sideCanvasList.coronal.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.coronal.renderer.domElement,
+          this.canvas.sideCanvasList.coronal.$canvas,
           0, sideHeight * 2, sideWidth, sideWidth
         );
 

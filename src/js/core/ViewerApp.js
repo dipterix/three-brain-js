@@ -55,6 +55,9 @@ class ViewerApp extends ThrottledEventDispatcher {
     // run the renderers on their WebGL2 backend even when WebGPU is available
     forceWebGL = false,
 
+    // draw every canvas with one renderer, hence one GPU device (WebGPU only)
+    shareRenderer = true,
+
   }) {
 
     super( $wrapper );
@@ -62,6 +65,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     // Flags
     this.debug = debug;
     this.forceWebGL = forceWebGL === true;
+    this.shareRenderer = shareRenderer !== false;
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;

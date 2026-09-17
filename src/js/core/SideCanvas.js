@@ -1,6 +1,6 @@
 import { CONSTANTS } from './constants.js';
 import { Vector3, Matrix4, OrthographicCamera, DirectionalLight, Quaternion } from 'three';
-import { createRenderer } from './createRenderer.js';
+import { createSideRendererInterface } from './createRenderer.js';
 import { get_element_size } from '../utils.js';
 import { makeDraggable } from '../utility/draggable.js';
 import { makeResizable } from '../utility/resizable.js';
@@ -352,11 +352,31 @@ class SideCanvas {
   }
 
 
+  /**
+   * Gives this view the renderer it draws with: a canvas target on the main
+   * renderer when that can be shared, otherwise a renderer of its own. Called
+   * by `ViewerCanvas` once the main renderer has initialized.
+   */
+  useRendererInterface( rendererInterface ) {
+    this.rendererInterface = rendererInterface;
+    this.renderer = rendererInterface.renderer;
+    this.rendererInterface.setPixelRatio( this.mainCanvas.pixel_ratio[1] );
+    // What a renderer with `alpha: true` clears to by default, and so what
+    // these views were cleared to when each had a renderer of its own. The
+    // main view clears to the viewer's background color instead.
+    this.rendererInterface.setClearColor( this._backgroundColor ?? 0x000000, 0.0 );
+    // Manual update so that it can render two scenes
+    this.renderer.autoClear = false;
+    // no CSS size: this canvas fills its panel (`setDimension()` keeps it at
+    // 100%), while the drawing buffer stays at `_renderHeight`
+    this.rendererInterface.setSize( this._renderHeight, this._renderHeight, false );
+  }
+
   render() {
     if( !this._enabled ) { return; }
     // the renderer throws until it is initialized
     if( !this.mainCanvas.rendererReady ) { return; }
-    this.renderer.clear();
+    this.rendererInterface.clear();
 
     // whether Radiographic?
     this.viewMode = this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical");
@@ -369,7 +389,7 @@ class SideCanvas {
     this.headerTextNeedsUpdate = undefined;
 
     // Let side slices track camera rotation
-    this.renderer.render( this.mainCanvas.scene, this.camera );
+    this.rendererInterface.render( this.mainCanvas.scene, this.camera );
   }
 
   dispose() {
@@ -392,7 +412,9 @@ class SideCanvas {
       "viewerApp.canvas.setSliceCrosshair",
       this._onSetSliceCrosshair );
 
-    this.renderer.dispose();
+    if( this.rendererInterface ) {
+      this.rendererInterface.dispose();
+    }
   }
 
   // currently does nothing but setting to black background. No point to
@@ -400,7 +422,9 @@ class SideCanvas {
   setBackground( color ) {
     color = "#000000";
     this._backgroundColor = color;
-    this.renderer.setClearColor( color );
+    if( this.rendererInterface ) {
+      this.rendererInterface.setClearColor( color, 0.0 );
+    }
     this.$el.style.backgroundColor = color;
   }
 
@@ -578,14 +602,11 @@ class SideCanvas {
     this.$footer.id = this._container_id + '__' + type + 'footer';
     this.$el.appendChild( this.$footer );
 
-		// initialized together with the main renderer, see `ViewerCanvas`
-		this.renderer = createRenderer({
-		  canvas: this.$canvas,
-		  forceWebGL: this.mainCanvas.forceWebGL
-		});
-  	this.renderer.setPixelRatio( this.mainCanvas.pixel_ratio[1] );
-  	this.renderer.autoClear = false; // Manual update so that it can render two scenes
-  	this.renderer.setSize( this._renderHeight, this._renderHeight );
+		// How this view draws is settled by `ViewerCanvas` once the main renderer
+		// has initialized and its backend is known; until then there is nothing to
+		// draw with, and `render()` returns early on `rendererReady`.
+		this.rendererInterface = null;
+		this.renderer = null;
 
 		// Add widgets
 		// zoom in tool

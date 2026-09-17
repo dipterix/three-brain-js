@@ -24,7 +24,7 @@ import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
-import { createRenderer } from './createRenderer.js';
+import { createMainRendererInterface, createSideRendererInterface } from './createRenderer.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
@@ -166,6 +166,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Debug switch: run the renderers on their WebGL2 backend even when WebGPU
     // is available
     this.forceWebGL = viewerApp.forceWebGL === true;
+    // Whether the side views may borrow the main renderer, and with it its GPU
+    // device, instead of each keeping one of their own
+    this.shareRenderer = viewerApp.shareRenderer !== false;
 
     // Side panel initial size in pt
     this.side_width = side_width;
@@ -361,19 +364,24 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.add_to_scene( ambientLight, true ); // soft white light
 
 
-    // Main renderer; it is not usable until `rendererReady` (see below)
-  	this.main_renderer = createRenderer({
-  	  canvas: document.createElement('canvas'),
-  	  forceWebGL: this.forceWebGL
-  	});
-  	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
-  	this.main_renderer.setSize( width, height );
+    // The main view's render interface, which owns the renderer the side views
+    // draw with. It is not usable until `rendererReady` (see below).
+    this.mainRendererInterface = createMainRendererInterface({
+      canvas: document.createElement('canvas'),
+      forceWebGL: this.forceWebGL
+    });
+    this.main_renderer = this.mainRendererInterface.renderer;
+    // The canvas the main view draws into. Never read `renderer.domElement` for
+    // it: that follows whichever canvas target the renderer is pointed at.
+    this.$mainGLCanvas = this.mainRendererInterface.canvas;
+    this.mainRendererInterface.setPixelRatio( this.pixel_ratio[0] );
+    this.mainRendererInterface.setSize( width, height );
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
   	// transparent background if the bg is white
-  	this.main_renderer.setClearColor( this.background_color, 0.0 );
+  	this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
 
     this.main_canvas.appendChild( this.domElement );
-    this.main_canvas.appendChild( this.main_renderer.domElement );
+    this.main_canvas.appendChild( this.$mainGLCanvas );
 
     let wrapper_canvas = document.createElement('div');
     this.wrapper_canvas = wrapper_canvas;
@@ -392,39 +400,41 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.sideCanvasList.sagittal = new SideCanvas( this, "sagittal" );
 
     // Renderers initialize asynchronously and throw if asked to render before
-    // that, so rendering waits for `rendererReady`
+    // that, so rendering waits for `rendererReady`. The side views are wired up
+    // only once the main renderer has initialized, because which backend it
+    // ended up on decides whether they can borrow it.
     this.rendererReady = false;
-    this.rendererInitialized = Promise.all([
-      this.main_renderer.init(),
-      this.sideCanvasList.coronal.renderer.init(),
-      this.sideCanvasList.axial.renderer.init(),
-      this.sideCanvasList.sagittal.renderer.init(),
-    ]).then(() => {
-      this.rendererReady = true;
-      this.isWebGPU = this.main_renderer.backend.isWebGPUBackend === true;
-      this.debugVerbose( `Renderer backend: ${ this.isWebGPU ? "WebGPU" : "WebGL2" }` );
-      this.needsUpdate = true;
-    }, ( e ) => {
-      console.error( "[threeBrain] Unable to initialize the renderer.", e );
-    });
-
-    // A lost GPU device (a driver reset or crash, the GPU being switched)
-    // stops every renderer for good: three's own handler logs the loss and
-    // turns the renderer off. Tell the user as well. three ignores losses
-    // caused by `dispose()` on WebGPU; `showDeviceLostMessage()` ignores them
-    // on WebGL.
-    [
-      this.main_renderer,
-      this.sideCanvasList.coronal.renderer,
-      this.sideCanvasList.axial.renderer,
-      this.sideCanvasList.sagittal.renderer,
-    ].forEach( ( renderer ) => {
-      const threeHandler = renderer.onDeviceLost.bind( renderer );
-      renderer.onDeviceLost = ( info ) => {
-        threeHandler( info );
-        this.showDeviceLostMessage( info );
-      };
-    });
+    this._watchDeviceLoss( this.main_renderer );
+    this.rendererInitialized = this.mainRendererInterface.init()
+      .then(() => {
+        this.isWebGPU = this.main_renderer.backend.isWebGPUBackend === true;
+        return Promise.all(
+          [ "coronal", "axial", "sagittal" ].map( ( name ) => {
+            const sideCanvas = this.sideCanvasList[ name ];
+            const rendererInterface = createSideRendererInterface({
+              canvas                : sideCanvas.$canvas,
+              mainRendererInterface : this.mainRendererInterface,
+              forceWebGL            : this.forceWebGL,
+              shareRenderer         : this.shareRenderer,
+            });
+            if( rendererInterface.ownsRenderer ) {
+              this._watchDeviceLoss( rendererInterface.renderer );
+            }
+            sideCanvas.useRendererInterface( rendererInterface );
+            return rendererInterface.init();
+          })
+        );
+      })
+      .then(() => {
+        this.rendererReady = true;
+        const shared = this.mainRendererInterface.renderer ===
+          this.sideCanvasList.coronal.rendererInterface.renderer;
+        this.debugVerbose( `Renderer backend: ${ this.isWebGPU ? "WebGPU" : "WebGL2" }, ` +
+          `${ shared ? "one renderer for all four canvases" : "a renderer per canvas" }` );
+        this.needsUpdate = true;
+      }, ( e ) => {
+        console.error( "[threeBrain] Unable to initialize the renderer.", e );
+      });
 
     // Add video
     this.video_canvas = document.createElement('video');
@@ -1249,6 +1259,35 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // return loadGroups();
   }
 
+  /**
+   * A lost GPU device (a driver reset or crash, the GPU being switched) stops a
+   * renderer for good: three's own handler logs the loss and turns it off. Tell
+   * the user as well. three ignores losses caused by `dispose()` on WebGPU;
+   * `showDeviceLostMessage()` ignores them on WebGL. Called once per renderer,
+   * so a borrowed one is wrapped only by the interface that owns it.
+   */
+  _watchDeviceLoss( renderer ) {
+    const threeHandler = renderer.onDeviceLost.bind( renderer );
+    renderer.onDeviceLost = ( info ) => {
+      threeHandler( info );
+      this.showDeviceLostMessage( info );
+    };
+  }
+
+  // Every canvas the viewer draws into: the main view first, then the three
+  // side views. On WebGPU the side views borrow the main view's renderer, so
+  // `rendererInterface.ownsRenderer` tells the two arrangements apart.
+  rendererInterfaces() {
+    const interfaces = [ this.mainRendererInterface ];
+    for( const name of [ "coronal", "axial", "sagittal" ] ) {
+      const sideCanvas = this.sideCanvasList[ name ];
+      if( sideCanvas && sideCanvas.rendererInterface ) {
+        interfaces.push( sideCanvas.rendererInterface );
+      }
+    }
+    return interfaces;
+  }
+
   // Debug performance panel: three's Inspector (CPU and GPU time per frame,
   // draw calls, memory, a console), attached to the main renderer only.
   // Frames need no marking here: after `init()`, three runs its own loop that
@@ -1368,10 +1407,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // How to dispose renderers? Not sure
     this.domContext = null;
     this.domContextWrapper = null;
-    this.main_renderer.dispose();
+    // the side views first: a borrowed renderer must still be around while they
+    // release the canvas targets they hold on it
     this.sideCanvasList.coronal.dispose();
     this.sideCanvasList.axial.dispose();
     this.sideCanvasList.sagittal.dispose();
+    this.main_renderer.dispose();
 
   }
 
@@ -1653,7 +1694,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas.style.width = main_width + 'px';
     this.main_canvas.style.height = main_height + 'px';
 
-    this.main_renderer.setSize( main_width, main_height );
+    this.mainRendererInterface.setSize( main_width, main_height );
 
     const pixelRatio = this.pixel_ratio[0];
 
@@ -2199,22 +2240,22 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this must run synchronously right after the renderers draw, never after an
     // `await` or from a timer.
     if( this.capturer_recording ) {
-      this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
+      this.domContext.drawImage( this.$mainGLCanvas, 0, 0, _width, _height);
 
       if( this.sideCanvasEnabled ){
         const sideWidth = this.side_width * this.pixel_ratio[0],
               sideHeight = sideWidth - this.pixel_ratio[0];
 
         this.domContext.drawImage(
-          this.sideCanvasList.axial.renderer.domElement,
+          this.sideCanvasList.axial.$canvas,
           0, 0, sideWidth, sideWidth
         );
         this.domContext.drawImage(
-          this.sideCanvasList.sagittal.renderer.domElement,
+          this.sideCanvasList.sagittal.$canvas,
           0, sideHeight, sideWidth, sideWidth
         );
         this.domContext.drawImage(
-          this.sideCanvasList.coronal.renderer.domElement,
+          this.sideCanvasList.coronal.$canvas,
           0, sideHeight * 2, sideWidth, sideWidth
         );
 
@@ -2241,7 +2282,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // double-buffer to make sure depth renderings
     //this.main_renderer.setClearColor( renderer_colors[0], 0.0 );
-    this.main_renderer.clear();
+    this.mainRendererInterface.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
 
@@ -2315,7 +2356,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
 
     // this.main_renderer.clear();
-    this.main_renderer.render( this.scene, this.mainCamera );
+    this.mainRendererInterface.render( this.scene, this.mainCamera );
 
     if(this.sideCanvasEnabled){
 
@@ -2337,6 +2378,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.sideCanvasList.coronal.render();
       this.sideCanvasList.axial.render();
       this.sideCanvasList.sagittal.render();
+
+      // A shared renderer is left pointed at the last side view, and its
+      // `domElement`, size and pixel ratio follow whichever canvas that is.
+      // Hand the main view back, so anything reading the renderer between
+      // frames sees it.
+      this.mainRendererInterface.activate();
 
     }
 
@@ -3620,7 +3667,7 @@ mapped = false,
     }
 
     // Set renderer background to be v
-    this.main_renderer.setClearColor( this.background_color, 0.0 );
+    this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
     this.$el.style.backgroundColor = this.background_color;
 
     if( backgroundLuma < 0.4 ) {

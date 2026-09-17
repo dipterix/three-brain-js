@@ -85,8 +85,14 @@ class ViewerWrapper {
     // Debug switch: `?forceWebGL` (or `=1`, `=true`) in the page URL runs the
     // renderers on their WebGL2 backend even when WebGPU is available. Without
     // it, the renderers pick WebGPU and fall back to WebGL2 by themselves.
-    const forceWebGL = new URLSearchParams( window.location.search ).get( "forceWebGL" );
+    const searchParams = new URLSearchParams( window.location.search );
+    const forceWebGL = searchParams.get( "forceWebGL" );
     this.forceWebGL = forceWebGL === "" || forceWebGL === "1" || forceWebGL === "true";
+
+    // Debug switch: `?sharedDevice=0` gives every canvas a renderer of its own,
+    // as they had before they shared one GPU device. Only WebGPU can share.
+    const sharedDevice = searchParams.get( "sharedDevice" );
+    this.shareRenderer = !( sharedDevice === "0" || sharedDevice === "false" );
 
 
     if( this.viewer === undefined ) {
@@ -160,7 +166,8 @@ class ViewerWrapper {
       width : this.width, height : this.height,
       cache : this.cache,
       debug : this.debug || CONSTANTS.DEBUG,
-      forceWebGL : this.forceWebGL
+      forceWebGL : this.forceWebGL,
+      shareRenderer : this.shareRenderer
     });
 
     this.cacheViewer();
