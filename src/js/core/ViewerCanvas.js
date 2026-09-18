@@ -34,6 +34,7 @@ import { SpriteMarker } from '../geometry/SpriteMarker.js';
 // Utility
 import { asArray } from '../utility/asArray.js';
 import { asColor, invertColor, colorLuma } from '../utility/color.js';
+import { extractLink } from '../utility/extractLink.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
@@ -181,7 +182,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas = document.createElement('div');
     this.main_canvas.className = 'THREEBRAIN-MAIN-CANVAS';
     this.main_canvas.style.width = width + 'px';
-    this.$mainCanvas = this.main_canvas
+    this.$mainCanvas = this.main_canvas;
 
     // Container that stores mesh objects from inputs (user defined) for each inquery
     this.mesh = new Map();
@@ -2929,10 +2930,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
 
       // Line 6: Additional Display information
-      const additionalText = electrodeInstance.getInfoText("additionalDisplay");
-      if( additionalText ) {
-        textPosition.y += this._lineHeight_small;
-        contextWrapper.fill_text( additionalText, textPosition.x, textPosition.y );
+      let additionalText = electrodeInstance.getInfoText("additionalDisplay");
+      if( typeof additionalText === "string" ) {
+
+        const result = extractLink( additionalText );
+        if ( result.hasLink ) {
+          this._app.setMessage( result.html );
+        } else {
+          this._app.setMessage();
+          textPosition.y += this._lineHeight_small;
+          contextWrapper.fill_text( additionalText, textPosition.x, textPosition.y );
+        }
       }
     }
 

@@ -158,6 +158,22 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$brandWrapper.appendChild($RAVEmsgWrapper);
 
     // --- A ---
+    // 0. A small message layer at the bottom for links, status, etc.
+    this.$messageWrapper = document.createElement('div');
+    this.$messageWrapper.style.display = "none";
+    this.$messageWrapper.style.position = "absolute";
+    this.$messageWrapper.style.width = "calc(100% - 600px)";
+    this.$messageWrapper.style.left = "300px";
+    this.$messageWrapper.style.bottom = "0";
+    this.$messageWrapper.style.textAlign = "center";
+    this.$messageWrapper.style.zIndex = "9";
+
+    this.$message = document.createElement('span');
+    this.$message.style.textShadow = "2px 0 2px #fff, -2px 0 2px #fff, 0 2px 2px #fff, 0 -2px 2px #fff, 1px 1px 2px #fff, -1px -1px 2px #fff, 1px -1px 2px #fff, -1px 1px 2px #fff";
+
+    this.$messageWrapper.appendChild(this.$message);
+    
+
     // 1. Control panel
     this.$settingsPanel = document.createElement('div');
     this.$settingsPanel.style.maxHeight = `${ height ?? this.$wrapper.clientHeight }px`;
@@ -208,6 +224,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     // add 4 to 1
     this.$settingsPanel.appendChild( this.$informationContainer );
     // add 1 to $wrapper
+    this.$wrapper.appendChild( this.$messageWrapper );
     this.$wrapper.appendChild( this.$settingsPanel );
 
     // --- B Canvas container ------------------------------------------------
@@ -330,6 +347,25 @@ class ViewerApp extends ThrottledEventDispatcher {
       this.$informationContainer.style.display = 'block';
     }
   }
+
+  setMessage( content ) {
+    if ( !content || content === "" ) {
+      if ( this.$messageWrapper.style.display !== "none" ) {
+        this.$message.innerHTML = "";
+        this.$message._innerHTML = "";
+        this.$messageWrapper.style.display = "none";
+      }
+    } else {
+      if ( this.$message._innerHTML !== content ) {
+        this.$message.innerHTML = content;
+        this.$message._innerHTML = content;
+      }
+      if ( this.$messageWrapper.style.display !== "block" ) {
+        this.$messageWrapper.style.display = "block";
+      }
+    }
+  }
+  
 
   resize( width, height ) {
     const _width = width ?? this.$wrapper.clientWidth;
