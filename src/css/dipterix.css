@@ -104,88 +104,141 @@
   width:100%!important;
 }
 
-.threejs-control .lil-gui {
-  --font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", monospace;
-  --width: 100%;
-  --background-color: #f6f6f6;
-	--text-color: #3d3d3d;
-	--title-background-color: #efefef;
-	--title-text-color: #3d3d3d;
-	--widget-color: #eaeaea;
-	--hover-color: #f0f0f0;
-	--focus-color: #fafafa;
-	--number-color: #07aacf;
-	--string-color: #8da300;
+/* The control panel is Tweakpane; `.tp-rotv` is its themable root, which reads
+ * every `--tp-*` variable defined at or above it. The panel fills the settings
+ * column, so the floating-panel geometry of Tweakpane's own wrapper is replaced
+ * here by a full-width container.
+ */
+.threejs-control .threejs-control-pane {
+  width: 100%;
 }
 
-.threejs-brain-canvas.dark-viewer .threejs-control .lil-gui {
-	--background-color: #32405e;
-	--text-color: #ebe193;
-	--title-background-color: #713154;
-	--title-text-color: #ffffff;
-	--widget-color: #057170;
-	--hover-color: #057170;
-	--focus-color: #b74f88;
-	--number-color: #ddfcff;
-	--string-color: #ffbf00;
+.threejs-control .tp-rotv {
+  /* --tp-base-font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", monospace; */
+  --tp-base-font-family: monospace, 'Lucida Grande', sans-serif;
+  --tp-base-border-radius: 12px;
+  --tp-base-shadow-color: rgba(0, 0, 0, 0.1);
+
+  --tp-base-background-color: #f6f6f6;
+  --tp-container-background-color: #efefef;
+  --tp-container-background-color-hover: #f0f0f0;
+  --tp-container-background-color-focus: #fafafa;
+  --tp-container-background-color-active: #e6e6e6;
+  --tp-container-foreground-color: #3d3d3d;
+  --tp-label-foreground-color: #3d3d3d;
+  --tp-blade-foreground-color: #3d3d3d;
+  --tp-blade-value-width: 130px;
+  --tp-groove-foreground-color: #eaeaea;
+
+  --tp-input-background-color: #eaeaea;
+  --tp-input-background-color-hover: #f0f0f0;
+  --tp-input-background-color-focus: #fafafa;
+  --tp-input-background-color-active: #e0e0e0;
+  --tp-input-foreground-color: #3d3d3d;
+
+  --tp-button-background-color: #eaeaea;
+  --tp-button-background-color-hover: #f0f0f0;
+  --tp-button-background-color-focus: #fafafa;
+  --tp-button-background-color-active: #e0e0e0;
+  --tp-button-foreground-color: #3d3d3d;
+
+  --tp-monitor-background-color: #eaeaea;
+  --tp-monitor-foreground-color: #3d3d3d;
+
+  --tp-viewer-tooltip-width: 24px;
+
+  box-shadow: none;
+  width: 100%;
 }
 
-.threejs-brain-canvas .threejs-control .lil-gui .title {
+.threejs-brain-canvas.dark-viewer .threejs-control .tp-rotv {
+  --tp-base-background-color: #32405e;
+  --tp-container-background-color: #713154;
+  --tp-container-background-color-hover: #7d3a5f;
+  --tp-container-background-color-focus: #b74f88;
+  --tp-container-background-color-active: #8a4068;
+  --tp-container-foreground-color: #ffffff;
+  --tp-label-foreground-color: #ebe193;
+  --tp-blade-foreground-color: #ebe193;
+  --tp-groove-foreground-color: #057170;
+
+  --tp-input-background-color: #057170;
+  --tp-input-background-color-hover: #068581;
+  --tp-input-background-color-focus: #b74f88;
+  --tp-input-background-color-active: #046463;
+  --tp-input-foreground-color: #ffffff;
+
+  --tp-button-background-color: #057170;
+  --tp-button-background-color-hover: #068581;
+  --tp-button-background-color-focus: #b74f88;
+  --tp-button-background-color-active: #046463;
+  --tp-button-foreground-color: #ffffff;
+
+  --tp-monitor-background-color: #057170;
+  --tp-monitor-foreground-color: #ffffff;
+}
+
+/* folder and panel titles: long subject/file names must not overflow */
+.threejs-brain-canvas .threejs-control .tp-rotv_t,
+.threejs-brain-canvas .threejs-control .tp-fldv_t {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: break-all;
+  font-weight: 600;
 }
 
-
-.threejs-brain-canvas.dark-viewer .threejs-control .lil-gui .title {
-  background-color: var(--title-background-color);
-}
-
-.threejs-control .lil-gui children {
-  padding-bottom : 1px;
-}
-
-
-.threejs-control .lil-gui.root > .title {
+.threejs-control .tp-rotv > .tp-rotv_b .tp-rotv_t {
   text-align: center;
 }
 
-
-
-.threejs-control .lil-gui .controller > .name {
+.threejs-control .tp-lblv_l {
+  overflow: hidden;
   text-overflow: ellipsis;
-  overflow-x: hidden;
-  max-width: 75%;
+  white-space: nowrap;
 }
 
-.threejs-control .lil-gui .lil-gui-ensure-width .controller > .name {
-  max-width: calc(100% - 120px);
+.threejs-control .threejs-control-pane > .tp-rotv > .tp-rotv_c > .tp-fldv > .tp-fldv_i {
+  left: calc(var(--tp-viewer-tooltip-width) + 2px);
+}
+.threejs-control .threejs-control-pane > .tp-rotv > .tp-rotv_c > .tp-fldv > .tp-fldv_c {
+  padding-left: calc(var(--tp-viewer-tooltip-width) + 2px);
 }
 
-
-.threejs-control .lil-gui.root > .children > .lil-gui > .children {
-  border: none;
-    border-left-color: currentcolor;
-    border-left-style: none;
-    border-left-width: medium;
-  margin-left: calc(var(--folder-indent) + 2em);
-  border-left: 2px solid var(--widget-color);
+/* Gutter down the left of the panel, where the keyboard-shortcut badges are
+ * drawn. lil-gui borrowed its folder indent for this; Tweakpane indents by only
+ * 4px, so the room is made here and every row is shifted by the same amount so
+ * labels stay aligned whether or not they carry a badge. */
+.threejs-control .tp-rotv_c,
+.threejs-control .tp-fldv_c {
+  padding-left: 0;
+}
+.threejs-control .tp-fldv_c > .tp-fldv > .tp-fldv_b {
+  /* margin-left: -22px;
+  padding-left: 26px; */
 }
 
-.threejs-control .lil-gui .slider {
-  position: relative;
+/* folders whose widgets need the full row width (the drag-and-drop uploader) */
+.threejs-control .threejs-control-ensure-width .tp-lblv_v {
+  /* width: 100%; */
 }
 
-.threejs-control .dg.main,
-.threejs-control .dg.main *,
-.threejs-control .dg.main ::after,
-.threejs-control .dg.main ::before{
-  box-sizing: content-box;
+.threejs-control .tp-p2dv_b,
+.threejs-control .tp-btnv_b, 
+.threejs-control .tp-lstv_s {
+  font-weight: 300;
 }
 
-.threejs-control .dg.main:hover {
-    opacity: 1;
+/* a row carrying two widgets (see `mergeControllerRows`) needs more than the
+ * usual share of the row, and its button must be allowed to shrink */
+.threejs-control .threejs-control-merged-row > .tp-lblv_v {
+  width: 68%;
+}
+.threejs-control .threejs-control-merged-row .tp-btnv_b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 
@@ -326,31 +379,31 @@
 
 
 /* Tooltip text */
-.threejs-control .lil-gui .controller[viewer-tooltip] {
+/* Keyboard-shortcut badge in the gutter left of a controller row. Tweakpane has
+ * no folder-indent variable, so the badge width is fixed here. */
+.threejs-control .tp-rotv [viewer-tooltip] {
   position: relative;
 }
-.threejs-control .lil-gui .controller[viewer-tooltip]:before {
+
+.threejs-control .tp-rotv [viewer-tooltip]:before {
   content: attr(viewer-tooltip);
-  background-color: #f9f9f9;
-  color: #000000;
-  background-color: var(--text-color);
-  color: var(--background-color);
+  background-color: var(--tp-label-foreground-color, #3d3d3d);
+  color: var(--tp-base-background-color, #f6f6f6);
   position: absolute;
   white-space: nowrap;
-  transform: translate(-100%, 0);
-  left: calc( var(--folder-indent) / -2.0 );
+  /* sits in the 26px gutter added to the folder content above */
+  left: calc(var(--tp-viewer-tooltip-width) * -1);
   opacity: 0.7;
   font-family: inherit;
   font-weight: bold;
   text-shadow: none;
-  /* padding: 0 3px; */
   -webkit-border-radius: 0.2em;
   border-radius: 0.2em;
   z-index: 1;
-  line-height: 17px;
   font-size: 0.85em;
+  line-height: 1rem;
   text-align: center;
-  width: calc(var(--folder-indent) + 2em);
+  width: 2.5em;
 }
 
 .threejs-brain-blank-container {

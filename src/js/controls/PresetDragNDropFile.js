@@ -16,13 +16,15 @@ function registerDragNDropFile( ViewerControlCenter ){
     const dndctrl = this.gui.addController( "Dragdrop Uploader", () => {}, { folderName : folderName } );
 
     const folder = this.gui.getFolder( folderName );
-    folder.domElement.classList.add("lil-gui-ensure-width");
+    folder.domElement.classList.add("threejs-control-ensure-width");
     folder.open();
 
     const $dragdropWrapper = document.createElement("div");
-    $dragdropWrapper.style.width = "100%";
-    $dragdropWrapper.style.minHeight = "60px";
-    $dragdropWrapper.style.border = "1px dashed var(--text-color)";
+    $dragdropWrapper.style.display = "flex";
+    $dragdropWrapper.style.alignItems = "center";
+    // $dragdropWrapper.style.width = "100%";
+    $dragdropWrapper.style.minHeight = "80px";
+    $dragdropWrapper.style.border = "1px dashed var(--tp-blade-foreground-color)";
     $dragdropWrapper.style.textAlign = "center";
     $dragdropWrapper.style.borderRadius = "1em";
     $dragdropWrapper.style.padding = "0.5em";
@@ -30,19 +32,19 @@ function registerDragNDropFile( ViewerControlCenter ){
 
     const $dragdropText = document.createElement("span");
     $dragdropText.style.lineHeight = "var(--widget-height)";
-    $dragdropText.innerHTML = "Drag files here<br /><small>Volumes (nii[.gz], mgz), surfaces (fs, gii, stl), colormaps (csv, tsv)</small>";
+    $dragdropText.innerHTML = "Drag files here<br /><small>Volumes (nii, mgz), surfaces (fs, gii, stl), streamlines (trk, tck, tt), electrode coordinates (csv), colormaps (csv, tsv), ...</small>";
     $dragdropText.style.pointerEvents = "none";
     $dragdropWrapper.appendChild($dragdropText);
 
     const highLightStyle = () => {
-      $dragdropWrapper.style.border = "2px dashed var(--text-color)";
-      $dragdropWrapper.style.backgroundColor = "var(--text-color)";
-      $dragdropWrapper.style.color = "var(--background-color)";
+      $dragdropWrapper.style.border = "1px dashed var(--tp-blade-foreground-color)";
+      $dragdropWrapper.style.backgroundColor = "var(--tp-blade-foreground-color)";
+      $dragdropWrapper.style.color = "var(--tp-base-background-color)";
     }
     const resetStyle = () => {
-      $dragdropWrapper.style.border = "2px dashed var(--text-color)";
-      $dragdropWrapper.style.backgroundColor = "var(--background-color)";
-      $dragdropWrapper.style.color = "var(--text-color)";
+      $dragdropWrapper.style.border = "1px dashed var(--tp-blade-foreground-color)";
+      $dragdropWrapper.style.backgroundColor = "var(--tp-base-background-color)";
+      $dragdropWrapper.style.color = "var(--tp-blade-foreground-color)";
     }
 
     $dragdropWrapper.ondrop = async (ev) => {

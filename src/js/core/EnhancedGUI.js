@@ -1,53 +1,100 @@
 import { to_array, to_dict } from '../utils.js';
-import GUI from 'lil-gui';
+import { Pane } from 'tweakpane';
 import { EventDispatcher } from 'three';
+import { EnhancedGUIController, COLOR_FALLBACK, normalizeColor } from './EnhancedGUIController.js';
 
 const _openEvent = { type: 'open' };
 const _closeEvent = { type: 'close' };
 
-class EnhancedGUI extends GUI {
+/**
+ * The viewer's control panel: path-addressed folders ("A > B > C"), a
+ * name-keyed controller registry, and open/close events carrying the folder
+ * path.
+ *
+ * Backed by Tweakpane. The root wraps a `Pane`, a child folder wraps a
+ * `FolderApi`; both expose the same container API, which is why one class can
+ * serve as both. Controllers are `EnhancedGUIController`, which keeps the
+ * lil-gui-shaped API the presets and the R driver were written against.
+ */
+class EnhancedGUI {
+
   constructor(args = {}){
-    super(args);
     this.isEnhancedGUI = true;
 
-    // event
-    if( this.parent === undefined ) {
-      this.__eventDispather = new EventDispatcher();
-    } else {
-      this.__eventDispather = this.parent.__eventDispather;
-    }
+    this.parent = args.parent;
+    this._title = args.title;
+    this._closed = false;
 
-    if( !this.parent || !this.parent.isEnhancedGUI ) {
-      this._fullPaths = [];
-
-      if( args.logoElement ) {
-        // ---- Logo -----
-        const logo = this.addFolder("_logo_");
-        logo.domElement.replaceWith( args.logoElement );
-      }
-
-      this.addFolder('Default');
-    } else {
-      this._fullPaths = [...this.parent._fullPaths];
-      this._fullPaths.push( this._title );
-    }
+    this.folders = [];
+    this.controllers = [];
 
     // everything is controlled here
     this.object = {};
 
+    if( this.parent === undefined ) {
+      this.__eventDispather = new EventDispatcher();
+      this._fullPaths = [];
+
+      // Tweakpane appends its own wrapper to `document.body` unless given a
+      // container, and that wrapper is positioned as a floating panel. The
+      // viewer places the panel itself, so hand it a container of our own and
+      // let `domElement` be that container, so the whole pane moves as one.
+      this.$container = document.createElement('div');
+      this.$container.classList.add('threejs-control-pane');
+
+      this._pane = new Pane({
+        container : this.$container,
+        title     : args.title,
+        expanded  : true,
+      });
+
+      if( args.logoElement ) {
+        // ---- Logo -----
+        const logo = this.addFolder("_logo_");
+        logo._pane.element.replaceWith( args.logoElement );
+      }
+
+      this.addFolder('Default');
+
+    } else {
+      this.__eventDispather = this.parent.__eventDispather;
+      this._fullPaths = [...this.parent._fullPaths];
+      this._fullPaths.push( this._title );
+
+      this._pane = this.parent._pane.addFolder({
+        title    : args.title,
+        expanded : false,
+      });
+      this._closed = true;
+    }
+
+    // keep `_closed` honest when the user clicks the title bar
+    this._pane.on( 'fold', ( event ) => {
+      this._closed = !event.expanded;
+      this._dispatchEvent( this._closed ? _closeEvent : _openEvent );
+    });
+  }
+
+  get domElement() {
+    // root: our own container, so the pane moves as one element;
+    // child folder: the folder's own row
+    return this.$container ?? this._pane.element;
   }
 
   get isFocused() {
-    return this.controllersRecursive().some(c => { return c._isFocused2; } );
+    // lil-gui tracked a focus flag per controller; the panel's own DOM already
+    // knows, and this stays correct across controller rebuilds
+    const active = document.activeElement;
+    return !!active && this.domElement.contains( active ) &&
+      /^(INPUT|SELECT|TEXTAREA)$/.test( active.tagName );
   }
 
   blurAll() {
-    this.controllersRecursive().forEach(c => {
-      // selector cannot be blurred here (or the options will not appear)
-      if( !c._isSelector ) {
-        c.blur();
-      }
-    });
+    const active = document.activeElement;
+    // a <select> cannot be blurred here, or its option list will not appear
+    if( active && active.tagName !== 'SELECT' && this.domElement.contains( active ) ) {
+      active.blur();
+    }
   }
 
   _dispatchEvent ( event ) {
@@ -55,7 +102,7 @@ class EnhancedGUI extends GUI {
     this.__eventDispather.dispatchEvent( event );
   }
   dispatchEvent = ( event ) => {
-    this._dispatchEvent();
+    this._dispatchEvent( event );
   }
   addEventListener = ( type, callback ) => {
     this.__eventDispather.addEventListener( type, callback );
@@ -64,8 +111,39 @@ class EnhancedGUI extends GUI {
     this.__eventDispather.removeEventListener( type, callback );
   }
 
+  show( visible = true ) {
+    if( this.$container ) {
+      // hide the container too, or an empty box is left behind
+      this.$container.style.display = visible ? '' : 'none';
+    }
+    this._pane.hidden = !visible;
+    return this;
+  }
+  hide() {
+    return this.show( false );
+  }
+
   dispose() {
     this.destroy();
+  }
+
+  destroy() {
+    this.folders.forEach( folder => { folder.destroy(); });
+    this.folders.length = 0;
+    this.controllers.length = 0;
+    if( this.parent ) {
+      this.parent._forgetFolder( this );
+    }
+    try { this._pane.dispose(); } catch (e) {}
+  }
+
+  _forgetFolder( folder ) {
+    const i = this.folders.indexOf( folder );
+    if( i >= 0 ) { this.folders.splice( i, 1 ); }
+  }
+  _forgetController( controller ) {
+    const i = this.controllers.indexOf( controller );
+    if( i >= 0 ) { this.controllers.splice( i, 1 ); }
   }
 
   set closed( is_closed ){
@@ -76,75 +154,43 @@ class EnhancedGUI extends GUI {
     }
   }
   get closed(){
-    return this._gui._hidden;
+    return this._closed;
   }
 
+  /**
+   * Tweakpane animates folds itself, so this is `open` -- kept because the
+   * presets and ViewerControlCenter call it by name.
+   */
   openAnimated( open = true ){
+    return this.open( open );
+  }
 
-		// set state immediately
-		this._closed = !open;
+  open( open = true ) {
+    this._closed = !open;
+    // the `fold` listener dispatches open/close
+    this._pane.expanded = open;
+    return this;
+  }
 
-		if( open ) {
-		  this._dispatchEvent( _openEvent );
-		}
+  close() {
+    return this.open( false );
+  }
 
-		this.$title.setAttribute( 'aria-expanded', !this._closed );
+  controllersRecursive() {
+    const result = [ ...this.controllers ];
+    this.folders.forEach( folder => {
+      result.push( ...folder.controllersRecursive() );
+    });
+    return result;
+  }
 
-		// wait for next frame to measure $children
-		requestAnimationFrame( () => {
-
-			// explicitly set initial height for transition
-			const initialHeight = this.$children.clientHeight;
-			this.$children.style.height = initialHeight + 'px';
-
-			this.domElement.classList.add( 'transition' );
-
-			const onTransitionEnd = e => {
-				if ( e.target !== this.$children ) return;
-				this.$children.style.height = '';
-				this.domElement.classList.remove( 'transition' );
-				this.$children.removeEventListener( 'transitionend', onTransitionEnd );
-				if( this._closed ) {
-				  this._dispatchEvent( _closeEvent );
-				}
-
-			};
-
-			this.$children.addEventListener( 'transitionend', onTransitionEnd );
-
-			// todo: this is wrong if children's scrollHeight makes for a gui taller than maxHeight
-			const targetHeight = !open ? 0 : this.$children.scrollHeight;
-
-			this.domElement.classList.toggle( 'closed', !open );
-
-			requestAnimationFrame( () => {
-				this.$children.style.height = targetHeight + 'px';
-			} );
-
-		} );
-
-		return this;
-
-	}
-
-	open( open = true ) {
-
-		this._closed = !open;
-
-		if( open ) {
-		  this._dispatchEvent( _openEvent );
-		}
-
-		this.$title.setAttribute( 'aria-expanded', !this._closed );
-		this.domElement.classList.toggle( 'closed', this._closed );
-
-		if( this._closed ) {
-		  this._dispatchEvent( _closeEvent );
-		}
-
-		return this;
-
-	}
+  foldersRecursive() {
+    const result = [ ...this.folders ];
+    this.folders.forEach( folder => {
+      result.push( ...folder.foldersRecursive() );
+    });
+    return result;
+  }
 
 	// folders
   addFolder( title ){
@@ -163,6 +209,7 @@ class EnhancedGUI extends GUI {
       currentFolder = new EnhancedGUI( {
         parent: this, title : folderName
       });
+      this.folders.push( currentFolder );
       currentFolder.close();
     }
 
@@ -177,11 +224,7 @@ class EnhancedGUI extends GUI {
     const folderName = subTitles.splice(0, 1)[0];
     this.folders.forEach( folder => {
       if( folder._title === folderName ) {
-        if( animated ) {
-          folder.openAnimated( open );
-        } else {
-          folder.open( open )
-        }
+        folder.open( open );
         folder.openFolder( subTitles.join(">"), animated );
       }
     })
@@ -231,71 +274,53 @@ class EnhancedGUI extends GUI {
         return controller;
       }
     }
-    const controllerObject = options.object ?? folder.object;
-    controllerObject[ name ] = value;
-    let controller;
+
+    // guess the controller type, the way lil-gui's `add` does
+    let type;
     if( isColor ) {
-      controller = folder.addColor( controllerObject, controllerName );
-      controller._isColor = true;
+      type = "color";
+    } else if( controllerArgs ) {
+      type = "option";
     } else {
-      // need to guess controller types
-      if( controllerArgs ) {
-        controller = folder.add( controllerObject, controllerName, controllerArgs );
-        controller._isSelector = true;
-      } else {
-        controller = folder.add( controllerObject, controllerName );
-        switch ( typeof value ) {
-          case 'number':
-            controller._isNumber = true;
-            // force turning off scrollbar (hack!!!)
-            Object.defineProperty(controller, '_hasScrollBar', {
-              get: function() { return true; }
-            });
-            break;
-          case 'string':
-            controller._isString = true;
-            break;
-          case 'boolean':
-            controller._isBool = true;
-            break;
-          default:
-            controller._isFunction = true;
-        }
+      switch ( typeof value ) {
+        case 'number':  type = "number";   break;
+        case 'string':  type = "string";   break;
+        case 'boolean': type = "boolean";  break;
+        default:        type = "function";
       }
     }
 
-    controller.blur = function() {
-      this.$disable.blur();
+    // Tweakpane reads the bound value when the blade is built, so it has to be
+    // there and it has to match the type
+    if( value === undefined || value === null ) {
+      switch ( type ) {
+        case "color":   value = COLOR_FALLBACK; break;
+        case "option":  value = Array.isArray( controllerArgs ) ? controllerArgs[0]
+                                                                : Object.values( controllerArgs )[0];
+                        break;
+        case "number":  value = 0;   break;
+        case "string":  value = "";  break;
+        case "boolean": value = false; break;
+      }
     }
 
-    controller.tooltip = function( text, key ) {
-      if( typeof text !== "string" ) {
-        text = this.domElement.getAttribute('title') || this._name;
-      }
-      if( typeof key === "string" ) {
-        this.domElement.setAttribute('viewer-tooltip', key);
-        text = `${text} [keyboard shortcut: ${key}]`;
-      }
-      if( typeof text === "string" ) {
-        this.domElement.setAttribute('data-toggle', "tooltip");
-        this.domElement.setAttribute('title', text);
-      }
-      return text;
-    }
+    const controllerObject = options.object ?? folder.object;
+    controllerObject[ controllerName ] = type === "color" ? normalizeColor( value ) : value;
+
+    const controller = new EnhancedGUIController({
+      folder  : folder,
+      name    : controllerName,
+      object  : controllerObject,
+      type    : type,
+      choices : controllerArgs,
+    });
+    folder.controllers.push( controller );
 
     if( controller._isSelector || controller._isBool || controller._isNumber ) {
       // use function instead of => to alter "this"
       controller.onFinishChange(function(v) {
         this.blur();
       })
-    }
-    // make sure the controller slider does not activate accidentally
-    controller._sliderWheelEnabled = false;
-
-    // add event to set focus flags
-    if( controller.$disable ) {
-      controller.$disable.onfocus = () => { controller._isFocused2 = true; }
-      controller.$disable.onblur = () => { controller._isFocused2 = false; }
     }
 
     const tooltip = options.tooltip ?? controllerName;

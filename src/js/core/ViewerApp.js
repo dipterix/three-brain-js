@@ -132,7 +132,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$brandWrapper = document.createElement('div');
     this.$brandWrapper.style.width = '100%';
     this.$brandWrapper.style.height = "40px";
-    this.$brandWrapper.style.padding = "0 calc(var(--folder-indent))";
+    this.$brandWrapper.style.padding = "0 calc(var(--cnt-hp))";
 
     const $logoWrapper = document.createElement('div');
     $logoWrapper.style.height = "40px";
@@ -152,7 +152,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     $RAVEmsg.style.top = "50%";
     $RAVEmsg.style.transform = "translate(0, -50%)";
     $RAVEmsg.style.textAlign = "center";
-    $RAVEmsg.innerHTML = 'Learn more about RAVE <a href="https://rave.wiki/" target="_blank" style="color: var(--text-color);">rave.wiki</a>';
+    $RAVEmsg.innerHTML = 'Learn more about RAVE <a href="https://rave.wiki/" target="_blank" style="color: var(--tp-blade-foreground-color);">rave.wiki</a>';
 
     $RAVEmsgWrapper.appendChild($RAVEmsg);
     this.$brandWrapper.appendChild($RAVEmsgWrapper);
@@ -184,7 +184,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$controllerContainer.style.width = '100%';
 
     // 3. Controller placeholder
-    // initialized as placeholder, will be replaced by lil-gui
+    // initialized as placeholder, will be replaced by the control panel
     // this.$controllerGUI = document.createElement('div');
 
     // 4. Information container

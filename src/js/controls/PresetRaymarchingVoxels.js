@@ -1,5 +1,6 @@
 import { CONSTANTS } from '../core/constants.js';
 import { ColorMapKeywords } from '../core/CustomLut.js';
+import { mergeControllerRows } from '../core/EnhancedGUIController.js';
 
 // 17. Voxel color type
 
@@ -433,15 +434,8 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       this.canvas.needsUpdate = true;
     }, { folderName : folderName });
 
-    const $ctrlISOWrapper = document.createElement("div");
-    $ctrlISOWrapper.classList.add("widget");
-    ctrlISOSurface.$widget.replaceWith( $ctrlISOWrapper );
-
-    ctrlISOSurface.$widget.style.width = "auto";
-    ctrlISOUpdate.$widget.style.marginLeft = "var(--spacing)";
-    $ctrlISOWrapper.appendChild( ctrlISOSurface.$widget );
-    $ctrlISOWrapper.appendChild( ctrlISOUpdate.$widget );
-    ctrlISOUpdate.domElement.remove();
+    // show the toggle and its update button on one row
+    mergeControllerRows( ctrlISOSurface, ctrlISOUpdate );
 
   };
 

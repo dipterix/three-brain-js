@@ -15,12 +15,12 @@
     "gl-matrix": "^3.4.3",
     "json-2-csv": "^3.14.4",
     "jspdf": "^4.2.0",
-    "lil-gui": "^0.18.2",
     "nifti-reader-js": "^0.5.4",
     "papaparse": "^5.4.1",
     "qrcode-with-logos": "^1.0.5",
     "three": "~0.185.1",
-    "three-mesh-bvh": "~0.9.15"
+    "three-mesh-bvh": "~0.9.15",
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "css-loader": "^6.7.3",
