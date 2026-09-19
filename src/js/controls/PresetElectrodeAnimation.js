@@ -45,7 +45,7 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     } else {
 
       this.animParameters.time = this.animParameters.min;
-      this.ctrlLegendVisible.setValue(true);
+      this.ctrlLegendVisible.setValue( true );
 
       // If inactive electrodes are hidden, re-calculate visibility
       this.updateElectrodeVisibility();
@@ -54,11 +54,51 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         this.ctrlDisplayRange.setValue( `${cmap.minV.toPrecision(4)},${cmap.maxV.toPrecision(4)}` );
         this.ctrlDisplayRange.show();
       } else {
-        this.ctrlDisplayRange.setValue("");
+        this.ctrlDisplayRange.setValue( "" );
         this.ctrlDisplayRange.hide();
       }
       this.canvas.needsUpdate = true;
     }
+  }
+
+  /**
+   * Redraws the "Display Data (Graph)" row from the electrode the user last
+   * clicked, and hides it when there is nothing meaningful to plot: no focused
+   * electrode, a discrete colormap, or a track with a single time point.
+   *
+   * The series is the electrode's stored keyframes for the displayed variable,
+   * which is the same data the animation colors by.
+   */
+  ViewerControlCenter.prototype.updateElectrodeActivityGraph = function(){
+    const graph = this.ctrlClipGraph;
+    if( !graph || graph.isfake ) { return; }
+
+    // `updateFocusedInstance( undefined )` only lowers the flag; it leaves the
+    // previous instance in place, so the flag is what says there is a selection
+    if( !this.animParameters.hasObjectFocused ) { return graph.hide(); }
+    const instance = this.animParameters.objectFocused.instance;
+    if( !instance || !instance.isElectrode ) { return graph.hide(); }
+
+    const variableName = this.canvas.get_state( 'display_variable', "[None]" );
+    if( variableName === "[None]" ) { return graph.hide(); }
+
+    const keyFrames = instance.animationKeyFrames ?
+      instance.animationKeyFrames[ variableName ] : undefined;
+    if( !Array.isArray( keyFrames ) || keyFrames.length < 2 ) { return graph.hide(); }
+
+    // only a continuous colormap has a value axis worth plotting
+    const colorMap = this.canvas.switchColorMap( variableName, false );
+    if( !colorMap || !colorMap.isContinuous ) { return graph.hide(); }
+
+    const times = keyFrames.map( frame => frame[0] );
+    const values = keyFrames.map( frame => frame[1] );
+
+    graph.setData( values, times );
+    if( !graph.hasData ) { return graph.hide(); }
+
+    graph.setValue( this.animParameters.time );
+    // graph.name( `${ instance.label ?? 'Electrode' } - ${ variableName }` );
+    return graph.show();
   }
 
   ViewerControlCenter.prototype.addPreset_animation = function(){
@@ -111,11 +151,27 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         if( !this.animClipNames.includes(v) ) { return; }
         this.changeAnimClip( v );
         this.canvas.set_state('display_variable', v);
+        // after `set_state`, so the plot reads the variable that is now shown
+        this.updateElectrodeActivityGraph();
         // this.fire_change({ 'clip_name' : v, 'display_data' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
     this.ctrlClipName._allChoices = this.animClipNames;
+
+    // The activity of the electrode the user last clicked, over the recording's
+    // own time axis. Hidden until there is something to draw: it needs a
+    // focused electrode, a continuous colormap, and more than one time point.
+    this.ctrlClipGraph = this.gui
+      .addLineGraph( 'Display Data (Graph)', { folderName : folderName } )
+      .hide();
+
+    this.updateElectrodeActivityGraph();
+
+    this._onInstanceChosenUpdateGraph = (event) => {
+      this.updateElectrodeActivityGraph();
+    };
+    this.canvas.$el.addEventListener( "viewerApp.canvas.newObjectFocused", this._onInstanceChosenUpdateGraph );
 
     this.ctrlDisplayRange = this.gui
       .addController(
@@ -353,10 +409,10 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
       .min( this.animParameters.min )
       .max( this.animParameters.max )
       .step( step ).decimals( 3 ).onChange((v) => {
-        const currentTime = this.animParameters.time;
-        if( Math.abs( currentTime - v ) >= 0.001 ) {
-          this.animParameters.time = v;
-        }
+        // trap: the object already links this.animParameters.object.Time to the controller
+        // so now animParameters.time is updated. However, we need to trigger the dispatcher
+        // this will need to set animParameters.time again
+        this.animParameters.time = v;
         this.canvas.needsUpdate = true;
       });
 

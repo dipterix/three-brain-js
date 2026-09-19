@@ -1125,40 +1125,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const path = (cache_folder + g.cache_name + '/' + cache_info.file_name).replaceAll(/[\\\/]+/g, "/");
       this.debugVerbose(`Loading group [${ g.name }] data: [${ path }]`);
 
-      /*
-      return new Promise((resolve, reject) => {
-        this.fileLoader2.load(
-          path,
-          ( v ) => {
-            console.log([path, v]);
-            if( v && typeof(v) === "object" ) {
-              for(let key in v) {
-                if( key !== "_originalData_") {
-                  g.group_data[key] = v[key];
-                }
-              }
-              if ("_originalData_" in v) {
-                if( !(nm in g.group_data) ) {
-                  g.group_data[ nm ] = v[ "_originalData_" ];
-                } else {
-                  const item = g.group_data[ nm ];
-                  if( typeof item === "object" && item !== null && item.is_cache ) {
-                    g.group_data[ nm ] = v[ "_originalData_" ];
-                  }
-                }
-              }
-            }
-            resolve();
-          },
-          undefined,
-          ( e ) => {
-            console.warn(e);
-            resolve();
-          }
-        )
-      });
 
-      /*/
       const onProgressInternal = ( progress ) => {
         let msg = '';
         let fname = path;
@@ -1972,9 +1939,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       } else {
         this.highlight( this.object_chosen, false );
       }
-
       this.animParameters.updateFocusedInstance( inst );
-
     } else {
       if( auto_unfocus ){
         if( this.object_chosen ) {

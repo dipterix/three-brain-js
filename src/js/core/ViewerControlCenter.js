@@ -141,13 +141,18 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.animParameters = this.canvas.animParameters;
 
-    this._animOnTimeChange = () => {
+    this._animOnTimeChange = ( event ) => {
       // update time controller
       if( this.ctrlAnimTime !== undefined ) {
+        // Update without triggering updating value (onChange callback)
         this.ctrlAnimTime.updateDisplay();
       }
+      // move the cursor on the electrode activity plot
+      if( this.ctrlClipGraph !== undefined ) {
+        this.ctrlClipGraph.setValue( event.value );
+      }
     };
-    this.animParameters._eventDispatcher.addEventListener( "animation.time.onChange", this._animOnTimeChange );
+    this.animParameters.addEventListener( "animation.time.onChange", this._animOnTimeChange );
 
     // keyboard event dispatcher
     this.canvas.$el.addEventListener( "viewerApp.keyboad.keydown" , this._onKeyDown );
@@ -438,7 +443,13 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.$el.removeEventListener( "viewerApp.controller.setValue" , this._onDriveController );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
     this.canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
+    if( this._onInstanceChosenUpdateGraph ) {
+      this.canvas.$el.removeEventListener( "viewerApp.canvas.newObjectFocused", this._onInstanceChosenUpdateGraph );
+    }
     // this.canvas.$el.removeEventListener( "viewerApp.subject.changed", this.updateSelectorOptions );
+    if ( this._animOnTimeChange ) {
+      this.animParameters.removeEventListener( "animation.time.onChange", this._animOnTimeChange );
+    }
   }
 
   _onSetSliceCrosshair = ( event ) => {

@@ -206,7 +206,7 @@ class EnhancedGUI {
     const obj = { controllers: {}, folders: {} };
 
     this.controllers.forEach( controller => {
-      if( controller._isFunction ) { return; }
+      if( controller._isFunction || controller._isGraph ) { return; }
       obj.controllers[ controller._name ] = controller.save();
     });
 
@@ -230,7 +230,7 @@ class EnhancedGUI {
 
     if( obj.controllers ) {
       this.controllers.forEach( controller => {
-        if( controller._isFunction ) { return; }
+        if( controller._isFunction || controller._isGraph ) { return; }
         if( controller._name in obj.controllers ) {
           controller.load( obj.controllers[ controller._name ] );
         }
@@ -303,6 +303,51 @@ class EnhancedGUI {
     return;
   }
 
+  /**
+   * Resolves a `folderName` / `folder_name` option to a folder, creating it if
+   * it does not exist. An empty name means this folder, except at the root,
+   * where it means "Default" -- the same rule `addController` follows.
+   */
+  _resolveFolder( options = {} ) {
+    const path = ( options.folderName ?? options.folder_name ?? "" )
+      .split(">").map(v => v.trim()).filter(v => v !== "");
+
+    if( path.length === 0 ) {
+      return this.parent === undefined ? this.addFolder("Default") : this;
+    }
+    return this.addFolder( path.join(">") );
+  }
+
+  /**
+   * Draws a horizontal rule in a folder, to group the controllers around it.
+   *
+   * A separator is decoration rather than a controller: it is not registered,
+   * so it stays out of the controller registry, out of `getController`, and out
+   * of `save()`. Returns the blade, so a caller can hide or dispose it.
+   */
+  addSeparator( options = {} ) {
+    if( !options || typeof options !== "object" ) { options = {}; }
+    const folder = this._resolveFolder( options );
+    return folder._pane.addBlade({ view: 'separator' });
+  }
+
+  /**
+   * Adds a line plot row, for showing a series against time.
+   *
+   * Takes the same options as `addController`. The controller's value is the
+   * current time, so `setValue( t )` moves the cursor; the series comes from
+   * `setData( values, times )`, and the y-range follows the data until `min()`
+   * or `max()` set one.
+   *
+   *   const graph = gui.addLineGraph('Display Data (Graph)', { folderName });
+   *   graph.setData( values, times );
+   *   graph.setValue( currentTime );
+   */
+  addLineGraph( name, options ) {
+    if( !options || typeof options !== "object" ) { options = {}; }
+    return this.addController( name, 0, { ...options, type : "linegraph" } );
+  }
+
   // items
   addController( name, value, options ) {
     if( !options || typeof options !== "object" ) {
@@ -333,7 +378,10 @@ class EnhancedGUI {
 
     // guess the controller type, the way lil-gui's `add` does
     let type;
-    if( isColor ) {
+    if( options.type ) {
+      // asked for explicitly, by addLineGraph
+      type = options.type;
+    } else if( isColor ) {
       type = "color";
     } else if( controllerArgs ) {
       type = "option";

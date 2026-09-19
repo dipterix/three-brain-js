@@ -19,6 +19,8 @@
  * back at the same index.
  */
 
+import { LineGraphView } from './LineGraphView.js';
+
 const COLOR_FALLBACK = "#ffffff";
 
 // Tweakpane's `input-color-string` plugin claims any string that parses as a
@@ -66,6 +68,7 @@ class EnhancedGUIController {
     this._isString   = type === "string";
     this._isBool     = type === "boolean";
     this._isFunction = type === "function";
+    this._isGraph    = type === "linegraph";
 
     // params Tweakpane needs at creation time, mutated by min/max/step/options
     this._label    = name;
@@ -92,6 +95,9 @@ class EnhancedGUIController {
     this._refreshing = false;
 
     if( choices !== undefined ) { this._setChoices( choices ); }
+
+    // the plot owns its own element; the blade only gives it a slot in the folder
+    if( this._isGraph ) { this._graph = new LineGraphView(); }
 
     this._blade = this._createBlade();
     this._decorate();
@@ -164,6 +170,33 @@ class EnhancedGUIController {
 
   _createBlade( index ) {
     const pane = this._folder._pane;
+
+    if( this._type === "linegraph" ) {
+      // Tweakpane has no plot blade, so take a button's slot -- which gives a
+      // real position in the folder, `hidden` and `dispose` -- and put the plot
+      // in its place, the way the QR code and drag-drop panels do.
+      const params = { title: this._label };
+      if( index !== undefined ) { params.index = index; }
+      if( this._hidden ) { params.hidden = true; }
+
+      const blade = pane.addButton( params );
+
+      const $wrapper = document.createElement("div");
+      $wrapper.classList.add("threejs-control-linegraph-row");
+
+      const $label = document.createElement("div");
+      $label.classList.add("threejs-control-linegraph-label");
+      $label.textContent = this._label;
+      this._$graphLabel = $label;
+
+      $wrapper.appendChild( $label );
+      $wrapper.appendChild( this._graph.element );
+      blade.element.replaceChildren( $wrapper );
+
+      // the row only has a width once it is laid out
+      requestAnimationFrame(() => { this._graph.render(); });
+      return blade;
+    }
 
     if( this._type === "function" ) {
       const params = { title: this._label };
@@ -239,7 +272,12 @@ class EnhancedGUIController {
     return this.object[ this.property ];
   }
 
-  /** Writes the value, updates the widget, then fires onChange and onFinishChange -- lil-gui's semantics. */
+  /**
+   * Writes the value, updates the widget, then fires onChange and
+   * onFinishChange -- lil-gui's semantics.
+   *
+   * On a line graph the value is the current time, so this moves the cursor.
+   */
   setValue( value ) {
     if( this._isColor ) { value = normalizeColor( value ); }
     this.object[ this.property ] = value;
@@ -247,6 +285,27 @@ class EnhancedGUIController {
     this._runChange( value );
     this._runFinish( value );
     return this;
+  }
+
+  /**
+   * Replaces a line graph's series. `values` and `times` are parallel; without
+   * `times` the samples are taken as evenly spaced. Values sharing a time are
+   * averaged.
+   *
+   * The y-range follows the data unless `min()` or `max()` set one explicitly.
+   */
+  setData( values, times ) {
+    if( !this._isGraph ) {
+      throw new Error(`Controller [${ this._name }] is not a line graph.`);
+    }
+    this._graph.setData( values, times );
+    this._graph.setCursor( this.getValue() );
+    return this;
+  }
+
+  /** True once a line graph has a series to draw. */
+  get hasData() {
+    return this._isGraph ? this._graph.hasData : false;
   }
 
   /**
@@ -260,6 +319,10 @@ class EnhancedGUIController {
    * drags or types, because that path writes through the widget, not here.
    */
   updateDisplay() {
+    if( this._isGraph ) {
+      this._graph.setCursor( this.getValue() );
+      return this;
+    }
     if( typeof this._blade.refresh === "function" ) {
       const intended = this.object[ this.property ];
       this._refreshing = true;
@@ -324,12 +387,21 @@ class EnhancedGUIController {
   min( value ) {
     if( this._min === value ) { return this; }
     this._min = value;
+    if( this._isGraph ) {
+      // a graph redraws in place; it has no Tweakpane params to rebuild
+      this._graph.setRange( this._min, this._max );
+      return this;
+    }
     this._updateImplicitStep();
     return this._rebuild();
   }
   max( value ) {
     if( this._max === value ) { return this; }
     this._max = value;
+    if( this._isGraph ) {
+      this._graph.setRange( this._min, this._max );
+      return this;
+    }
     this._updateImplicitStep();
     return this._rebuild();
   }
@@ -352,6 +424,11 @@ class EnhancedGUIController {
   }
   name( label ) {
     this._label = label;
+    if( this._isGraph ) {
+      // the graph draws its own label, so there is nothing to rebuild
+      if( this._$graphLabel ) { this._$graphLabel.textContent = label; }
+      return this;
+    }
     if( "label" in this._blade ) {
       this._blade.label = label;
     } else {
@@ -365,6 +442,9 @@ class EnhancedGUIController {
   show( visible = true ) {
     this._hidden = !visible;
     this._blade.hidden = this._hidden;
+    if( this._isGraph ) {
+      this._graph._hidden = this._hidden;
+    }
     return this;
   }
   hide() {
@@ -391,6 +471,8 @@ class EnhancedGUIController {
 
   destroy() {
     this._folder._forgetController( this );
+    // the plot holds a ResizeObserver on its own element
+    if( this._graph ) { this._graph.dispose(); }
     try { this._blade.dispose(); } catch (e) {}
   }
 

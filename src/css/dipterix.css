@@ -229,6 +229,24 @@
   font-weight: 300;
 }
 
+/* a line-graph row (see `addLineGraph`): the plot spans the full width, under a
+ * label styled like a controller's */
+.threejs-control .threejs-control-linegraph-row {
+  width: 100%;
+}
+.threejs-control .threejs-control-linegraph-label {
+  color: var(--tp-label-foreground-color);
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: none;
+}
+.threejs-control .threejs-control-linegraph {
+  border-radius: var(--tp-blade-border-radius, 2px);
+  overflow: hidden;
+}
+
 /* a row carrying two widgets (see `mergeControllerRows`) needs more than the
  * usual share of the row, and its button must be allowed to shrink */
 .threejs-control .threejs-control-merged-row > .tp-lblv_v {
