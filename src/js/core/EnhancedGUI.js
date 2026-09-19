@@ -192,6 +192,62 @@ class EnhancedGUI {
     return result;
   }
 
+  /**
+   * The panel's state, as `{ controllers: { name: value }, folders: { title: ... } }`.
+   *
+   * This is what "Copy Controller State" writes and what a dropped
+   * `isThreeBrainControllerData` JSON carries, so the shape is a file format:
+   * folders keyed by title all the way down, buttons left out because they hold
+   * no state.
+   *
+   * @param recursive pass false to record this folder's own controllers only
+   */
+  save( recursive = true ) {
+    const obj = { controllers: {}, folders: {} };
+
+    this.controllers.forEach( controller => {
+      if( controller._isFunction ) { return; }
+      obj.controllers[ controller._name ] = controller.save();
+    });
+
+    if( recursive ) {
+      this.folders.forEach( folder => {
+        obj.folders[ folder._title ] = folder.save( recursive );
+      });
+    }
+
+    return obj;
+  }
+
+  /**
+   * Restores values recorded by `save()`. Anything the state does not mention is
+   * left as it is, so an older state file still loads into a newer viewer.
+   *
+   * @param recursive pass false to restore this folder's own controllers only
+   */
+  load( obj, recursive = true ) {
+    if( !obj || typeof obj !== "object" ) { return this; }
+
+    if( obj.controllers ) {
+      this.controllers.forEach( controller => {
+        if( controller._isFunction ) { return; }
+        if( controller._name in obj.controllers ) {
+          controller.load( obj.controllers[ controller._name ] );
+        }
+      });
+    }
+
+    if( recursive && obj.folders ) {
+      this.folders.forEach( folder => {
+        if( folder._title in obj.folders ) {
+          folder.load( obj.folders[ folder._title ] );
+        }
+      });
+    }
+
+    return this;
+  }
+
 	// folders
   addFolder( title ){
     const subTitles = title.split(">")

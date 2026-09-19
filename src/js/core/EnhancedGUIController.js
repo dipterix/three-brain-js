@@ -277,6 +277,27 @@ class EnhancedGUIController {
     return this;
   }
 
+  /**
+   * The value as `EnhancedGUI.save()` records it. Colors are written as
+   * lower-case `#rrggbb`, the form lil-gui wrote, so state files saved before
+   * and after the move compare byte for byte.
+   */
+  save() {
+    const value = this.getValue();
+    if( this._isColor && typeof value === "string" ) {
+      return normalizeColor( value ).toLowerCase();
+    }
+    return value;
+  }
+
+  /**
+   * Restores a value recorded by `save()`. Like lil-gui, this fires the change
+   * handlers, which is how loading a state actually moves the scene.
+   */
+  load( value ) {
+    return this.setValue( value );
+  }
+
   /** Invokes a function controller, as clicking its button would. */
   fire() {
     const fn = this.object[ this.property ];
