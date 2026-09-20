@@ -27,11 +27,15 @@ function registerPresetBackground( ViewerControlCenter ){
       'Background Color', '#FFFFFF',
       { isColor : true, folderName: folderName }
     )
-      .onChange((v) => { this.canvas.setBackground({ color : v }); })
+      .onChange((v) => {
+        this.canvas.setBackground({ color : v });
+      })
+      .onFinishChange(v => {
+        if ( this.updateElectrodeActivityGraph ) {
+          this.updateElectrodeActivityGraph();
+        }
+      })
       .setValue( initialValue );
-
-
-
   }
 
   return( ViewerControlCenter );

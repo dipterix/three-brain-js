@@ -375,7 +375,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
 
     const ctrlDiscreteSelector = this.gui
       .addController('Voxel Label', "", { folderName : folderName })
-      .onChange( async (v) => {
+      .onFinishChange( async (v) => {
         if(typeof(v) !== "string"){ return; }
         const currentVoxelType = this.gui.getController('Voxel Type').getValue();
         if( typeof currentVoxelType === 'string' ) {

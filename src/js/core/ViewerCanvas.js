@@ -86,6 +86,11 @@ const _clearScene = {
   immediate: true
 }
 
+const _setBackground = {
+  type : "viewerApp.canvas.setBackground",
+  immediate: true
+}
+
 const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
 const BLACK_COLOR = new Color().set(0, 0, 0);
@@ -3693,6 +3698,8 @@ mapped = false,
       this.sideCanvasList.sagittal.setBackground( this.background_color );
     } catch (e) {}
      */
+
+    this.dispatch( _setBackground );
 
 
     // force re-render

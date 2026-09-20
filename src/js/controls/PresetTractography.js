@@ -104,7 +104,7 @@ function registerPresetTractography( ViewerControlCenter ){
       "Line Simplify Factor", CONSTANTS.GEOMETRY["streamline-simplify-tolerance"],
       {folderName: folderName})
       .min(0.0).max(CONSTANTS.GEOMETRY["streamline-simplify-tolerance-max"]).step(0.01)
-      .onChange(v => {
+      .onFinishChange(v => {
         this.canvas.setStreamlineSimplify({ tolerance : v });
         this.broadcast();
       });
