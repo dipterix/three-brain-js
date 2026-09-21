@@ -16,13 +16,14 @@ function addColorMapImpl ( name , arrayOfColors ) {
 
 class Lut {
 
- 	constructor( colormap, count = 32 ) {
+ 	constructor( colormap, count = 32, useLinearRGB = true ) {
 
 		this.lut = [];
 		this.map = [];
 		this.n = 0;
 		this.minV = 0;
 		this.maxV = 1;
+		this.useLinearRGB = useLinearRGB;
 
 		this.setColorMap( colormap, count );
 
@@ -88,6 +89,7 @@ class Lut {
 		this.lut.push( new Color( this.map[ 0 ][ 1 ] ) );
 
     // sample at 1/n, ..., (n-1)/n
+		const useLinearRGB = this.useLinearRGB;
 		for ( let i = 1; i < count; i++ ) {
 
 		  const alpha = i * step;
@@ -103,8 +105,11 @@ class Lut {
 					maxColor.setHex( this.map[ j + 1 ][ 1 ], LinearSRGBColorSpace );
 
 					const color = new Color()
-					  .lerpColors( minColor, maxColor, ( alpha - min ) / ( max - min ) )
-					  .convertSRGBToLinear();
+					  .lerpColors( minColor, maxColor, ( alpha - min ) / ( max - min ) );
+
+					if ( useLinearRGB ) {
+						color.convertSRGBToLinear();
+					}
 
 					// const minColor = new Color( this.map[ j ][ 1 ] );
 					// const maxColor = new Color( this.map[ j + 1 ][ 1 ] );

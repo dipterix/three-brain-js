@@ -1,6 +1,7 @@
-import { to_array, to_dict } from '../utils.js';
-import { Pane } from 'tweakpane';
 import { EventDispatcher } from 'three';
+import { Pane } from 'tweakpane';
+import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
+import { to_array, to_dict } from '../utils.js';
 import { EnhancedGUIController, COLOR_FALLBACK, normalizeColor } from './EnhancedGUIController.js';
 
 const _openEvent = { type: 'open' };
@@ -47,6 +48,8 @@ class EnhancedGUI {
         title     : args.title,
         expanded  : true,
       });
+      // Register plugin to the pane
+      this._pane.registerPlugin(EssentialsPlugin);
 
       if( args.logoElement ) {
         // ---- Logo -----
@@ -405,6 +408,7 @@ class EnhancedGUI {
         case "number":  value = 0;   break;
         case "string":  value = "";  break;
         case "boolean": value = false; break;
+        case "interval": value = { min: options.min ?? 0 , max: options.max ?? 1 }; break;
       }
     }
 

@@ -394,10 +394,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas.appendChild( this.domElement );
     this.main_canvas.appendChild( this.$mainGLCanvas );
 
-    let wrapper_canvas = document.createElement('div');
+    const wrapper_canvas = document.createElement('div');
     this.wrapper_canvas = wrapper_canvas;
     this.main_canvas.style.display = 'inline-flex';
-    this.wrapper_canvas.style.display = 'flex';
+    // TODO: check me if block is ok in shiny. Used to be flex with no position style
+    this.wrapper_canvas.style.display = 'block';
+    this.wrapper_canvas.style.position = 'relative';
     this.wrapper_canvas.style.flexWrap = 'wrap';
     this.wrapper_canvas.style.width = '100%';
     this.sideCanvasEnabled = false;

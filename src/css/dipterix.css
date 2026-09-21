@@ -127,7 +127,9 @@
   --tp-container-foreground-color: #3d3d3d;
   --tp-label-foreground-color: #3d3d3d;
   --tp-blade-foreground-color: #3d3d3d;
-  --tp-blade-value-width: 130px;
+  --tp-blade-value-width: auto;
+  --tp-blade-value-min-width: 35px;
+  --tp-blade-value-max-width: 130px;
   --tp-groove-foreground-color: #eaeaea;
 
   --tp-input-background-color: #eaeaea;
@@ -218,9 +220,15 @@
   padding-left: 26px; */
 }
 
+.threejs-control .tp-lblv_v {
+  min-width: var(--tp-blade-value-min-width);
+  max-width: var(--tp-blade-value-max-width);
+}
+
 /* folders whose widgets need the full row width (the drag-and-drop uploader) */
 .threejs-control .threejs-control-ensure-width .tp-lblv_v {
-  /* width: 100%; */
+  /* min-width: var(--tp-blade-value-min-width);
+  max-width: var(--tp-blade-value-max-width); */
 }
 
 .threejs-control .tp-p2dv_b,

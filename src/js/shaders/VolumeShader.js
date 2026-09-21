@@ -7,7 +7,7 @@ import {
   Fn, If, Loop, Break, Continue, Discard, select, uniform, texture, texture3D, varying,
   positionGeometry, modelViewMatrix, cameraProjectionMatrix, screenCoordinate, depth,
   vec2, vec3, vec4, float, int, abs, min, max, mix, clamp, pow, floor, fract, sin,
-  dot, normalize, length, distance, all, any, equal, notEqual
+  dot, normalize, length, distance, all, any, equal, notEqual, sRGBTransferOETF
 } from 'three/tsl';
 import { Lut } from '../core/CustomLut.js'
 import { MatCapPresets } from '../utils/createMatCapTexture.js';
@@ -98,6 +98,9 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
           const rampPosition = clamp( intensity, 0.0, 1.0 ).mul( nColors.sub( 1.0 ) ).add( 0.5 ).div( nColors );
           rgb.assign( u.colorRampPalette.sample( vec2( rampPosition, 0.5 ) ).level( 0 ).rgb );
         } );
+      } else {
+        // Do we need this?
+        rgb.assign( sRGBTransferOETF( rgb ) );
       }
       return { rgb, alpha };
     };
@@ -351,6 +354,7 @@ class RayMarchingMaterial extends NodeMaterial {
     this._useGradientMap = gradientMap !== null;
 
     // only continuous (single-channel) volumes are colored through the ramp
+    // with or without linearRGB flag does not change atlas ISO surface (color is still off)
     const colorLUT = new Lut( colorMap , nColors );
     colorLUT.minV = 0;
     colorLUT.maxV = nColors - 1;

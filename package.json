@@ -8,6 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@tweakpane/plugin-essentials": "^0.2.1",
     "clipboard": "^2.0.8",
     "downloadjs": "^1.4.7",
     "fflate": "^0.7.4",

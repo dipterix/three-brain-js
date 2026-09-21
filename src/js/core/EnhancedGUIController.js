@@ -69,6 +69,7 @@ class EnhancedGUIController {
     this._isBool     = type === "boolean";
     this._isFunction = type === "function";
     this._isGraph    = type === "linegraph";
+    this._isInterval = type === "interval";
 
     // params Tweakpane needs at creation time, mutated by min/max/step/options
     this._label    = name;
@@ -140,7 +141,7 @@ class EnhancedGUIController {
       return params;
     }
 
-    if( this._type === "number" ) {
+    if( this._type === "number" || this._type === "interval" ) {
       if( this._min  !== undefined ) { params.min  = this._min; }
       if( this._max  !== undefined ) { params.max  = this._max; }
       if( this._step !== undefined ) {
