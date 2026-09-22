@@ -145,18 +145,26 @@ class EnhancedGUIController {
       if( this._min  !== undefined ) { params.min  = this._min; }
       if( this._max  !== undefined ) { params.max  = this._max; }
       if( this._step !== undefined ) {
-        // Tweakpane's `step` is a binding constraint: it rewrites the value on
-        // every read, snapped to a grid anchored at zero rather than at `min`.
-        // With the step a volume's data implies ((max-min)/255, say) that shows
-        // a model value of 1.234 as 1.22, and even a value sitting exactly on
-        // `min` as something else. lil-gui snapped user input only, so the step
-        // is passed here as the pointer and keyboard increment instead.
-        params.pointerScale = this._step;
-        params.keyScale = this._step;
-        // An integer step is the exception: its grid is exact, and a controller
-        // that steps by whole numbers -- a component index -- means the snapping.
-        if( Number.isInteger( this._step ) && this._step >= 1 ) {
+        if( this._type === "interval" ) {
+          // An interval's two handles aren't a data-derived model value, so the
+          // zero-anchored-grid concern below doesn't apply; pass `step` directly
+          // so the range slider actually snaps on drag (e.g. Frustum's 0.1),
+          // not just on keyboard/pointer increments.
           params.step = this._step;
+        } else {
+          // Tweakpane's `step` is a binding constraint: it rewrites the value on
+          // every read, snapped to a grid anchored at zero rather than at `min`.
+          // With the step a volume's data implies ((max-min)/255, say) that shows
+          // a model value of 1.234 as 1.22, and even a value sitting exactly on
+          // `min` as something else. lil-gui snapped user input only, so the step
+          // is passed here as the pointer and keyboard increment instead.
+          params.pointerScale = this._step;
+          params.keyScale = this._step;
+          // An integer step is the exception: its grid is exact, and a controller
+          // that steps by whole numbers -- a component index -- means the snapping.
+          if( Number.isInteger( this._step ) && this._step >= 1 ) {
+            params.step = this._step;
+          }
         }
       }
       if( this._decimals !== undefined ) {
@@ -333,7 +341,11 @@ class EnhancedGUIController {
         console.warn(`Cannot refresh controller [${ this._name }]: ${ e }`);
       } finally {
         this._refreshing = false;
-        if( this.object[ this.property ] !== intended ) {
+        // This restore only undoes Tweakpane's numeric step/range snapping, so it
+        // applies to scalar number controllers alone. An interval holds an object,
+        // and restoring the old reference would clobber the normalized Interval
+        // Tweakpane just wrote back.
+        if( this._isNumber && this.object[ this.property ] !== intended ) {
           this.object[ this.property ] = intended;
         }
       }
@@ -350,6 +362,11 @@ class EnhancedGUIController {
     const value = this.getValue();
     if( this._isColor && typeof value === "string" ) {
       return normalizeColor( value ).toLowerCase();
+    }
+    if( this._isInterval && value && typeof value === "object" ) {
+      // After a drag Tweakpane writes back an `Interval` instance; store a plain
+      // object so state files stay portable and load() -> setValue() round-trips.
+      return { min: value.min, max: value.max };
     }
     return value;
   }

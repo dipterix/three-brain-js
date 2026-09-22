@@ -6,10 +6,13 @@ import { Vector3, Matrix4, Color, Quaternion,
          BoxGeometry, BufferGeometry, SphereGeometry,
          BufferAttribute,
          MeshPhysicalMaterial, MeshBasicMaterial,
-         DoubleSide, FrontSide } from 'three';
+         DoubleSide, FrontSide, SRGBColorSpace } from 'three';
+import { MeshPhysicalNodeMaterial } from 'three/webgpu';
+import { vertexColor } from 'three/tsl';
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
+import { fromDisplayColor } from '../shaders/nodeHelpers.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { buildFlatKDTree } from '../Math/computeStreamlineToTargets.js'
@@ -740,11 +743,15 @@ class DataCube2 extends AbstractThreeBrainObject {
             nColors = colorPalette.width,
             keyColors = colorPalette.data;
 
-      let colorKey, colorKeyIdx, alpha;
+      let colorKey, colorKeyIdx;
       for( let i = 0; i < surfaceParams.nVerts; i++ ) {
         const i4 = i * 4;
 
-        let colorKey = surfaceParams.color[ i * 3 ];
+        // `voxelColor` stores the ramp position as a byte; the bounds checks
+        // below are against a 0-1 key, as they were when this attribute held
+        // floats. Without the /255 every non-zero key takes the `>= 1` branch
+        // and the whole surface ends up the last ramp color.
+        colorKey = surfaceParams.color[ i * 3 ] / 255;
 
         if( colorKey <= 0 ) {
 
@@ -807,12 +814,20 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.isoSurface.isInvalid = undefined;
       oldGeometry.dispose();
     } else {
-      const material = new MeshPhysicalMaterial({
+      // The `color` attribute holds the display (sRGB) bytes every other
+      // consumer of `voxelColor` and `colorRampPalette` composites with, but
+      // three reads a `color` attribute as working (linear) values, so the
+      // shader decodes it. Decoding here rather than on the CPU keeps the full
+      // precision of the LUT: 8-bit linear collapses 256 sRGB codes into 183
+      // and drops the darkest labels below the thresholds elsewhere.
+      // `vertexColors` stays false only so `NodeMaterial` does not multiply the
+      // attribute in a second time; `vertexColor()` binds it regardless.
+      const material = new MeshPhysicalNodeMaterial({
         'transparent' : true,
         'side': FrontSide,
-        'vertexColors' : true,
+        'vertexColors' : false,
         'forceSinglePass' : false,
-        'reflectivity' : 0,
+        // 'reflectivity' : 0,
         'flatShading' : false,
         'roughness' : 0.3,
         'ior' : 1.6,
@@ -820,6 +835,17 @@ class DataCube2 extends AbstractThreeBrainObject {
         'clearcoatRoughness' : 1,
         'specularIntensity' : 1
       })
+      const isoColor = fromDisplayColor( vertexColor() );
+      material.colorNode = isoColor;
+
+      // The physical BRDF divides by PI, so with ambient 0.3 and directional 1.5
+      // the lit diffuse never exceeds 0.573 of the albedo and the ISO surface
+      // reads much darker than the ray-marched volume it stands in for. Lift it
+      // with an emissive term rather than a white pedestal: emissive adds the
+      // voxel's own color, so the labels keep their saturation. 0.35 was matched
+      // against the ray-marched atlas -- mean luminance 106.7 vs its 103.3, at
+      // the same mean saturation.
+      material.emissiveNode = isoColor.rgb.mul( 0.35 );
 
       this.isoSurface = new Mesh( geometry, material );
       this.isoSurface.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
@@ -926,7 +952,51 @@ class DataCube2 extends AbstractThreeBrainObject {
     }
     if( !this.isoSurface || this.isoSurface.isInvalid ) { return null; }
 
-    const mesh = this.isoSurface.clone();
+    // `clone()` would share the live geometry, and its `color` attribute holds
+    // the display (sRGB) bytes the ISO material decodes in its shader. glTF's
+    // COLOR_0 is linear and the exporter cannot carry a `colorNode`, so bake
+    // the decode into a copy. Floats, not bytes: 8-bit linear merges the
+    // darkest labels.
+    const geometry = this.isoSurface.geometry.clone();
+    const displayColor = geometry.getAttribute( 'color' );
+
+    if( displayColor ) {
+      const linearColor = new Float32Array( displayColor.count * 4 );
+      const tmpColor = new Color();
+
+      for( let i = 0; i < displayColor.count; i++ ) {
+        tmpColor.setRGB(
+          displayColor.getX( i ), displayColor.getY( i ), displayColor.getZ( i ),
+          SRGBColorSpace );
+        linearColor[ i * 4 ] = tmpColor.r;
+        linearColor[ i * 4 + 1 ] = tmpColor.g;
+        linearColor[ i * 4 + 2 ] = tmpColor.b;
+        linearColor[ i * 4 + 3 ] = displayColor.getW( i );
+      }
+
+      geometry.deleteAttribute( 'color' );
+      geometry.setAttribute( 'color', new BufferAttribute( linearColor, 4 ) );
+    }
+
+    // `GLTFExporter` only understands the stock materials -- it keys off
+    // `isMeshStandardMaterial`, which the node materials do not set -- so the
+    // export carries a plain one built from the live material's values. The
+    // attribute is linear now, so this one reads it the ordinary way.
+    const source = this.isoSurface.material;
+    const material = Object.assign( new MeshPhysicalMaterial({
+      'transparent'        : source.transparent,
+      'side'               : source.side,
+      'vertexColors'       : true,
+      'forceSinglePass'    : source.forceSinglePass,
+      'flatShading'        : source.flatShading,
+      'roughness'          : source.roughness,
+      'ior'                : source.ior,
+      'clearcoat'          : source.clearcoat,
+      'clearcoatRoughness' : source.clearcoatRoughness,
+      'specularIntensity'  : source.specularIntensity
+    }), materialModifier );
+
+    const mesh = new Mesh( geometry, material );
     mesh.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     mesh.applyMatrix4( this.object.matrixWorld );
 

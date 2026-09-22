@@ -101,7 +101,9 @@ function continuousValueToColor(values, buffer, {
 
     colorLut = new Lut( cmapName , 256 );
   }*/
-  colorLut = new Lut( cmapName , 256 );
+  // display (sRGB) bytes, like the annotation colors that share this attribute:
+  // `SurfaceMaterial` blends it in display space and converts once at the end
+  colorLut = new Lut( cmapName , 256, false );
   colorLut.minV = dynamicColorRange ? cutoffVMin : minValue;
   colorLut.maxV = dynamicColorRange ? cutoffVMax : maxValue;
 

@@ -7,7 +7,7 @@ import {
   Fn, If, Loop, Break, Continue, Discard, select, uniform, texture, texture3D, varying,
   positionGeometry, modelViewMatrix, cameraProjectionMatrix, screenCoordinate, depth,
   vec2, vec3, vec4, float, int, abs, min, max, mix, clamp, pow, floor, fract, sin,
-  dot, normalize, length, distance, all, any, equal, notEqual, sRGBTransferOETF
+  dot, normalize, length, distance, all, any, equal, notEqual
 } from 'three/tsl';
 import { Lut } from '../core/CustomLut.js'
 import { MatCapPresets } from '../utils/createMatCapTexture.js';
@@ -98,9 +98,6 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
           const rampPosition = clamp( intensity, 0.0, 1.0 ).mul( nColors.sub( 1.0 ) ).add( 0.5 ).div( nColors );
           rgb.assign( u.colorRampPalette.sample( vec2( rampPosition, 0.5 ) ).level( 0 ).rgb );
         } );
-      } else {
-        // Do we need this?
-        rgb.assign( sRGBTransferOETF( rgb ) );
       }
       return { rgb, alpha };
     };
@@ -325,6 +322,7 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
 
     // the GLSL shader wrote these values to the screen as they are
     return fromDisplayColor( color );
+    // return color;
 
   } )();
 }
@@ -353,9 +351,12 @@ class RayMarchingMaterial extends NodeMaterial {
     this._useDithering = true;
     this._useGradientMap = gradientMap !== null;
 
-    // only continuous (single-channel) volumes are colored through the ramp
-    // with or without linearRGB flag does not change atlas ISO surface (color is still off)
-    const colorLUT = new Lut( colorMap , nColors );
+    // only continuous (single-channel) volumes are colored through the ramp.
+    // display (sRGB) bytes: the palette is read back as a byte texture that
+    // this shader, `SliceMaterial` and the ISO surface all treat as display
+    // values. A linear palette here is decoded a second time by
+    // `fromDisplayColor` and comes out too dark.
+    const colorLUT = new Lut( colorMap , nColors, false );
     colorLUT.minV = 0;
     colorLUT.maxV = nColors - 1;
     this.singleChannelLUT = colorLUT;
@@ -482,7 +483,9 @@ class RayMarchingMaterial extends NodeMaterial {
       keyColors[ i * 4 ] = keyColor.r * 255;
       keyColors[ i * 4 + 1 ] = keyColor.g * 255;
       keyColors[ i * 4 + 2 ] = keyColor.b * 255;
-      keyColors[ i * 4 + 3 ] = keyColor.a * 255;
+      // `Color` carries no alpha, so this channel is opaque; the samplers read
+      // `.rgb` only
+      keyColors[ i * 4 + 3 ] = 255;
     }
     palette.needsUpdate = true;
   }
