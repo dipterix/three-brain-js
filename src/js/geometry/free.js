@@ -351,9 +351,11 @@ class FreeMesh extends AbstractThreeBrainObject {
   }
 
   /**
-   * What a named vertex dataset carries at `vertexIndex`, as `"<name> = <v>"`
-   * for measurements or `"<name> = <label>"` for annotations. Returns undefined
-   * when the data is absent, still loading, or belongs to another surface.
+   * What a named vertex dataset carries at `vertexIndex`, as `"<v> (<name>)"`
+   * for measurements or `"<label> (<name>)"` for annotations. The value leads
+   * because the info panel is narrow: a long data name (a file name, say) may
+   * run off the edge, but it cannot hide the value. Returns undefined when the
+   * data is absent, still loading, or belongs to another surface.
    */
   formatVertexValue( dataName, vertexIndex ) {
     if( typeof dataName !== "string" || dataName === "" || dataName === "[none]" ) { return; }
@@ -370,7 +372,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       // `_frameData` is the frame currently on screen; `vertexData` holds them all
       const values = dataObject._frameData;
       if( !values || values.length <= vertexIndex ) { return; }
-      return `${ dataName } = ${ formatDataValue( values[ vertexIndex ] ) }`;
+      return `${ formatDataValue( values[ vertexIndex ] ) } (${ dataName })`;
     }
 
     if( dataObject.isSurfaceAnnotation ) {
@@ -379,7 +381,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       if( !vertexKeys || !labels ) { return; }
       const label = labels.get( vertexKeys[ vertexIndex ] );
       if( label === undefined ) { return; }
-      return `${ dataName } = ${ label }`;
+      return `${ label } (${ dataName })`;
     }
 
     return;

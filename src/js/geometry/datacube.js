@@ -327,8 +327,10 @@ class DataCube extends AbstractThreeBrainObject {
               typeof volume.getValueFromPosition === "function" ) {
             const overlay = volume.getValueFromPosition( hit.point );
             if( overlay !== undefined ) {
+              // value before name, as on surfaces: a long volume name (a
+              // dropped file, say) may run off the panel but cannot hide it
               const atlasType = this._canvas.get_state( "atlas_type" );
-              text += `  (${ atlasType ? atlasType + ": " : "" }${ overlay })`;
+              text += `  (${ overlay }${ atlasType ? ", " + atlasType : "" })`;
             }
           }
         }
