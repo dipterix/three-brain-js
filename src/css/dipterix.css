@@ -225,6 +225,11 @@
   max-width: var(--tp-blade-value-max-width);
 }
 
+.threejs-control .tp-lblv-nol .tp-lblv_v {
+  max-width: 100%;
+}
+
+
 /* folders whose widgets need the full row width (the drag-and-drop uploader) */
 .threejs-control .threejs-control-ensure-width .tp-lblv_v {
   /* min-width: var(--tp-blade-value-min-width);
