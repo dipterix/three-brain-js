@@ -4,7 +4,7 @@ import {
   BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute, InstancedBufferAttribute,
   Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
-  SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth
+  SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth, DynamicDrawUsage
 } from 'three';
 // import { addColorCoat } from '../shaders/addColorCoat.js';
 import {
@@ -472,8 +472,9 @@ class Electrode extends AbstractThreeBrainObject {
           keyframe[ v.time ][ idx ] = v.value;
         });
       });
+      // object keys are strings; times are numbers, as in `_registerAnimationKeyFrames`
       const keyframe2 = Object.keys( keyframe ).map(t => {
-        return [t, keyframe[ t ]];
+        return [Number( t ), keyframe[ t ]];
       }).sort((a, b) => {
         return a[0] - b[0];
       });
@@ -746,6 +747,12 @@ class Electrode extends AbstractThreeBrainObject {
         instancedObjects.setColorAt( ii, this.defaultColor );
       });
       this.instancedObjects.instanceMatrix.needsUpdate = true;
+      // three (r185) draws instance colors from a copy whose version it syncs
+      // only after deciding whether to upload, so a `needsUpdate` shows one
+      // render late -- and `updateColors()` recolors inside the one render a
+      // controller asks for. Dynamic usage uploads on every render instead.
+      // Must be set before the first render, when the material is built.
+      this.instancedObjects.instanceColor.setUsage( DynamicDrawUsage );
       this.object.add( instancedObjects );
     }
 
