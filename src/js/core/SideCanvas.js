@@ -38,6 +38,17 @@ class SideCanvas {
     return this._enabled;
   }
 
+  // A locked panel sits in a cell of a tiled view layout: it cannot be
+  // dragged, resized, or reset to the floating column
+  set locked( v ) {
+    this._locked = v === true;
+    this.$el.classList.toggle( 'locked', this._locked );
+  }
+
+  get locked () {
+    return this._locked;
+  }
+
   _updateRenderThreshold( distance, save = true ) {
     if( distance && typeof distance === "object" ) {
       if( save ) {
@@ -190,8 +201,9 @@ class SideCanvas {
     this.$canvas.style.width = '100%';
 		this.$canvas.style.height = '100%';
 
-    let _offsetX = Math.round( offsetX || 0 );
-    let _offsetY = Math.round( offsetY || (this.order * w) );
+    // `reset()` passes NaN for the default column position; 0 is a real offset
+    let _offsetX = Math.round( Number.isFinite( offsetX ) ? offsetX : 0 );
+    let _offsetY = Math.round( Number.isFinite( offsetY ) ? offsetY : (this.order * w) );
     if( _offsetX === 0 ) { _offsetX = '0'; } else { _offsetX = `${_offsetX}px`; }
     if( _offsetY === 0 ) { _offsetY = '0'; } else { _offsetY = `${_offsetY}px`; }
 
@@ -404,6 +416,8 @@ class SideCanvas {
     this.$canvas.removeEventListener( "mouseup" , this._onMouseUp );
     this.$canvas.removeEventListener( "mousemove" , this._onMouseMove );
     this.$canvas.removeEventListener( "wheel" , this._onMouseWheel );
+
+    this._resizeObserver.disconnect();
 
     this.mainCanvas.$el.removeEventListener(
       "viewerApp.canvas.setVoxelRenderDistance",
@@ -648,14 +662,22 @@ class SideCanvas {
 		// make sure z-index is set so overlay canvas is underneath
 		this.zIndex = 0;
 
+		this._locked = false;
+
 		// Make header draggable within viewer
     makeDraggable( this.$el, this.$header, undefined, () => {
       this.raiseTop();
-    });
+    }, () => !this._locked );
 
 
     // Make $el resizable, keep current width and height
     makeResizable( this.$el, true );
+
+    // The drawing buffer follows the panel's size, however it was changed
+    // (a view layout, the resize corner, a reset), so a large panel is not an
+    // upscaled small picture. It never drops below the 256 px it always had.
+    this._resizeObserver = new ResizeObserver( this._onResize );
+    this._resizeObserver.observe( this.$el );
 
 
     // remembers rotation
@@ -856,7 +878,20 @@ class SideCanvas {
 	  this.zoom( newZoomLevel );
   }
   _onDoubleClick = () => {
+    if( this._locked ) { return; }
     this.reset({ zoomLevel : false, position : true, size : true })
+  }
+
+  _onResize = ( entries ) => {
+    const entry = entries[ entries.length - 1 ];
+    const renderHeight = Math.max( 256, Math.round( entry.contentRect.width ) );
+    if( renderHeight === this._renderHeight ) { return; }
+    this._renderHeight = renderHeight;
+    // before the renderer is ready, `useRendererInterface()` picks the size up
+    if( this.rendererInterface ) {
+      this.rendererInterface.setSize( renderHeight, renderHeight, false );
+      this.mainCanvas.needsUpdate = true;
+    }
   }
 
   _onSetVoxelRenderDistance = ( event ) => {

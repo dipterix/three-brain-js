@@ -93,7 +93,7 @@ function registerPresetRecorder( ViewerControlCenter ){
       const glCanvas = this.canvas.$mainGLCanvas,
             pixelRatio = this.canvas.mainRendererInterface.getPixelRatio();
       let totalHeight = glCanvas.height,
-          sideWidth = this.canvas.sideCanvasEnabled ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
+          sideWidth = this.canvas.sideCanvasOverlaysMain ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
           sideHeight = sideWidth - pixelRatio,
           totalWidth = glCanvas.width + sideWidth,
           mainWidth = totalWidth - sideWidth;
@@ -109,8 +109,9 @@ function registerPresetRecorder( ViewerControlCenter ){
       this.canvas.mainRendererInterface.render( this.canvas.scene, this.canvas.mainCamera );
       pdf_wrapper.draw_image( glCanvas, sideWidth, 0, mainWidth, totalHeight );
 
-      // draw side panels
-      if( this.canvas.sideCanvasEnabled ) {
+      // draw side panels, where they float over the 3D view; a tiled layout
+      // captures the 3D view alone
+      if( this.canvas.sideCanvasOverlaysMain ) {
         this.canvas.sideCanvasList.axial.render();
         pdf_wrapper.draw_image(
           this.canvas.sideCanvasList.axial.$canvas,

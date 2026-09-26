@@ -227,7 +227,7 @@ function registerPresetRaymarchingVoxels( ViewerControlCenter ){
       .setValue( 'normal' );
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_CYCLE_ATLAS_MODE,
-      shiftKey  : false,
+      shiftKey  : true,
       ctrlKey   : false,
       altKey    : false,
       metaKey   : false,

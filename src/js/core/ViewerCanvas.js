@@ -402,8 +402,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.wrapper_canvas.style.position = 'relative';
     this.wrapper_canvas.style.flexWrap = 'wrap';
     this.wrapper_canvas.style.width = '100%';
+    this.wrapper_canvas.style.height = '100%';
     this.sideCanvasEnabled = false;
     this.sideCanvasList = {};
+    // the layout last placed by `applyViewLayout()`
+    this.viewLayout = undefined;
 
     // Generate inner canvas DOM element
     // coronal (FB), axial (IS), sagittal (LR)
@@ -1656,59 +1659,59 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // callbacks
   handle_resize(width, height, lazy = false, center_camera = false){
 
-    if( this._disposed ) { return; }
-    if(width === undefined){
+    if ( this._disposed ) { return; }
+    if ( width === undefined ) {
       width = this.client_width;
       height = this.client_height;
-
-    }else{
+    } else {
       this.client_width = width;
       this.client_height = height;
     }
 
     // console.debug('width: ' + width + '; height: ' + height);
 
-    if(lazy){
+    if ( lazy ) {
+
       this.trackball.handleResize();
-
       this.needsUpdate = true;
+      return;
 
-      return(undefined);
     }
-
-    var main_width = width,
-        main_height = height;
-
-    // Because when panning controls, we actually set views, hence need to calculate this smartly
-    // Update: might not need change
-	  if( center_camera ){
-      this.mainCamera.reset({ fov : true, position : false, zoom : false });
-	  }else{
-	    this.mainCamera.handleResize();
-	  }
-
-    this.main_canvas.style.width = main_width + 'px';
-    this.main_canvas.style.height = main_height + 'px';
-
-    this.mainRendererInterface.setSize( main_width, main_height );
 
     const pixelRatio = this.pixel_ratio[0];
+    const mainWidth = width, 
+          mainHeight = height;
+    
+    this.main_canvas.style.width = mainWidth + 'px';
+    this.main_canvas.style.height = mainHeight + 'px';
 
-    if( this.domElement.width != main_width * pixelRatio ){
-      this.domElement.width = main_width * pixelRatio;
-      this.domElement.style.width = main_width + 'px';
+    this.mainRendererInterface.setSize( mainWidth, mainHeight );
+    
+    if( this.domElement.width != mainWidth * pixelRatio ){
+      this.domElement.width = mainWidth * pixelRatio;
+      this.domElement.style.width = mainWidth + 'px';
     }
 
-    if( this.domElement.height != main_height * pixelRatio ){
-      this.domElement.height = main_height * pixelRatio;
-      this.domElement.style.height = main_height + 'px';
+    if( this.domElement.height != mainHeight * pixelRatio ){
+      this.domElement.height = mainHeight * pixelRatio;
+      this.domElement.style.height = mainHeight + 'px';
     }
 
-    this.video_canvas.height = main_height / 4;
+    this.video_canvas.height = mainHeight / 4;
 
     this.trackball.handleResize();
 
     this.needsUpdate = true;
+
+    // Because when panning controls, we actually set views, hence need to calculate this smartly
+    // Update: might not need change
+    if( center_camera ){
+      this.mainCamera.reset({ fov : true, position : false, zoom : false });
+    }else{
+      this.mainCamera.handleResize();
+    }
+    
+
 
   }
 
@@ -1780,16 +1783,33 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
-  // Font size magnification
+  // Font size magnification (R's `cex`)
   setFontSize( magnification = 1 ){
-    // font size
-    this._lineHeight_normal = Math.round( 24 * this.pixel_ratio[0] * magnification );
-    this._lineHeight_small = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_normal = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_small = Math.round( 16 * this.pixel_ratio[0] * magnification );
-    this._lineHeight_legend = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_legend = Math.round( 16 * this.pixel_ratio[0] * magnification );
+    this._fontMagnification = magnification;
     this.set_state("font_magnification", magnification);
+    this._applyFontSize();
+  }
+
+  /**
+   * Sizes the text drawn on the 3D view: base size x pixel ratio x `cex` x the
+   * layout's scale. In a `sliceview-*` layout the scale is the 3D view's height
+   * over the viewer's, so the text shrinks with the panel; in `3dview` it is 1.
+   * The title has never followed `cex`, only the layout.
+   */
+  _applyFontSize() {
+    const layoutScale = this._layoutFontScale ?? 1,
+          scale = this.pixel_ratio[0] * layoutScale,
+          size = ( base, s ) => Math.max( 1, Math.round( base * s ) );
+    const textScale = scale * ( this._fontMagnification ?? 1 );
+    this._lineHeight_normal = size( 24, textScale );
+    this._lineHeight_small = size( 20, textScale );
+    this._fontSize_normal = size( 20, textScale );
+    this._fontSize_small = size( 16, textScale );
+    this._lineHeight_legend = size( 20, textScale );
+    this._fontSize_legend = size( 16, textScale );
+    this._lineHeight_title = size( 25, scale );
+    this._fontSize_title = size( 20, scale );
+    this.needsUpdate = true;
   }
 
   // Get mouse position (normalized)
@@ -1813,11 +1833,83 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return this.mouseRaycaster;
   }
 
+  /**
+   * Places the 3D view and the slice panels as `computeViewLayout()` says. In
+   * `3dview` the 3D view stays in the page flow, and the panels float over it
+   * where the user left them; in a `sliceview-*` layout every view is placed
+   * absolutely, the panels are locked in their cells, and the 3D view is
+   * framed in the foreground color.
+   */
+  applyViewLayout( layout ) {
+    const wasTiled = !!( this.viewLayout && this.viewLayout.slices );
+    this.viewLayout = layout;
+
+    const main = layout.main,
+          style = this.main_canvas.style;
+    if( layout.slices ) {
+      style.position = 'absolute';
+      style.left = `${ main.left }px`;
+      style.top = `${ main.top }px`;
+    } else {
+      style.position = '';
+      style.left = '';
+      style.top = '';
+    }
+    this.main_canvas.classList.toggle( 'framed', !!layout.slices );
+    this.handle_resize( main.width, main.height );
+
+    // the text on the 3D view shrinks with it
+    const layoutFontScale = layout.slices ? main.height / layout.view.height : 1;
+    if( layoutFontScale !== this._layoutFontScale ) {
+      this._layoutFontScale = layoutFontScale;
+      this._applyFontSize();
+    }
+
+    [ "coronal", "axial", "sagittal" ].forEach( ( type ) => {
+      const sideCanvas = this.sideCanvasList[ type ];
+      if( layout.slices ) {
+        const cell = layout.slices[ type ];
+        sideCanvas.locked = true;
+        sideCanvas.setDimension({
+          width   : cell.size,
+          offsetX : cell.left,
+          offsetY : cell.top
+        });
+      } else if( wasTiled ) {
+        // back to the floating column, as a double-click on the header does
+        sideCanvas.locked = false;
+        sideCanvas.reset({ zoomLevel : false, position : true, size : true });
+      }
+    });
+    this.needsUpdate = true;
+  }
+
+  // Whether the slice panels float over the left edge of the 3D view, which
+  // the text drawn on it and the captures have to leave room for
+  get sideCanvasOverlaysMain() {
+    return this.sideCanvasEnabled &&
+      ( !this.viewLayout || this.viewLayout.mode === "3dview" );
+  }
+
   // -------- Camera, control trackball ........
   resetSideCanvas({
     width, zoomLevel = true, position = false,
     coronal = true, axial = true, sagittal = true
   } = {}) {
+    // A tiled layout decides where the panels go and how big they are
+    if( this.viewLayout && this.viewLayout.slices ) {
+      [ "coronal", "axial", "sagittal" ].forEach( ( type ) => {
+        if( { coronal, axial, sagittal }[ type ] ) {
+          this.sideCanvasList[ type ].reset({
+            zoomLevel : zoomLevel,
+            position  : false,
+            size      : false,
+            crosshair : true
+          });
+        }
+      });
+      return;
+    }
     if( typeof width !== 'number' ) {
       width = this._sideCanvasCSSWidth;
     }
@@ -2239,7 +2331,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( this.capturer_recording ) {
       this.domContext.drawImage( this.$mainGLCanvas, 0, 0, _width, _height);
 
-      if( this.sideCanvasEnabled ){
+      if( this.sideCanvasOverlaysMain ){
         const sideWidth = this.side_width * this.pixel_ratio[0],
               sideHeight = sideWidth - this.pixel_ratio[0];
 
@@ -2425,7 +2517,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // check if capturer is working
     if( this.capturer_recording && this.capturer ){
 
-      if( this.sideCanvasEnabled ){
+      if( this.sideCanvasOverlaysMain ){
         const sideHeight = (this.side_width - 1) * this.pixel_ratio[0];
 
         const sideCanvasTitleSize = this._lineHeight_small;
@@ -2631,15 +2723,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const pixelRatio = this.pixel_ratio[0];
 
     this._fontType = 'Courier New, monospace';
-    this._lineHeight_title = this._lineHeight_title || Math.round( 25 * pixelRatio );
-    this._fontSize_title = this._fontSize_title || Math.round( 20 * pixelRatio );
 
     // this.domContext.fillStyle = this.foreground_color;
     // this.domContext.font = `${ this._fontSize_title }px ${ this._fontType }`;
     contextWrapper.set_font_color( this.foreground_color );
     contextWrapper.set_font( this._fontSize_title, this._fontType );
 
-    if( this.sideCanvasEnabled ) {
+    if( this.sideCanvasOverlaysMain ) {
       x += this.side_width;
     }
     x += 10; // padding left
@@ -2681,8 +2771,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       contextWrapper = this.domContextWrapper;
     }
 
-    this._lineHeight_normal = this._lineHeight_normal || Math.round( 25 * this.pixel_ratio[0] );
-    this._fontSize_normal = this._fontSize_normal || Math.round( 15 * this.pixel_ratio[0] );
 
     contextWrapper._lineHeight_normal = this._lineHeight_normal;
     contextWrapper._fontSize_normal = this._fontSize_normal;
@@ -2720,8 +2808,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       currentValue = this.animParameters.objectFocused.currentDataValue;
     }
 
-    this._lineHeight_legend = this._lineHeight_legend || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_legend = this._fontSize_legend || Math.round( 8 * this.pixel_ratio[0] );
 
     const pixelRatio = this.pixel_ratio[0];
     cmap.renderLegend(
@@ -2746,10 +2832,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
    * selection block and the focus-mode block so the two stay aligned.
    */
   _infoTextLayout( w ) {
-    this._lineHeight_normal = this._lineHeight_normal || Math.round( 20 * this.pixel_ratio[0] );
-    this._lineHeight_small = this._lineHeight_small || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_normal = this._fontSize_normal || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_small = this._fontSize_small || Math.round( 8 * this.pixel_ratio[0] );
 
     let text_left;
     const infoTextPosition = this.get_state( 'info_text_position' );
@@ -2757,7 +2839,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
     } else if ( infoTextPosition === "right" ) {
       text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
-    } else if ( this.sideCanvasEnabled ) {
+    } else if ( this.sideCanvasOverlaysMain ) {
       text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
     } else {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
@@ -3684,6 +3766,9 @@ mapped = false,
     // Set renderer background to be v
     this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
     this.$el.style.backgroundColor = this.background_color;
+    // for the CSS that has to stand out from the background (the 3D view's
+    // frame in a tiled layout)
+    this.$el.style.setProperty( '--threebrain-foreground', `${this.foreground_color}20` );
 
     if( backgroundLuma < 0.4 ) {
       this.$el.classList.add( 'dark-viewer' );

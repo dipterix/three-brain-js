@@ -1,4 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
+import { VIEW_LAYOUTS } from '../core/ViewLayout.js';
 import { Vector3, Matrix4 } from 'three';
 
 // 6. toggle side panel
@@ -20,11 +21,45 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         }else{
           this.canvas.disableSideCanvas();
         }
+        // a tiled layout collapses to the 3D view alone, and comes back
+        this.app.resize();
         // this.fire_change({ 'side_display' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
       .setValue( initialDisplay );
+
+    const viewLayoutCtrl = this.gui.addController(
+      'View Layout', "3dview", {
+        args: VIEW_LAYOUTS, folderName: folderName
+      })
+      .onChange((v) => {
+        if( typeof v !== "string" ) { return; }
+        this.app.setViewMode( v );
+        // a tiled layout needs the panels it tiles
+        if( v !== "3dview" && !sidePanelCtrl.getValue() ) {
+          sidePanelCtrl.setValue( true );
+        }
+        this.broadcast();
+      })
+      .setValue( "3dview" );
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_VIEW_LAYOUT,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_VIEW_LAYOUT,
+        name    : 'View Layout',
+        folderName : folderName,
+      },
+      callback  : () => {
+        const idx = ( VIEW_LAYOUTS.indexOf( viewLayoutCtrl.getValue() ) + 1 ) % VIEW_LAYOUTS.length;
+        viewLayoutCtrl.setValue( VIEW_LAYOUTS[ idx ] );
+      }
+    });
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_SIDE_PANEL,

@@ -5,6 +5,7 @@ import { asArray } from '../utility/asArray.js';
 import { EnhancedGUI } from './EnhancedGUI.js';
 import { ViewerControlCenter } from './ViewerControlCenter.js';
 import { ViewerCanvas } from './ViewerCanvas.js';
+import { VIEW_LAYOUTS, computeViewLayout } from './ViewLayout.js';
 import { MouseKeyboard } from './MouseKeyboard.js';
 import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
@@ -69,6 +70,11 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
+
+    // Where the 3D view and the slice panels go, one of `VIEW_LAYOUTS`:
+    // 3dview (default, slices float over the 3D view) or sliceview-* (tiled)
+    this.viewMode = "3dview";
+
     // timer reading when the pointer left the viewer; undefined = clock stopped
     this._idleRenderSince = undefined;
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
@@ -374,20 +380,20 @@ class ViewerApp extends ThrottledEventDispatcher {
       return ;
     }
     this.$settingsPanel.style.maxHeight = _height + 'px';
-    if( this.controllerClosed ) {
-      this.canvas.handle_resize( _width, _height );
-    } else {
-      this.canvas.handle_resize( _width - 300, _height );
-    }
-    /* FIXME : move to canvas, not here!!!
-    if( this._reset_flag ){
-      this._reset_flag = false;
-      this.canvas.sideCanvasList.coronal.reset({ zoomLevel: true, position: true, size : true });
-      this.canvas.sideCanvasList.axial.reset({ zoomLevel: true, position: true, size : true });
-      this.canvas.sideCanvasList.sagittal.reset({ zoomLevel: true, position: true, size : true });
-    }
-    this.canvas.start_animation(0);
-    */
+
+    const viewWidth = this.controllerClosed ? _width : ( _width - 300 ),
+          viewHeight = _height;
+
+    // With the slice panels hidden there is nothing to tile, so the 3D view
+    // takes the whole view; the chosen layout comes back with the panels.
+    const viewMode = this.canvas.sideCanvasEnabled ? this.viewMode : "3dview";
+    this.canvas.applyViewLayout( computeViewLayout( viewMode, viewWidth, viewHeight ) );
+
+  }
+
+  setViewMode( mode ) {
+    this.viewMode = VIEW_LAYOUTS.includes( mode ) ? mode : "3dview";
+    this.resize();
   }
 
   bootstrap( { bootstrapData, reset = false } ) {

@@ -344,6 +344,21 @@
   background-color: rgba(250,200,200,0.8);
 }
 
+/* A slice panel locked into a cell of a tiled view layout */
+.THREEBRAIN-SIDE.locked .resizers {
+  display: none;
+}
+.THREEBRAIN-SIDE.locked .THREEBRAIN-SIDE-HEADER {
+  cursor: default;
+}
+
+/* The 3D view in a tiled view layout, framed in the viewer's foreground color
+   (set by `ViewerCanvas.setBackground()`), drawn inside its box so the size and
+   the mouse positions stay as they are */
+.THREEBRAIN-MAIN-CANVAS.framed {
+  outline: 1px solid var(--threebrain-foreground, #00000020);
+}
+
 
 
 
