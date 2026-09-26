@@ -3,7 +3,7 @@ import { NodeMaterial } from 'three/webgpu';
 import {
   Fn, If, Discard, select, uniform, texture, texture3D, varying,
   positionGeometry, normalGeometry, modelWorldMatrix,
-  vec2, vec3, vec4, float, abs, min, max, mix, clamp, round, length, all, equal
+  vec2, vec3, vec4, float, abs, min, max, mix, clamp, length, all, equal
 } from 'three/tsl';
 import { CONSTANTS } from '../core/constants.js';
 import {
@@ -20,12 +20,11 @@ import {
  *   - a mask: voxels darker than `zeroThreshold` and outside the mask are cut
  */
 
-// Nearest-voxel lookups at four times the volume resolution
-const roundToSubVoxel = ( position, shape ) =>
-  round( position.mul( shape.mul( 4.0 ) ) ).div( shape.mul( 4.0 ) );
-
-// `1 / ( shape - 1 )`, turning voxel indices into texture coordinates
-const voxelScale = ( shape ) => vec3( 1.0 ).div( max( shape.sub( 1.0 ), vec3( 1.0 ) ) );
+// Voxel indices to texture coordinates. Voxel centers sit at integer indices
+// (NIfTI), so voxel i covers [ i - 0.5, i + 0.5 ) and its texel is
+// [ i, i + 1 ) / N: a nearest lookup then reads the voxel at round( ijk ), as
+// the CPU readouts do (`DataCube.valueAtWorldPosition`, `getCrosshairValue`)
+const toTextureCoordinates = ( ijk, shape ) => ijk.add( 0.5 ).div( shape );
 
 const safeNormalize = ( v ) =>
   select( length( v ).greaterThan( 1e-8 ), v.div( length( v ) ), vec3( 0.0 ) );
@@ -37,7 +36,8 @@ const isColored = ( rgb, alpha ) =>
 // steps of one overlay voxel (for the outlines)
 function createSliceVaryings( u ) {
   const worldPosition = modelWorldMatrix.mul( vec4( positionGeometry, 1.0 ) );
-  const overlayScale = voxelScale( u.overlayShape );
+  // one overlay voxel, in texture coordinates
+  const overlayScale = vec3( 1.0 ).div( u.overlayShape );
 
   // the slice plane's two in-plane axes, from its normal
   const alongZ = abs( normalGeometry.z ).greaterThanEqual( 0.5 );
@@ -49,9 +49,9 @@ function createSliceVaryings( u ) {
       .mul( min( overlayScale.x, overlayScale.y, overlayScale.z ) );
 
   return {
-    underlay  : varying( u.world2IJK.mul( worldPosition ).xyz.div( max( u.mapShape.sub( 1.0 ), vec3( 1.0 ) ) ) ),
-    mask      : varying( u.mask2IJK.mul( worldPosition ).xyz.mul( voxelScale( u.maskShape ) ) ),
-    overlay   : varying( u.overlay2IJK.mul( worldPosition ).xyz.mul( overlayScale ) ),
+    underlay  : varying( toTextureCoordinates( u.world2IJK.mul( worldPosition ).xyz, u.mapShape ) ),
+    mask      : varying( toTextureCoordinates( u.mask2IJK.mul( worldPosition ).xyz, u.maskShape ) ),
+    overlay   : varying( toTextureCoordinates( u.overlay2IJK.mul( worldPosition ).xyz, u.overlayShape ) ),
     overlayStepX : varying( overlayStep( axisX ) ),
     overlayStepY : varying( overlayStep( axisY ) ),
   };
@@ -68,7 +68,9 @@ function createSliceFragmentNode( u, positions, { hasOverlay, overlayColorCount,
       Discard();
     } );
 
-    const underlayIntensity = u.map.sample( roundToSubVoxel( p, u.mapShape ) ).level( 0 ).r.toVar();
+    // sampled where the fragment is: snapping to a sub-voxel grid first would
+    // move the voxel boundaries off their half-integer positions
+    const underlayIntensity = u.map.sample( p ).level( 0 ).r.toVar();
     const overlayIntensity = float( 0.0 ).toVar();
     const intensity = float( underlayIntensity ).toVar();
     adjustIntensity( intensity, u.brightness, u.contrast );
@@ -80,7 +82,7 @@ function createSliceFragmentNode( u, positions, { hasOverlay, overlayColorCount,
         .and( min( q.x, q.y, q.z ).greaterThanEqual( 0.0 ) )
         .and( max( q.x, q.y, q.z ).lessThanEqual( 1.0 ) ), () => {
 
-        const binPosition = roundToSubVoxel( q, u.overlayShape ).toVar();
+        const binPosition = vec3( q ).toVar();
         const sample = u.overlayMap.sample( binPosition ).level( 0 ).toVar();
         const overlayRGB = vec3( sample.rgb ).toVar();
         const overlayAlpha = float( sample.a ).toVar();
@@ -109,7 +111,7 @@ function createSliceFragmentNode( u, positions, { hasOverlay, overlayColorCount,
           // outlines: hide voxels whose in-plane neighbors all have the same color
           If( u.overlayAlpha.lessThanEqual( 0.0 ), () => {
             const sameAsNeighbor = ( step ) => all( equal(
-              u.overlayMap.sample( roundToSubVoxel( binPosition.add( step.mul( 0.25 ) ), u.overlayShape ) ).level( 0 ),
+              u.overlayMap.sample( binPosition.add( step.mul( 0.25 ) ) ).level( 0 ),
               sample ) );
             If( sameAsNeighbor( positions.overlayStepX ).and( sameAsNeighbor( positions.overlayStepX.negate() ) )
               .and( sameAsNeighbor( positions.overlayStepY ) ).and( sameAsNeighbor( positions.overlayStepY.negate() ) ), () => {

@@ -1132,7 +1132,10 @@ class DataCube2 extends AbstractThreeBrainObject {
         ( this.modelShape.z - 1.0 ) / 2.0
       )
 
-      let minV = maxV = this.voxelData[0];
+      // (was `let minV = maxV = ...`: in the bundle's strict mode the undeclared
+      // `maxV` threw, so no volume from R data -- such as a CT passed to
+      // `brain$localize()` as a loaded image -- was ever created)
+      let minV = this.voxelData[0], maxV = minV;
       this.voxelData.forEach((vd) => {
         if( minV > vd ) {
           minV = vd;
@@ -1145,7 +1148,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         slope : 1,
         intercept : 0,
         dataMin : minV,
-        dataMin : maxV,
+        dataMax : maxV,
       };
     }
     this.nVoxels = this.modelShape.x * this.modelShape.y * this.modelShape.z;

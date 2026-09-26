@@ -352,8 +352,10 @@ class SideCanvas {
     const canvasPosition = this.$canvas.getBoundingClientRect(); // left, top
     const canvasSize = get_element_size( this.$canvas );
 
-    const right = event.clientX - canvasPosition.left - canvasSize[0]/2 - 1;
-    const up = canvasSize[1]/2 + canvasPosition.top - event.clientY + 2;
+    // the crosshair goes exactly where the pointer is (it used to be nudged
+    // 1 px left and 2 px up, 1-2 mm at the default zoom)
+    const right = event.clientX - canvasPosition.left - canvasSize[0]/2;
+    const up = canvasSize[1]/2 + canvasPosition.top - event.clientY;
 
     this.raiseTop();
     // this.mainCanvas.updateCrosshairGroup();
@@ -400,8 +402,18 @@ class SideCanvas {
 
     this.headerTextNeedsUpdate = undefined;
 
-    // Let side slices track camera rotation
-    this.rendererInterface.render( this.mainCanvas.scene, this.camera );
+    // Let side slices track camera rotation.
+    // The viewer's background color is for the 3D view; the slices sit on this
+    // panel's black. Where no slice covers the view (past the volume's outer
+    // voxel faces), the scene's background would otherwise show through.
+    const scene = this.mainCanvas.scene,
+          background = scene.background;
+    scene.background = null;
+    try {
+      this.rendererInterface.render( scene, this.camera );
+    } finally {
+      scene.background = background;
+    }
   }
 
   dispose() {

@@ -163,7 +163,10 @@ function mappedColor( mappingType, overlayMaskEnabled, options, underlay ) {
       color = attribute( 'overlayColor', 'vec3' );
       break;
     case CONSTANTS.VOXEL_COLOR:
-      color = voxelColor( options, positionGeometry.add( vec3( 0.5, -0.5, 0.5 ) ), underlay );
+      // no position shift: `volumeMatrixInverse` puts voxel centers at integer
+      // indices (`free.js`). The old (0.5, -0.5, 0.5) only offset a half-voxel
+      // error in that matrix, and only for volumes in FreeSurfer's LIA order
+      color = voxelColor( options, positionGeometry, underlay );
       break;
     case CONSTANTS.ELECTRODE_COLOR:
       color = electrodeColor( options, positionGeometry.add( options.shift ), underlay );

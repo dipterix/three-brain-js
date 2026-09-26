@@ -641,11 +641,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     //   m._originalData.ijk2tkrRAS
     // ).invert();
 
+    // world -> voxel index, with voxel centers at integer indices (the volume's
+    // `model2vox`, as its ray-march and the slice overlay use); the shader adds
+    // 0.5 to land in the texel of the voxel whose center is nearest
     this._material_options.volumeMatrixInverse.value
-      .set( 1, 0, 0, m.modelShape.x / -2,
-            0, 1, 0, m.modelShape.y / -2,
-            0, 0, 1, m.modelShape.z / -2,
-            0, 0, 0, 1 )
+      .copy( m.model2vox ).invert()
       .premultiply( m.object.matrixWorld )
       .invert();
 
