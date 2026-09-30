@@ -2,7 +2,9 @@ import { EventDispatcher } from 'three';
 import { Pane } from 'tweakpane';
 import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { to_array, to_dict } from '../utils.js';
-import { EnhancedGUIController, COLOR_FALLBACK, normalizeColor } from './EnhancedGUIController.js';
+import {
+  EnhancedGUIController, COLOR_FALLBACK, normalizeColor, CONTROLLER_SPEC_CHANGED
+} from './EnhancedGUIController.js';
 
 const _openEvent = { type: 'open' };
 const _closeEvent = { type: 'close' };
@@ -423,6 +425,7 @@ class EnhancedGUI {
       choices : controllerArgs,
     });
     folder.controllers.push( controller );
+    controller._announce( CONTROLLER_SPEC_CHANGED );
 
     if( controller._isSelector || controller._isBool || controller._isNumber ) {
       // use function instead of => to alter "this"

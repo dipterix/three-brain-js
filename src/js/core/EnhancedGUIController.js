@@ -23,6 +23,13 @@ import { LineGraphView } from './LineGraphView.js';
 
 const COLOR_FALLBACK = "#ffffff";
 
+// Event types announced on the control panel's shared dispatcher (see
+// `EnhancedGUI`), so one listener (e.g. the R shiny driver) learns about every
+// controller: a value went through its change handlers, or a controller's
+// params (range, choices, visibility, existence) changed
+const CONTROLLER_VALUE_CHANGED = "controllerValueChanged";
+const CONTROLLER_SPEC_CHANGED  = "controllerSpecChanged";
+
 // Tweakpane's `input-color-string` plugin claims any string that parses as a
 // color, and it is registered ahead of `input-string`. A plain string controller
 // that happens to hold "#c2c2c2" would silently become a color picker, so every
@@ -248,6 +255,7 @@ class EnhancedGUIController {
     this._blade.dispose();
     this._blade = this._createBlade( at >= 0 ? at : undefined );
     this._decorate();
+    this._announce( CONTROLLER_SPEC_CHANGED );
     return this;
   }
 
@@ -261,6 +269,15 @@ class EnhancedGUIController {
 
   _runChange( value ) {
     this._changeHandlers.forEach( cb => { cb.call( this, value ); });
+    // a line graph follows the animation time on every frame: not announced
+    if( !this._isGraph ) { this._announce( CONTROLLER_VALUE_CHANGED ); }
+  }
+
+  _announce( type ) {
+    const folder = this._folder;
+    if( folder && typeof folder._dispatchEvent === "function" ) {
+      folder._dispatchEvent({ type : type, controller : this });
+    }
   }
   _runFinish( value ) {
     this._finishHandlers.forEach( cb => { cb.call( this, value ); });
@@ -463,6 +480,7 @@ class EnhancedGUIController {
     if( this._isGraph ) {
       this._graph._hidden = this._hidden;
     }
+    this._announce( CONTROLLER_SPEC_CHANGED );
     return this;
   }
   hide() {
@@ -471,6 +489,7 @@ class EnhancedGUIController {
   enable( enabled = true ) {
     this._disabled = !enabled;
     this._blade.disabled = this._disabled;
+    this._announce( CONTROLLER_SPEC_CHANGED );
     return this;
   }
   disable() {
@@ -492,6 +511,7 @@ class EnhancedGUIController {
     // the plot holds a ResizeObserver on its own element
     if( this._graph ) { this._graph.dispose(); }
     try { this._blade.dispose(); } catch (e) {}
+    this._announce( CONTROLLER_SPEC_CHANGED );
   }
 
   // ---- tooltip -----------------------------------------------------------
@@ -555,4 +575,7 @@ function mergeControllerRows( primary, secondary ) {
   return true;
 }
 
-export { EnhancedGUIController, COLOR_FALLBACK, mergeControllerRows, normalizeColor };
+export {
+  EnhancedGUIController, COLOR_FALLBACK, mergeControllerRows, normalizeColor,
+  CONTROLLER_VALUE_CHANGED, CONTROLLER_SPEC_CHANGED
+};

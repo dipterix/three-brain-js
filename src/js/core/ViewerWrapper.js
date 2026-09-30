@@ -170,6 +170,9 @@ class ViewerWrapper {
       shareRenderer : this.shareRenderer
     });
 
+    // Bind the viewer to the wrapper, so that the wrapper can be used to get the viewer
+    this.$viewerWrapper.threeBrainViewerApp = this.viewer;
+
     this.cacheViewer();
     this.initialized = true;
 

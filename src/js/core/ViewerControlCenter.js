@@ -9,6 +9,7 @@ import { ColorMapKeywords, addToColorMapKeywords } from './CustomLut.js';
 import { testColorString } from '../utility/color.js';
 import { normalizeImageName } from '../utility/normalizeImageName.js';
 import { setShaderProperty } from '../utils.js';
+import { CONTROLLER_VALUE_CHANGED } from './EnhancedGUIController.js';
 
 // 1. Background colors
 import { registerPresetBackground } from '../controls/PresetBackground.js';
@@ -490,6 +491,10 @@ class ViewerControlCenter extends EventDispatcher {
     showCoordinate( "Affine MNI152", "MNI152" );
     showCoordinate( "Crosshair ScanRAS", "Scanner" );
     showCoordinate( "Crosshair tkrRAS", "tkrRAS" );
+
+    // the values above skipped the change handlers: announce them so that
+    // listeners (e.g. the R shiny driver) still learn the new crosshair
+    this.gui.dispatchEvent({ type : CONTROLLER_VALUE_CHANGED });
 
   }
 

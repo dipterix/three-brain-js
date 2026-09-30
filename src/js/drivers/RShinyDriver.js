@@ -5,6 +5,14 @@ import { getThreeBrainInstance } from '../geometry/abstract.js';
 import { is_electrode } from '../geometry/electrode.js';
 import { CONSTANTS } from '../core/constants.js';
 import { TextDecor } from '../geometry/textdecor.js';
+import {
+  CONTROLLER_VALUE_CHANGED, CONTROLLER_SPEC_CHANGED
+} from '../core/EnhancedGUIController.js';
+
+// Controller values and specs are reported to shiny once the control panel has
+// been quiet this long (ms). Handlers that do not broadcast, and crosshair
+// clicks on the slices, would otherwise leave R with stale values
+const CONTROLLER_REPORT_DELAY = 500;
 
 // events to $wrapper
 // "viewerApp.mouse.click"
@@ -140,6 +148,8 @@ class RShinyDriver {
   }
 
   dispose() {
+    clearTimeout( this._controllersTimer );
+    clearTimeout( this._controllerSpecsTimer );
     if( this.app.controlCenter ) {
       try {
         // no need to remove this but just in case...
@@ -269,9 +279,53 @@ class RShinyDriver {
       "viewerApp.controller.change" , this._onControllersUpdated )
     this.app.controlCenter.addEventListener(
       "viewerApp.controller.broadcastData" , this._onControllersBroadcast );
-    
+    // the control panel is rebuilt with each data update: listen to the new one
+    const gui = this.app.controllerGUI;
+    gui.addEventListener( CONTROLLER_VALUE_CHANGED, this._scheduleControllersUpdate );
+    gui.addEventListener( CONTROLLER_SPEC_CHANGED, this._scheduleControllerSpecsUpdate );
+
     // Make sure dispatch to shiny to initialize controller values
     this._onControllersUpdated({ priority : "deferred" });
+    this._onControllerSpecsUpdated();
+  }
+
+  _scheduleControllersUpdate = () => {
+    clearTimeout( this._controllersTimer );
+    this._controllersTimer = setTimeout( () => {
+      this._onControllersUpdated({ priority : "deferred" });
+    }, CONTROLLER_REPORT_DELAY );
+  }
+
+  _scheduleControllerSpecsUpdate = () => {
+    clearTimeout( this._controllerSpecsTimer );
+    this._controllerSpecsTimer = setTimeout(
+      this._onControllerSpecsUpdated, CONTROLLER_REPORT_DELAY );
+  }
+
+  // `controller_specs`: what each controller accepts, keyed by its name (an
+  // object, because shiny flattens arrays sent as input values)
+  _onControllerSpecsUpdated = () => {
+    const specs = {};
+    this.app.controllerGUI.controllersRecursive()
+      .forEach((controller) => {
+        if( controller.isfake ) { return; }
+        const spec = {
+          name     : controller._name,
+          folder   : controller._folder._fullPaths.join(">"),
+          type     : controller._type,
+          hidden   : controller._hidden,
+          disabled : controller._disabled
+        };
+        if( controller._isSelector ) {
+          spec.choices = controller._names ?? [];
+          spec.values = controller._values ?? [];
+        }
+        if( controller._min !== undefined ) { spec.min = controller._min; }
+        if( controller._max !== undefined ) { spec.max = controller._max; }
+        if( controller._step !== undefined ) { spec.step = controller._step; }
+        specs[ controller._name ] = spec;
+      });
+    this.dispatchToShiny('controller_specs', specs, "deferred");
   }
 
   _onControllersUpdated = async ( event ) => {
@@ -430,16 +484,18 @@ class RShinyDriver {
     this.canvas.needsUpdate = true;
   }
   driveDisplayData ({ variable , range } = {}) {
+    // the control panel is rebuilt with each data update: always ask the app
+    const gui = this.app.controllerGUI;
     if( typeof variable === 'string' && variable !== '' ){
-      const controller = this.controllerGUI.getController( 'Display Data' );
-      if( controller._names.includes( variable ) ) {
+      const controller = gui.getController( 'Display Data' );
+      if( !controller.isfake && controller._names.includes( variable ) ) {
         controller.setValue( variable );
       }
     }
 
     range = asArray( range );
     if( range.length === 2 ){
-      this.controllerGUI
+      gui
         .getController( 'Display Range' )
         .setValue(`${range[0].toPrecision(5)},${range[1].toPrecision(5)}`);
     }
@@ -517,8 +573,14 @@ class RShinyDriver {
     }
     this.canvas.setVoxelRenderDistance({ distance : distance });
   }
-  driveChooseElectrode({ subjectCode, electrodeNumber } = {}) {
+  driveChooseElectrode({
+    subjectCode, electrodeNumber,
+    // names sent by R's `set_focused_electrode`
+    subject_code, electrode
+  } = {}) {
 
+    subjectCode = subjectCode ?? subject_code;
+    electrodeNumber = electrodeNumber ?? electrode;
     if( typeof subjectCode !== "string" || electrodeNumber === undefined ) {
       return;
     }
