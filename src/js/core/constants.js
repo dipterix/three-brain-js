@@ -119,6 +119,8 @@ CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_A = "Digit2";     // `2/⇧2` - adjust e
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_S = "Digit3";     // `3/⇧3` - adjust electrode locations along Superior/Inferior axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_QUATERNION = "Digit4";     // `4/⇧4` - rotate electrode shaft
 CONSTANTS.KEY_REGISTER_FROM_CROSSHAIR = "Backquote";    // `` ` `` - Register electrode from crosshair
+// same key; the canvas state `backtickIntent` decides which of the two it means
+CONSTANTS.KEY_SNAP_NEAREST_CLICKABLE  = "Backquote";    // `` ` `` - Focus the clickable object nearest the crosshair
 
 
 CONSTANTS.TOOLTIPS = {};
@@ -271,6 +273,10 @@ CONSTANTS.GEOMETRY = {
   // On-screen radius of the focus-mode marker at `mainCamera.zoom === 1`; the
   // marker divides by the live zoom each frame to stay this size.
   "focus-marker-size": 3.0,
+  // Backtick snap to the clickable object nearest the crosshair: it reaches
+  // this far (mm) past the side views' frustum, and never past the maximum
+  "crosshair-snap-margin": 5,
+  "crosshair-snap-max-distance": 10,
 };
 
 

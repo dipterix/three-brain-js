@@ -1881,9 +1881,13 @@ function register_controls_localization( ViewerControlCenter ){
         folderName : folderName,
       },
       callback  : ( event ) => {
+        // backtick is shared with the snap to the nearest clickable object
+        const intent = this.canvas.get_state( "backtickIntent" );
+        if( intent !== "register-from-crosshair" ) { return; }
         registerFromCrosshair();
       }
     });
+    this.canvas.set_state( "backtickIntent", "register-from-crosshair" );
 
     // Download as CSV
     this.gui.addController( 'Download Current as CSV', () => {

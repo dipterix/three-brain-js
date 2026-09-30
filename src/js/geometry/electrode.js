@@ -1938,6 +1938,45 @@ class Electrode extends AbstractThreeBrainObject {
     return;
   }
 
+  /**
+   * The contact center nearest `worldPosition`, in world space; the object's
+   * own position when the electrode has no contacts. Electrodes are always
+   * clickable, so `clickableOnly` only asks that the electrode be shown: it and
+   * every ancestor visible.
+   */
+  distanceTo({ worldPosition, clickableOnly = true, maxDistance = Infinity } = {}) {
+    if( !worldPosition || !worldPosition.isVector3 || !this.object ) { return null; }
+    if( clickableOnly ) {
+      for( let obj = this.object; obj; obj = obj.parent ) {
+        if( !obj.visible ) { return null; }
+      }
+    }
+
+    const maxDistSq = maxDistance * maxDistance;
+    const contacts = Array.isArray( this.contactCenter ) ? this.contactCenter : [];
+    let point;
+    if( contacts.length === 0 ) {
+      point = this.object.getWorldPosition( new Vector3() );
+    } else {
+      let bestIndex = -1, bestDistSq = Infinity;
+      for( let ii = 0; ii < contacts.length; ii++ ) {
+        if( !contacts[ ii ] ) { continue; }
+        const d = this.object.localToWorld( this._tmpVec3.copy( contacts[ ii ] ) )
+          .distanceToSquared( worldPosition );
+        if( d < bestDistSq ) {
+          bestDistSq = d;
+          bestIndex = ii;
+        }
+      }
+      if( bestIndex < 0 ) { return null; }
+      point = this.object.localToWorld( new Vector3().copy( contacts[ bestIndex ] ) );
+    }
+
+    const distSq = point.distanceToSquared( worldPosition );
+    if( distSq > maxDistSq ) { return null; }
+    return { object : this.object, point : point, distance : Math.sqrt( distSq ) };
+  }
+
   useMatrix4( m44 ) {
 
     // super.useMatrix4( m44, { applyScale : true } );

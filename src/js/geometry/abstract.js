@@ -134,6 +134,23 @@ class AbstractThreeBrainObject extends EventDispatcher {
     this.updateFocusMode( event.detail || {} );
   }
 
+  /**
+   * Distance from a world (tkrRAS) point to this object, for "nearest object"
+   * picks such as `ViewerCanvas.nearestClickable`. Not implemented here;
+   * subclasses that can be picked this way override it.
+   *
+   * @param {Object} [options]
+   * @param {Vector3} [options.worldPosition] - the query point, never modified
+   * @param {boolean} [options.clickableOnly] - answer only if this object can
+   *    currently be clicked (e.g. it is visible)
+   * @param {number} [options.maxDistance] - no hit beyond this distance
+   * @returns {Object|null} `{ object, point, distance }`, where `point` is a new
+   *    world-space `Vector3` on the object; `null` when there is no hit
+   */
+  distanceTo({ worldPosition, clickableOnly = true, maxDistance = Infinity } = {}) {
+    return null;
+  }
+
 
   warn( s ){
     console.warn(this._name + ' ' + s);

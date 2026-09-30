@@ -248,6 +248,21 @@ function registerPresetElectrodes( ViewerControlCenter ){
       }
     });
 
+    // Backtick is shared with localization's "Register from Crosshair"; each
+    // binding acts only on its own `backtickIntent`, and an unset intent is ours
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_SNAP_NEAREST_CLICKABLE,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      callback  : ( event ) => {
+        const intent = this.canvas.get_state( "backtickIntent", "snap-nearest-clickable" );
+        if( intent !== "snap-nearest-clickable" ) { return; }
+        this.canvas.snapCrosshairToNearestClickable();
+      }
+    });
+
   };
 
   ViewerControlCenter.prototype.addPreset_map_template = function(){

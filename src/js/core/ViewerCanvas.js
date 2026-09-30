@@ -622,16 +622,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const item = this.raycastObjects();
     if( !item || !item.object || !item.object.isMesh ) { return; }
 
-    // normal left-click
-    const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
-
-    // right-click, or the slice mode is snap-to-electrode
-    if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
-      // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
-
-      crosshairPosition.centerCrosshair = true;
-      this.setSliceCrosshair( crosshairPosition );
-    }
+    // normal left-click; a right-click also moves the crosshair
+    this.focusObjectAndCrosshair( item.object, {
+      intersectPoint : item.point,
+      setCrosshair   : event.detail.button == 2,
+    });
 
     this.needsUpdate = true;
   }
@@ -1646,6 +1641,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
     if( distance && typeof distance === "object" ) {
+      // the `Frustum` controller and R both come through here; recorded for
+      // readers such as `snapCrosshairToNearestClickable`
+      if( typeof distance.near === "number" ) {
+        this.set_state( "frustum_near", Math.abs( distance.near ) );
+      }
+      if( typeof distance.far === "number" ) {
+        this.set_state( "frustum_far", Math.abs( distance.far ) );
+      }
       this.dispatch({
         type : "viewerApp.canvas.setVoxelRenderDistance",
         data : {
@@ -2008,6 +2011,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       const inst = getThreeBrainInstance( m );
       if( inst && inst.isElectrode ) {
+        // A caller that names an electrode but no point (`,`/`.`, R's
+        // `set_focused_electrode`, the `Highlight Box` toggle) focuses the
+        // contact already focused, or the first one, so the box still shows
+        if( !intersectPoint ) {
+          const contacts = Array.isArray( inst.contactCenter ) ? inst.contactCenter : [];
+          const contact = contacts[ inst.state.focusedContact ] ?? contacts[ 0 ];
+          intersectPoint = contact ?
+            inst.object.localToWorld( new Vector3().copy( contact ) ) :
+            inst.object.getWorldPosition( new Vector3() );
+        }
+
         // let electrode know where clicked so it can update the contact list
         inst.focusContactFromWorld( intersectPoint );
 
@@ -2054,6 +2068,72 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.dispatch( _newObjectFocusedEvent );
     return intersectPoint;
+  }
+
+  /**
+   * Focus `m` as a click does. A right-click, the backtick, or the
+   * snap-to-electrode slice mode also moves the crosshair onto the focused
+   * point (for an electrode, its nearest contact).
+   */
+  focusObjectAndCrosshair( m, { intersectPoint = null, setCrosshair = false, centerCrosshair = true } = {} ) {
+    const crosshairPosition = this.focusObject( m, { intersectPoint : intersectPoint } );
+    if( crosshairPosition && ( setCrosshair || crosshairPosition.centerCrosshair ) ) {
+      crosshairPosition.centerCrosshair = centerCrosshair;
+      this.setSliceCrosshair( crosshairPosition );
+    }
+    return crosshairPosition;
+  }
+
+  /**
+   * The clickable object nearest a world (tkrRAS) point, as answered by each
+   * instance's `distanceTo`.
+   *
+   * @returns {Object|null} `{ object, point, distance }`, or `null` when nothing
+   *    lies within `maxDistance`
+   */
+  nearestClickable( worldPosition, maxDistance = Infinity ) {
+    let best = null;
+    this.threebrain_instances.forEach(( inst ) => {
+      if( typeof inst.distanceTo !== "function" ) { return; }
+      const hit = inst.distanceTo({
+        worldPosition : worldPosition,
+        clickableOnly : true,
+        // only something closer than the current best is of interest
+        maxDistance   : best ? best.distance : maxDistance,
+      });
+      if( hit && ( !best || hit.distance < best.distance ) ) {
+        best = hit;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * Focus the clickable object nearest the crosshair and move the crosshair
+   * onto it, as a right-click on it would (the backtick key).
+   *
+   * The search reaches the farther frustum distance of the side views plus
+   * `crosshair-snap-margin`, since a contact's shell can show in a slice while
+   * its center sits outside the frustum; it never reaches past
+   * `crosshair-snap-max-distance`, whatever the frustum.
+   */
+  snapCrosshairToNearestClickable() {
+    const near = Math.abs( this.get_state( "frustum_near", 2 ) ),
+          far  = Math.abs( this.get_state( "frustum_far", 2 ) );
+    const maxDistance = Math.min(
+      Math.max( near, far ) + CONSTANT_GEOM_PARAMS[ "crosshair-snap-margin" ],
+      CONSTANT_GEOM_PARAMS[ "crosshair-snap-max-distance" ]
+    );
+
+    const hit = this.nearestClickable( this._crosshairPosition, maxDistance );
+    if( !hit ) { return; }
+
+    this.focusObjectAndCrosshair( hit.object, {
+      intersectPoint  : hit.point,
+      setCrosshair    : true,
+      centerCrosshair : false,
+    });
+    return hit;
   }
 
   /*
