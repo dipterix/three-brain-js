@@ -414,6 +414,17 @@ class SideCanvas {
     } finally {
       scene.background = background;
     }
+
+    // A capture request (see `ViewerCanvas._onCaptureOnce`): the picture just
+    // drawn
+    if( this._lastRendered ) {
+      try {
+        this._lastRendered.dataURI = this.$canvas.toDataURL( "image/png" );
+      } catch (e) {
+        // left without `dataURI`: the page copies the canvas itself
+      }
+      this._lastRendered = undefined;
+    }
   }
 
   dispose() {

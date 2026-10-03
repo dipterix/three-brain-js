@@ -3,6 +3,7 @@ const path = require('path');
 const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
 // const HtmlWebpackPlugin = require('html-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
+const { version } = require('./package.json');
 
 module.exports = {
   mode: 'production',
@@ -66,6 +67,13 @@ module.exports = {
   },
   plugins: [
     new WebpackManifestPlugin({}),
+    // `threeBrain.VERSIONS` (src/js/index.js). The time is taken again at every
+    // build, so a rebuild in watch mode is stamped as well.
+    new webpack.DefinePlugin({
+      __THREEBRAIN_VERSION__    : JSON.stringify(version),
+      __THREEBRAIN_BUILD_TIME__ : webpack.DefinePlugin.runtimeValue(
+        () => JSON.stringify(new Date().toISOString()), true),
+    }),
     // new webpack.SourceMapDevToolPlugin({})
   ],
   optimization: {

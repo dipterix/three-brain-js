@@ -523,6 +523,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$el.addEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
     this.$el.addEventListener( 'viewerApp.mouse.leaveViewer', this._deactivateViewer );
     this.$el.addEventListener( 'viewerApp.mouse.mousedown', this._onMouseDown, { capture : true } );
+    this.$el.addEventListener( 'viewerApp.captureOnce', this._onCaptureOnce );
 
     this.trackball.addEventListener( "start", this._onTrackballStarted );
     this.trackball.addEventListener( "change", this._onTrackballChanged );
@@ -575,6 +576,31 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   _activateViewer = () => {
     this.activated = true;
+    this.needsUpdate = true;
+  }
+
+  /**
+   * A page that copies one of the viewer's canvases (e.g. an agent asking for
+   * a picture) dispatches a bubbling `viewerApp.captureOnce` event on it, with
+   * an object as `detail`. The viewer draws only when something changes, and
+   * a WebGPU canvas can be read only in the task that drew it (Chromium; other
+   * browsers keep the last frame, which may predate a change made just
+   * before). So the object is kept as `_lastRendered` of the view that draws
+   * that canvas (this one, or a side view), and a frame is requested; once the
+   * view has drawn, it writes the picture to `detail.dataURI` (a PNG data
+   * URL). An object left without `dataURI` (e.g. the viewer is hidden) tells
+   * the page to copy the canvas itself.
+   */
+  _onCaptureOnce = ( event ) => {
+    const request = event.detail;
+    if( !request || typeof request !== "object" ) { return; }
+    const sideCanvas = Object.values( this.sideCanvasList )
+      .find( ( side ) => side.$canvas === event.target );
+    if( sideCanvas ) {
+      sideCanvas._lastRendered = request;
+    } else {
+      this._lastRendered = request;
+    }
     this.needsUpdate = true;
   }
   _deactivateViewer = () => { this.activated = false; }
@@ -1345,6 +1371,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$el.removeEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
     this.$el.removeEventListener( 'viewerApp.mouse.leaveViewer', this._deactivateViewer );
     this.$el.removeEventListener( 'viewerApp.mouse.mousedown', this._onMouseDown );
+    this.$el.removeEventListener( 'viewerApp.captureOnce', this._onCaptureOnce );
     // this.$mainCanvas.removeEventListener( 'mousemove', this._onMouseMove );
     this.trackball.enabled = false;
     this.trackball.dispose();
@@ -2526,6 +2553,16 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // this.main_renderer.clear();
     this.mainRendererInterface.render( this.scene, this.mainCamera );
+
+    // A capture request (see `_onCaptureOnce`): the picture just drawn
+    if( this._lastRendered !== undefined && this._lastRendered !== null ) {
+      try {
+        this._lastRendered.dataURI = this.$mainGLCanvas.toDataURL( "image/png" );
+      } catch (e) {
+        // left without `dataURI`: the page copies the canvas itself
+      }
+      this._lastRendered = undefined;
+    }
 
     // The side views keep their last picture unless something besides the main
     // camera changed. A canvas that is not drawn into keeps showing its last

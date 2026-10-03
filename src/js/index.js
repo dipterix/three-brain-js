@@ -120,4 +120,15 @@ const Exporters = {
 
 const Workers = workerPool;
 
-export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, SharedSettings, Drivers, ExternLibs, Workers, GeometryFactory, DevTools };
+// Which build is running: the `package.json` version and when webpack built
+// this bundle (both are filled in by webpack.config.js)
+const VERSIONS = {
+  version   : __THREEBRAIN_VERSION__,
+  buildTime : __THREEBRAIN_BUILD_TIME__,
+};
+
+export { 
+  ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, 
+  SharedSettings, Drivers, ExternLibs, Workers, GeometryFactory, DevTools,
+  VERSIONS
+};
