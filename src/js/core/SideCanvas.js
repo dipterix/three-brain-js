@@ -416,14 +416,17 @@ class SideCanvas {
     }
 
     // A capture request (see `ViewerCanvas._onCaptureOnce`): the picture just
-    // drawn
+    // drawn, added to the views of the request the main view also answers
     if( this._lastRendered ) {
-      try {
-        this._lastRendered.dataURI = this.$canvas.toDataURL( "image/png" );
-      } catch (e) {
-        // left without `dataURI`: the page copies the canvas itself
-      }
+      const request = this._lastRendered;
       this._lastRendered = undefined;
+      try {
+        const dataURI = this.$canvas.toDataURL( "image/png" );
+        if( !Array.isArray( request.views ) ) { request.views = []; }
+        request.views.push({ canvas : this.$canvas, dataURI : dataURI });
+      } catch (e) {
+        // left out of `views`: the page copies this canvas itself
+      }
     }
   }
 

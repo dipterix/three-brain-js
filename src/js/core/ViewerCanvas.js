@@ -580,26 +580,26 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   }
 
   /**
-   * A page that copies one of the viewer's canvases (e.g. an agent asking for
-   * a picture) dispatches a bubbling `viewerApp.captureOnce` event on it, with
-   * an object as `detail`. The viewer draws only when something changes, and
-   * a WebGPU canvas can be read only in the task that drew it (Chromium; other
-   * browsers keep the last frame, which may predate a change made just
-   * before). So the object is kept as `_lastRendered` of the view that draws
-   * that canvas (this one, or a side view), and a frame is requested; once the
-   * view has drawn, it writes the picture to `detail.dataURI` (a PNG data
-   * URL). An object left without `dataURI` (e.g. the viewer is hidden) tells
-   * the page to copy the canvas itself.
+   * A page that wants pictures of the viewer (e.g. an agent asking for a
+   * screenshot) dispatches one `viewerApp.captureOnce` event on the viewer's
+   * wrapper (`viewerApp.$wrapper`, `.threejs-brain-canvas`), with an object as
+   * `detail`. The viewer draws only when something changes, and a copy of a
+   * WebGPU canvas taken outside the frame that drew it can be blank
+   * (Chromium) or out of date. So every view that draws in the next frame (the
+   * main view, and each shown side view) keeps the object as `_lastRendered`,
+   * and a frame is requested. Right after drawing, each view adds
+   * `{ canvas, dataURI }` (a PNG data URL) to `detail.views`; the main view
+   * also sets `detail.dataURI`. An object left without `dataURI` (e.g. the
+   * viewer is hidden) tells the page to copy the canvases itself.
    */
   _onCaptureOnce = ( event ) => {
     const request = event.detail;
     if( !request || typeof request !== "object" ) { return; }
-    const sideCanvas = Object.values( this.sideCanvasList )
-      .find( ( side ) => side.$canvas === event.target );
-    if( sideCanvas ) {
-      sideCanvas._lastRendered = request;
-    } else {
-      this._lastRendered = request;
+    this._lastRendered = request;
+    if( this.sideCanvasEnabled ) {
+      Object.values( this.sideCanvasList ).forEach( ( side ) => {
+        if( side._enabled ) { side._lastRendered = request; }
+      });
     }
     this.needsUpdate = true;
   }
@@ -2556,12 +2556,16 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // A capture request (see `_onCaptureOnce`): the picture just drawn
     if( this._lastRendered !== undefined && this._lastRendered !== null ) {
-      try {
-        this._lastRendered.dataURI = this.$mainGLCanvas.toDataURL( "image/png" );
-      } catch (e) {
-        // left without `dataURI`: the page copies the canvas itself
-      }
+      const request = this._lastRendered;
       this._lastRendered = undefined;
+      try {
+        const dataURI = this.$mainGLCanvas.toDataURL( "image/png" );
+        if( !Array.isArray( request.views ) ) { request.views = []; }
+        request.views.push({ canvas : this.$mainGLCanvas, dataURI : dataURI });
+        request.dataURI = dataURI;
+      } catch (e) {
+        // left without `dataURI`: the page copies the canvases itself
+      }
     }
 
     // The side views keep their last picture unless something besides the main
