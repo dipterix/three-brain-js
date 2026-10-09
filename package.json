@@ -17,6 +17,7 @@
     "json-2-csv": "^3.14.4",
     "jspdf": "^4.2.0",
     "nifti-reader-js": "^0.5.4",
+    "pako": "^2.1.0",
     "papaparse": "^5.4.1",
     "qrcode-with-logos": "^1.0.5",
     "three": "~0.185.1",

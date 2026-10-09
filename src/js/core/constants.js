@@ -49,6 +49,19 @@ CONSTANTS.MAIN_CAMERA_MAX_ZOOM = 40;
 CONSTANTS.SIDE_CAMERA_MAX_ZOOM = 40;
 CONSTANTS.SIDE_CAMERA_ZOOM_SPEED = 1.5;
 
+/* ------------------------------------ Volume size limits ------------------------------------
+  `NiftiImage` (`formats/NIfTIImage.js`) never returns a volume larger than
+  these: a bigger file is read decimated, and its non-zero core re-read at a
+  finer stride when that core is small. The voxels in a volume set the size of
+  every buffer the volume objects keep, several of them 4 bytes per voxel
+  (`DataCube2.voxelColor`, its gradient volume), so 2^27 keeps each at 512 MiB.
+  Each volume is also one 3D texture, and WebGPU allows 2048 texels per axis
+  unless the device asks for more (`maxTextureDimension3D`; ours does not).
+*/
+CONSTANTS.MAX_VOLUME_VOXELS = 2 ** 27;        // voxels per frame
+CONSTANTS.MAX_VOLUME_CORE_VOXELS = 2 ** 24;   // a non-zero core this small is re-read at a finer stride
+CONSTANTS.MAX_VOLUME_AXIS = 2048;             // voxels per axis
+
 /* ------------------------------------ Global constants ------------------------------------
 */
 
