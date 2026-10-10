@@ -1,5 +1,8 @@
 import { Vector3 } from 'three';
-import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial } from 'three/webgpu';
+import {
+  MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, 
+  NodeMaterialObserver, RenderObjectRefreshType
+} from 'three/webgpu';
 import {
   Fn, If, Discard, select, uniform, texture, varying, attribute, uv, materialReference,
   positionGeometry, normalGeometry, diffuseColor, depth,
@@ -18,7 +21,8 @@ import {
  *     the lead outside the texture translucent gray, up to `setMaxRenderLength`;
  *   - hide contacts without values (`setHideInactives`; needs the per-instance
  *     `instanceActive` attribute, `useInactiveAlpha`);
- *   - draw in front of everything, or only their outlines (`setTranslucent`).
+ *   - draw in front of everything, or only their outlines (`setTranslucent`);
+ *   - have three re-upload them when `uniforms` change (`ElectrodeMaterialObserver`).
  *
  * The silhouette test uses the geometry's own positions and normals, before an
  * `InstancedMesh`'s instance matrices, like the GLSL patch did.
@@ -41,6 +45,78 @@ function electrodeUniformNodes( uniforms ) {
     tangent           : materialReference( 'uniforms.tangent.value', 'vec3' ),
     maxLength         : materialReference( 'uniforms.maxLength.value', 'float' ),
   };
+}
+
+const _currentUniforms = [];
+
+// `material.uniforms` as a flat list: numbers as they are, vectors by their
+// components, textures by id and version
+function readUniformValues( uniforms, out ) {
+  out.length = 0;
+  for( const name in uniforms ) {
+    const value = uniforms[ name ].value;
+    if( value && value.isTexture ) {
+      // Avoid comparing large texture
+      out.push( value.id, value.version );
+    } else if( value && typeof value.toArray === "function" ) {
+      // Vec3, Mat4, etc
+      value.toArray( out, out.length );
+    } else {
+      out.push( value );
+    }
+  }
+  return out;
+}
+
+// `Object.is`, so a NaN value does not force a refresh on every render
+function sameValues( a, b ) {
+  if( a.length !== b.length ) { return false; }
+  for( let i = 0; i < a.length; i++ ) {
+    if( !Object.is( a[ i ], b[ i ] ) ) { return false; }
+  }
+  return true;
+}
+
+/**
+ * Decides, like three's observer, whether a render object must upload its
+ * material again, and also watches `material.uniforms`.
+ *
+ * three r186 compares only the properties in its `refreshUniforms` list
+ * (`color`, `opacity`, ...). The values `electrodeUniformNodes()` reads
+ * (outline threshold, darken, tangent, length cutoff) and the data texture's
+ * contents (its `version`) are not on it, so they would reach the GPU only when
+ * something else refreshes the render object. The render object drawn first of
+ * its observer in a render gets a SHARED refresh, which updates shared uniform
+ * groups only, not the material's own uniforms or its textures.
+ *
+ * What was uploaded is recorded per render object, because each view draws a
+ * material through render objects of its own (`ViewLighting`), and each one
+ * holds its own uniform buffer.
+ */
+class ElectrodeMaterialObserver extends NodeMaterialObserver {
+
+  constructor( builder ) {
+    super( builder );
+    // render object -> the `material.uniforms` values it last uploaded
+    this._uploadedUniforms = new WeakMap();
+  }
+
+  needsRefresh( renderObject, nodeFrame ) {
+    // three's own checks first, so its caches stay in sync
+    const refreshType = super.needsRefresh( renderObject, nodeFrame );
+
+    const current = readUniformValues( renderObject.material.uniforms, _currentUniforms );
+    const uploaded = this._uploadedUniforms.get( renderObject );
+    if( uploaded !== undefined && sameValues( uploaded, current ) ) {
+      return refreshType;
+    }
+
+    // A FULL refresh uploads the current values. It must be exactly FULL:
+    // the renderer only tests for FULL and SHARED.
+    this._uploadedUniforms.set( renderObject, current.slice() );
+    return RenderObjectRefreshType.FULL;
+  }
+
 }
 
 // Per-vertex terms, in model coordinates
@@ -114,6 +190,11 @@ function makeElectrodeMaterial( SuperClass ) {
         `${ this._outlineActiveOnly },${ this._alwaysDepth },${ this._outlineAlwaysDepth },` +
         `${ this._useInactiveAlpha },${ this._hideInactive },${ this._useDataTexture },` +
         `${ this._useDataTexture ? dataTexture.uuid : '' }:${ textureBindingKey( dataTexture ) }`;
+    }
+
+    // see `ElectrodeMaterialObserver`
+    setupObserver( builder ) {
+      return new ElectrodeMaterialObserver( builder );
     }
 
     // sets a shader switch; rebuilds only when it changes
