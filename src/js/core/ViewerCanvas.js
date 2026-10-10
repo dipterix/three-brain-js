@@ -1294,7 +1294,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   // Debug performance panel: three's Inspector (CPU and GPU time per frame,
   // draw calls, memory, a console), attached to the main renderer only.
-  // Frames need no marking here: after `init()`, three runs its own loop that
+  // Frames need no marking here: once attached, three runs its own loop that
   // opens and closes an inspector frame every animation frame, and renders
   // made outside it (like the viewer's) join the latest frame.
   addNerdStats(){
@@ -1306,12 +1306,10 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // click, and hovering the panel counted as hovering the viewer, so typing
     // in it fired keyboard shortcuts. Its toggle and panel are `position: fixed`.
     this.$wrapper.appendChild( this.inspector.domElement );
+    // three r186: the setter calls `inspector.setRenderer()`, which sets the
+    // inspector up, after the renderer's own `init()` if that is still to come.
+    // r185 needed an `inspector.init()` here; r186's Inspector has none.
     this.main_renderer.inspector = this.inspector;
-    // the renderer calls `inspector.init()` at the end of its own `init()`; if
-    // that has already happened, call it here
-    if( this.main_renderer.initialized ) {
-      this.inspector.init();
-    }
     this.__nerdStatsEnabled = true;
   }
 

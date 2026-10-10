@@ -747,10 +747,13 @@ class Electrode extends AbstractThreeBrainObject {
         instancedObjects.setColorAt( ii, this.defaultColor );
       });
       this.instancedObjects.instanceMatrix.needsUpdate = true;
-      // three (r185) draws instance colors from a copy whose version it syncs
-      // only after deciding whether to upload, so a `needsUpdate` shows one
+      // three r185 drew instance colors from a copy whose version it synced
+      // only after deciding whether to upload, so a `needsUpdate` showed one
       // render late -- and `updateColors()` recolors inside the one render a
       // controller asks for. Dynamic usage uploads on every render instead.
+      // r186 shows a static `instanceColor` in the same render too
+      // (webgpu-migration/instance-color-lag, mechanism check, 2026-10-10);
+      // dynamic usage stays: r186 then refreshes these contacts on every render.
       // Must be set before the first render, when the material is built.
       this.instancedObjects.instanceColor.setUsage( DynamicDrawUsage );
       this.object.add( instancedObjects );

@@ -489,6 +489,10 @@ class RulerHelper extends Object3D {
 
   dispose() {
 
+    // three r186: `Object3D.dispose()` announces the disposal, so the renderer
+    // frees this object's render objects. It touches no geometry or material.
+    super.dispose();
+
     this.solidLine.geometry.dispose();
     this.solidLine.material.dispose();
 
