@@ -20,7 +20,7 @@
     "pako": "^2.1.0",
     "papaparse": "^5.4.1",
     "qrcode-with-logos": "^1.0.5",
-    "three": "~0.185.1",
+    "three": "~0.186.1",
     "three-mesh-bvh": "~0.9.15",
     "tweakpane": "^4.0.5"
   },
