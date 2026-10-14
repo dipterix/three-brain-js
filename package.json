@@ -8,6 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@tweakpane/plugin-essentials": "^0.2.1",
     "clipboard": "^2.0.8",
     "downloadjs": "^1.4.7",
     "fflate": "^0.7.4",
@@ -15,13 +16,13 @@
     "gl-matrix": "^3.4.3",
     "json-2-csv": "^3.14.4",
     "jspdf": "^4.2.0",
-    "lil-gui": "^0.18.2",
     "nifti-reader-js": "^0.5.4",
+    "pako": "^2.1.0",
     "papaparse": "^5.4.1",
     "qrcode-with-logos": "^1.0.5",
-    "stats-gl": "^3.6.0",
-    "three": "~0.185.1",
-    "three-mesh-bvh": "~0.9.15"
+    "three": "~0.186.1",
+    "three-mesh-bvh": "~0.9.15",
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "css-loader": "^6.7.3",

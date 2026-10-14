@@ -63,10 +63,6 @@ function registerPresetQRCode( ViewerControlCenter ) {
         } else {
           $qrB.style.display = "hidden";
         }
-
-
-        const folder = this.gui.getFolder("Default");
-        folder.$children.style.height = "auto";
       })
       .catch( (error) => {
         qrctrl.hide();

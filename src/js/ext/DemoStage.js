@@ -86,8 +86,8 @@ class DemoStage {
     this.background = new DemoBackground({
       palettes : [0xffffff, 0xffffff]
     })
-    this.bgColor0 = this.background.scene.background;
-    this.bgColor1 = this.background.object.material.color;
+    this.bgColor0 = this.background.backgroundColor;
+    this.bgColor1 = this.background.foregroundColor;
 
     this.onMobile = mobileCheck();
 
@@ -296,9 +296,9 @@ class DemoStage {
       }
 
       this.canvas.pixel_ratio[1] = 1;
-      this.canvas.sideCanvasList.coronal.renderer.setPixelRatio(1);
-      this.canvas.sideCanvasList.axial.renderer.setPixelRatio(1);
-      this.canvas.sideCanvasList.sagittal.renderer.setPixelRatio(1);
+      this.canvas.sideCanvasList.coronal.rendererInterface?.setPixelRatio(1);
+      this.canvas.sideCanvasList.axial.rendererInterface?.setPixelRatio(1);
+      this.canvas.sideCanvasList.sagittal.rendererInterface?.setPixelRatio(1);
     } catch (e) {}
 
     // Add background

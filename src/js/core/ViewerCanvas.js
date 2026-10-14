@@ -1,16 +1,15 @@
 import {
   Vector2, Vector3, Color, Scene, Object3D, Matrix3, Matrix4,
   // OrthographicCamera,
-  WebGLRenderer,
   DirectionalLight, AmbientLight,
   Raycaster, ArrowHelper, BoxHelper, AlwaysDepth,
   LoadingManager, FileLoader,
   AnimationClip, AnimationMixer,
-  Mesh, SubtractiveBlending,
+  Mesh,
   SphereGeometry, BufferGeometry, MeshBasicMaterial,
   LineBasicMaterial, LineSegments
 } from 'three';
-import Stats from 'stats-gl';
+import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { json2csv } from 'json-2-csv';
 import download from 'downloadjs';
 
@@ -25,6 +24,7 @@ import { SideCanvas } from './SideCanvas.js';
 import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
+import { createMainRendererInterface, createSideRendererInterface } from './createRenderer.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
@@ -34,6 +34,7 @@ import { SpriteMarker } from '../geometry/SpriteMarker.js';
 // Utility
 import { asArray } from '../utility/asArray.js';
 import { asColor, invertColor, colorLuma } from '../utility/color.js';
+import { extractLink } from '../utility/extractLink.js';
 import { get_or_default, as_Matrix4, set_visibility, set_display_mode } from '../utils.js';
 
 import { getThreeBrainInstance } from '../geometry/abstract.js';
@@ -79,6 +80,16 @@ const _newObjectFocusedEvent = {
   type : "viewerApp.canvas.newObjectFocused",
   immediate: false
 };
+
+const _clearScene = {
+  type : "viewerApp.canvas.clearScene",
+  immediate: true
+}
+
+const _setBackground = {
+  type : "viewerApp.canvas.setBackground",
+  immediate: true
+}
 
 const CONSTANT_GEOM_PARAMS = CONSTANTS.GEOMETRY;
 
@@ -133,7 +144,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this._app = viewerApp;
 
     const el = viewerApp.$wrapper,
-          has_webgl2 = viewerApp.webgl2Enabled,
           debug = viewerApp.debug,
           fileLoader = viewerApp.fileLoader;
 
@@ -159,9 +169,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     };
     this.globalClock = viewerApp.globalClock;
     this.timeChanged = true;
-    // Is system supporting WebGL2? some customized shaders might need this feature
-    // As of 08-2019, only chrome, firefox, and opera support full implementation of WebGL.
-    this.has_webgl2 = has_webgl2;
+    // Debug switch: run the renderers on their WebGL2 backend even when WebGPU
+    // is available
+    this.forceWebGL = viewerApp.forceWebGL === true;
+    // Whether the side views may borrow the main renderer, and with it its GPU
+    // device, instead of each keeping one of their own
+    this.shareRenderer = viewerApp.shareRenderer !== false;
 
     // Side panel initial size in pt
     this.side_width = side_width;
@@ -174,7 +187,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.main_canvas = document.createElement('div');
     this.main_canvas.className = 'THREEBRAIN-MAIN-CANVAS';
     this.main_canvas.style.width = width + 'px';
-    this.$mainCanvas = this.main_canvas
+    this.$mainCanvas = this.main_canvas;
 
     // Container that stores mesh objects from inputs (user defined) for each inquery
     this.mesh = new Map();
@@ -222,6 +235,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     */
     this._renderFlag = CanvasState.NoRender;
     this.needsUpdate = undefined;
+    /* Whether the side views have to be drawn again. Raised by every
+      `needsUpdate`, but not by the trackball, which only moves the main camera:
+      rotating the main view leaves the side views as they were, so they are
+      not redrawn for it (see `render()`). */
+    this._sideViewsNeedUpdate = true;
 
     // Disable raycasting, soft deprecated
     this.disable_raycast = true;
@@ -357,32 +375,38 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.add_to_scene( ambientLight, true ); // soft white light
 
 
-    // Set Main renderer, strongly recommend WebGL2
-    // We need to use webgl2 for VolumeRenderShader1 to work
-    let main_canvas_el = document.createElement('canvas'),
-        main_context = main_canvas_el.getContext( 'webgl2', {preserveDrawingBuffer: true} );
-  	this.main_renderer = new WebGLRenderer({
-  	  antialias: false, alpha: true,
-  	  canvas: main_canvas_el, context: main_context
-  	});
-  	this.main_renderer.setPixelRatio( this.pixel_ratio[0] );
-  	this.main_renderer.setSize( width, height );
+    // The main view's render interface, which owns the renderer the side views
+    // draw with. It is not usable until `rendererReady` (see below).
+    this.mainRendererInterface = createMainRendererInterface({
+      canvas: document.createElement('canvas'),
+      forceWebGL: this.forceWebGL
+    });
+    this.main_renderer = this.mainRendererInterface.renderer;
+    // The canvas the main view draws into. Never read `renderer.domElement` for
+    // it: that follows whichever canvas target the renderer is pointed at.
+    this.$mainGLCanvas = this.mainRendererInterface.canvas;
+    this.mainRendererInterface.setPixelRatio( this.pixel_ratio[0] );
+    this.mainRendererInterface.setSize( width, height );
   	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
-  	this.main_renderer.localClippingEnabled=true; // Enable clipping
   	// transparent background if the bg is white
-  	this.main_renderer.setClearColor( this.background_color, 0.0 );
+  	this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
 
     this.main_canvas.appendChild( this.domElement );
-    this.main_canvas.appendChild( this.main_renderer.domElement );
+    this.main_canvas.appendChild( this.$mainGLCanvas );
 
-    let wrapper_canvas = document.createElement('div');
+    const wrapper_canvas = document.createElement('div');
     this.wrapper_canvas = wrapper_canvas;
     this.main_canvas.style.display = 'inline-flex';
-    this.wrapper_canvas.style.display = 'flex';
+    // TODO: check me if block is ok in shiny. Used to be flex with no position style
+    this.wrapper_canvas.style.display = 'block';
+    this.wrapper_canvas.style.position = 'relative';
     this.wrapper_canvas.style.flexWrap = 'wrap';
     this.wrapper_canvas.style.width = '100%';
+    this.wrapper_canvas.style.height = '100%';
     this.sideCanvasEnabled = false;
     this.sideCanvasList = {};
+    // the layout last placed by `applyViewLayout()`
+    this.viewLayout = undefined;
 
     // Generate inner canvas DOM element
     // coronal (FB), axial (IS), sagittal (LR)
@@ -390,6 +414,43 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.sideCanvasList.coronal = new SideCanvas( this, "coronal" );
     this.sideCanvasList.axial = new SideCanvas( this, "axial" );
     this.sideCanvasList.sagittal = new SideCanvas( this, "sagittal" );
+
+    // Renderers initialize asynchronously and throw if asked to render before
+    // that, so rendering waits for `rendererReady`. The side views are wired up
+    // only once the main renderer has initialized, because which backend it
+    // ended up on decides whether they can borrow it.
+    this.rendererReady = false;
+    this._watchDeviceLoss( this.main_renderer );
+    this.rendererInitialized = this.mainRendererInterface.init()
+      .then(() => {
+        this.isWebGPU = this.main_renderer.backend.isWebGPUBackend === true;
+        return Promise.all(
+          [ "coronal", "axial", "sagittal" ].map( ( name ) => {
+            const sideCanvas = this.sideCanvasList[ name ];
+            const rendererInterface = createSideRendererInterface({
+              canvas                : sideCanvas.$canvas,
+              mainRendererInterface : this.mainRendererInterface,
+              forceWebGL            : this.forceWebGL,
+              shareRenderer         : this.shareRenderer,
+            });
+            if( rendererInterface.ownsRenderer ) {
+              this._watchDeviceLoss( rendererInterface.renderer );
+            }
+            sideCanvas.useRendererInterface( rendererInterface );
+            return rendererInterface.init();
+          })
+        );
+      })
+      .then(() => {
+        this.rendererReady = true;
+        const shared = this.mainRendererInterface.renderer ===
+          this.sideCanvasList.coronal.rendererInterface.renderer;
+        this.debugVerbose( `Renderer backend: ${ this.isWebGPU ? "WebGPU" : "WebGL2" }, ` +
+          `${ shared ? "one renderer for all four canvases" : "a renderer per canvas" }` );
+        this.needsUpdate = true;
+      }, ( e ) => {
+        console.error( "[threeBrain] Unable to initialize the renderer.", e );
+      });
 
     // Add video
     this.video_canvas = document.createElement('video');
@@ -462,6 +523,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$el.addEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
     this.$el.addEventListener( 'viewerApp.mouse.leaveViewer', this._deactivateViewer );
     this.$el.addEventListener( 'viewerApp.mouse.mousedown', this._onMouseDown, { capture : true } );
+    this.$el.addEventListener( 'viewerApp.captureOnce', this._onCaptureOnce );
 
     this.trackball.addEventListener( "start", this._onTrackballStarted );
     this.trackball.addEventListener( "change", this._onTrackballChanged );
@@ -516,6 +578,31 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.activated = true;
     this.needsUpdate = true;
   }
+
+  /**
+   * A page that wants pictures of the viewer (e.g. an agent asking for a
+   * screenshot) dispatches one `viewerApp.captureOnce` event on the viewer's
+   * wrapper (`viewerApp.$wrapper`, `.threejs-brain-canvas`), with an object as
+   * `detail`. The viewer draws only when something changes, and a copy of a
+   * WebGPU canvas taken outside the frame that drew it can be blank
+   * (Chromium) or out of date. So every view that draws in the next frame (the
+   * main view, and each shown side view) keeps the object as `_lastRendered`,
+   * and a frame is requested. Right after drawing, each view adds
+   * `{ canvas, dataURI }` (a PNG data URL) to `detail.views`; the main view
+   * also sets `detail.dataURI`. An object left without `dataURI` (e.g. the
+   * viewer is hidden) tells the page to copy the canvases itself.
+   */
+  _onCaptureOnce = ( event ) => {
+    const request = event.detail;
+    if( !request || typeof request !== "object" ) { return; }
+    this._lastRendered = request;
+    if( this.sideCanvasEnabled ) {
+      Object.values( this.sideCanvasList ).forEach( ( side ) => {
+        if( side._enabled ) { side._lastRendered = request; }
+      });
+    }
+    this.needsUpdate = true;
+  }
   _deactivateViewer = () => { this.activated = false; }
   /* Moved to viewer control center
   _onMouseMove = ( event ) => {
@@ -561,16 +648,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const item = this.raycastObjects();
     if( !item || !item.object || !item.object.isMesh ) { return; }
 
-    // normal left-click
-    const crosshairPosition = this.focusObject( item.object, { intersectPoint: item.point } );
-
-    // right-click, or the slice mode is snap-to-electrode
-    if( event.detail.button == 2 || crosshairPosition.centerCrosshair ) {
-      // const crosshairPosition = item.object.getWorldPosition( new Vector3() );
-
-      crosshairPosition.centerCrosshair = true;
-      this.setSliceCrosshair( crosshairPosition );
-    }
+    // normal left-click; a right-click also moves the crosshair
+    this.focusObjectAndCrosshair( item.object, {
+      intersectPoint : item.point,
+      setCrosshair   : event.detail.button == 2,
+    });
 
     this.needsUpdate = true;
   }
@@ -942,6 +1024,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       if( idx > -1 ){
         this.clickableArray.splice(idx, 1);
       }
+      this.clickable.delete( name );
     }
   }
 
@@ -1073,40 +1156,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       const path = (cache_folder + g.cache_name + '/' + cache_info.file_name).replaceAll(/[\\\/]+/g, "/");
       this.debugVerbose(`Loading group [${ g.name }] data: [${ path }]`);
 
-      /*
-      return new Promise((resolve, reject) => {
-        this.fileLoader2.load(
-          path,
-          ( v ) => {
-            console.log([path, v]);
-            if( v && typeof(v) === "object" ) {
-              for(let key in v) {
-                if( key !== "_originalData_") {
-                  g.group_data[key] = v[key];
-                }
-              }
-              if ("_originalData_" in v) {
-                if( !(nm in g.group_data) ) {
-                  g.group_data[ nm ] = v[ "_originalData_" ];
-                } else {
-                  const item = g.group_data[ nm ];
-                  if( typeof item === "object" && item !== null && item.is_cache ) {
-                    g.group_data[ nm ] = v[ "_originalData_" ];
-                  }
-                }
-              }
-            }
-            resolve();
-          },
-          undefined,
-          ( e ) => {
-            console.warn(e);
-            resolve();
-          }
-        )
-      });
 
-      /*/
       const onProgressInternal = ( progress ) => {
         let msg = '';
         let fname = path;
@@ -1213,91 +1263,103 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // return loadGroups();
   }
 
-  // Debug stats (framerate)
+  /**
+   * A lost GPU device (a driver reset or crash, the GPU being switched) stops a
+   * renderer for good: three's own handler logs the loss and turns it off. Tell
+   * the user as well. three ignores losses caused by `dispose()` on WebGPU;
+   * `showDeviceLostMessage()` ignores them on WebGL. Called once per renderer,
+   * so a borrowed one is wrapped only by the interface that owns it.
+   */
+  _watchDeviceLoss( renderer ) {
+    const threeHandler = renderer.onDeviceLost.bind( renderer );
+    renderer.onDeviceLost = ( info ) => {
+      threeHandler( info );
+      this.showDeviceLostMessage( info );
+    };
+  }
+
+  // Every canvas the viewer draws into: the main view first, then the three
+  // side views. On WebGPU the side views borrow the main view's renderer, so
+  // `rendererInterface.ownsRenderer` tells the two arrangements apart.
+  rendererInterfaces() {
+    const interfaces = [ this.mainRendererInterface ];
+    for( const name of [ "coronal", "axial", "sagittal" ] ) {
+      const sideCanvas = this.sideCanvasList[ name ];
+      if( sideCanvas && sideCanvas.rendererInterface ) {
+        interfaces.push( sideCanvas.rendererInterface );
+      }
+    }
+    return interfaces;
+  }
+
+  // Debug performance panel: three's Inspector (CPU and GPU time per frame,
+  // draw calls, memory, a console), attached to the main renderer only.
+  // Frames need no marking here: once attached, three runs its own loop that
+  // opens and closes an inspector frame every animation frame, and renders
+  // made outside it (like the viewer's) join the latest frame.
   addNerdStats(){
-    // if debug, add stats information
     if( this.__nerdStatsEnabled ) { return; }
-    this.nerdStats = new Stats({
-      trackGPU: true,
-      trackHz: true,
-      trackCPT: true,
-      logsPerSecond: 4,
-      graphsPerSecond: 30,
-      samplesLog: 40,
-      samplesGraph: 10,
-      precision: 1,
-      horizontal: true,
-      minimal: false,
-      mode: 2
-    });
-    this.nerdStats.dom.style.display = 'block';
-    this.nerdStats.dom.style.position = 'absolute';
-    this.nerdStats.dom.style.top = '0';
-    this.nerdStats.dom.style.left = '0';
-    this.nerdStats.init( this.main_renderer );
-    // this.nerdStats.init( this.main_renderer );
-    this.$el.appendChild( this.nerdStats.dom );
+    this.inspector = new Inspector();
+    // Mount the panel on the page rather than where three would put it, next to
+    // the renderer's canvas in `$mainCanvas`. The camera controls capture every
+    // pointer pressed inside `$mainCanvas`, so the panel's buttons never got a
+    // click, and hovering the panel counted as hovering the viewer, so typing
+    // in it fired keyboard shortcuts. Its toggle and panel are `position: fixed`.
+    this.$wrapper.appendChild( this.inspector.domElement );
+    // three r186: the setter calls `inspector.setRenderer()`, which sets the
+    // inspector up, after the renderer's own `init()` if that is still to come.
+    // r185 needed an `inspector.init()` here; r186's Inspector has none.
+    this.main_renderer.inspector = this.inspector;
     this.__nerdStatsEnabled = true;
   }
 
-  /*---- Remove, dispose objects --------------------------------------------*/
-  remove_object( obj, resursive = true, dispose = true, depth = 100 ){
-    if( !obj && depth < 0 ){ return; }
-    if( resursive ){
-      if( Array.isArray( obj.children ) ){
-        for( let ii = obj.children.length - 1; ii >= 0; ii = Math.min(ii-1, obj.children.length) ){
-          if( ii < obj.children.length ){
-            this.remove_object( obj.children[ ii ], resursive, dispose, depth - 1 );
-          }
-        }
-      }
-    }
-    if( obj.parent ){
-      this.debugVerbose( 'removing object - ' + (obj.name || obj.type) );
-      obj.parent.remove( obj );
-    }
+  /**
+   * Covers the main view with a message asking to reload, once the renderers'
+   * GPU device is lost (see the constructor). Shown once, for all renderers.
+   * @param {Object} info - three's device-loss info (`api`, `message`, `reason`)
+   */
+  showDeviceLostMessage( info ) {
+    // disposing the WebGL fallback loses its context on purpose
+    if( this._disposed || this.$deviceLostMessage ) { return; }
 
-    if( dispose ){
-      this.dispose_object( obj );
-    }
-  }
-  dispose_object( obj, quiet = false ){
-    if( !obj || typeof obj !== 'object' ) { return; }
-    const obj_name = obj.name || obj.type || 'unknown';
-    if( !quiet ){
-      this.debugVerbose('Disposing - ' + obj_name);
-    }
-    if( obj.userData && typeof obj.userData.dispose === 'function' ){
-      this._try_dispose( obj.userData, obj.name, quiet );
-    }else{
-      // Not implemented, try to guess dispose methods
-      this._try_dispose( obj.material, obj_name + '-material', quiet );
-      this._try_dispose( obj.geometry, obj_name + '-geometry', quiet );
-      this._try_dispose( obj, obj_name, quiet );
-    }
-  }
+    const $message = document.createElement( 'div' );
+    $message.className = 'threejs-brain-device-lost';
+    // positioned like the 2D overlay canvas, over the main view
+    $message.style.width = `${ this.main_canvas.clientWidth }px`;
+    $message.style.height = `${ this.main_canvas.clientHeight }px`;
 
-  _try_dispose( obj, obj_name = undefined, quiet = false ){
-    if( !obj || typeof obj !== 'object' ) { return; }
-    if( typeof obj.dispose === 'function' ){
-      try {
-        obj.dispose();
-      } catch(e) {
-        if( !quiet ){
-          console.warn( 'Failed to dispose ' + (obj_name || obj.name || 'unknown') );
-        }
-      }
-    }
+    const $text = document.createElement( 'p' );
+    $text.innerText = "The 3D viewer lost its graphics device and stopped drawing. " +
+      "Reload the page to restore it.";
+    $message.appendChild( $text );
+
+    const $reload = document.createElement( 'button' );
+    $reload.innerText = "Reload";
+    $reload.addEventListener( 'click', () => { window.location.reload(); } );
+    $message.appendChild( $reload );
+
+    // the camera controls capture the pointer on the main view, which would
+    // swallow the button's click
+    $message.addEventListener( 'pointerdown', ( event ) => { event.stopPropagation(); } );
+
+    this.main_canvas.appendChild( $message );
+    this.$deviceLostMessage = $message;
+    this.debugVerbose( `Device lost (${ info?.api }): ${ info?.message }` );
   }
 
   dispose(){
     super.dispose();
 
+    // The Inspector is mounted on the page, outside `$el`; remove it first so
+    // a failure further down can't leave it behind
+    if( this.inspector ) {
+      this.inspector.domElement.remove();
+    }
+
     // Remove all objects, listeners, and dispose all
     this._disposed = true;
     this.activated = false;
     this.clearFocusModeTarget();
-    this.focusModeMarker.dispose();
     this.animParameters.dispose();
 
     // Remove listeners
@@ -1307,15 +1369,36 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$el.removeEventListener( 'viewerApp.mouse.enterViewer', this._activateViewer );
     this.$el.removeEventListener( 'viewerApp.mouse.leaveViewer', this._deactivateViewer );
     this.$el.removeEventListener( 'viewerApp.mouse.mousedown', this._onMouseDown );
+    this.$el.removeEventListener( 'viewerApp.captureOnce', this._onCaptureOnce );
     // this.$mainCanvas.removeEventListener( 'mousemove', this._onMouseMove );
     this.trackball.enabled = false;
     this.trackball.dispose();
 
-    // Remove the rest objects in the scene
-    this.remove_object( this.scene );
-
-    // Remove customized objects
+    // Drop the loaded data: every instance hears this and frees itself
     this.clear_all();
+
+    // ... leaving only what this canvas built, which nothing else will free.
+    // `crossArrowHelper`'s geometries are three's, shared with every other
+    // `ArrowHelper` on the page, so only its materials are ours to dispose.
+    // Guarded as a block: the renderers below hold a GPU device each, and on a page
+    // that caches several viewers those must be released even if this part fails.
+    try {
+      this.crosshairGroup.children.forEach(( lineSegments ) => {
+        lineSegments.geometry.dispose();
+        lineSegments.material.dispose();
+      });
+      this.crossArrowHelper.children.forEach(( child ) => { child.material.dispose(); });
+      this.crosshairCompass.dispose();
+      this.compass.dispose();
+      this.rulerHelper.dispose();
+      this.focusModeMarker.dispose();
+      this.highlightBox.dispose();
+      this.bounding_box.dispose();
+      this.highlightTarget.geometry.dispose();
+      this.highlightTarget.material.dispose();
+    } catch (e) {
+      console.warn( "Failed to dispose the viewer's built-in objects", e );
+    }
 
     // dispose scene
     // this.scene.dispose();
@@ -1327,23 +1410,51 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // How to dispose renderers? Not sure
     this.domContext = null;
     this.domContextWrapper = null;
-    this.main_renderer.dispose();
+    // the side views first: a borrowed renderer must still be around while they
+    // release the canvas targets they hold on it
     this.sideCanvasList.coronal.dispose();
     this.sideCanvasList.axial.dispose();
     this.sideCanvasList.sagittal.dispose();
+    this.main_renderer.dispose();
 
   }
 
-  // Function to clear all meshes, but still keep canvas valid
+  /**
+   * Drops the current subject's data, leaving the canvas usable for the next one.
+   *
+   * The scene is never walked. Announcing the teardown is all this has to do: every
+   * instance listens and frees what it built, because only the instance knows what
+   * that is. Walking the graph meant guessing from each `Object3D`'s `.geometry` and
+   * `.material`, which freed resources the viewer does not own -- three shares one
+   * geometry across every `Sprite` and every `ArrowHelper` -- and so destroyed the
+   * buffers behind the built-in components that have to survive: the ruler, the
+   * highlight box, the compass, the crosshair and the focus marker.
+   *
+   * What is left below belongs to the canvas: its registries and scene state.
+   */
   clear_all(){
+    // synchronous, so the instances are gone by the time this returns
+    this.dispatch( _clearScene );
+
     // Stop showing information of any selected objects
     this.object_chosen=undefined;
-    // the focus target pins an instance and its Object3D; drop it before the
-    // geometry it points at is torn down
     this.clearFocusModeTarget();
     this.clickable.clear();
     this.clickableArray.length = 0;
     this.title = undefined;
+
+    // Group nodes are plain `Object3D`s built by `_addBasicGroup`: nothing to free,
+    // they just have to leave the scene. `DataCube` re-parents its group onto
+    // `crosshairGroup`, so detach from whatever the current parent is.
+    this.group.forEach((g) => {
+      try {
+        g.removeFromParent();
+      } catch (e) {}
+    });
+
+    this.threebrain_instances.clear();
+    this.group.clear();
+    this.mesh.clear();
 
     this.subject_codes.length = 0;
     this.electrodes.clear();
@@ -1363,31 +1474,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.debugVerbose('TODO: Need to dispose animation clips');
     this.animation_clips.clear();
 
-    this.group.forEach((g) => {
-      // g.parent.remove( g );
-      this.remove_object( g );
-    });
-    this.mesh.forEach((m) => {
-      this.remove_object( m );
-      // m.parent.remove( m );
-      // this.dispose_object(m);
-      // this.scene.remove( m );
-    });
-    this.mesh.clear();
-    // Call dispose method
-    this.threebrain_instances.forEach((el) => {
-      el.dispose();
-    });
-    this.threebrain_instances.clear();
-    this.group.clear();
-
-    this.singletons.forEach( (el) => {
-      try {
-        el.dispose();
-      } catch (e) {}
-    });
-    this.singletons.clear();
-
     // set default values
     this._crosshairPosition.set( 0, 0, 0 );
 
@@ -1399,21 +1485,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
     this.object_chosen=undefined;
 
+    // Scoped to one subject, so this cannot use the all-or-nothing scene event; the
+    // electrode still frees itself, and `_dispose` does the registry bookkeeping.
     const deleteElectrode = (obj) => {
       if(!obj) { return; }
       const inst = getThreeBrainInstance( obj );
       if(!inst) { return; }
-      this.clickable.delete( inst.name );
-      const idx = this.clickableArray.indexOf( inst.object );
-      if( idx >= 0 ) {
-        this.clickableArray.splice( idx, 1 );
-      }
-      this.mesh.delete( inst.name );
-      this.threebrain_instances.delete( inst.name );
-
-      this.remove_object( inst.object );
-      inst.dispose();
-
+      inst.object.removeFromParent();
+      inst._dispose();
     };
 
     const electrodeList = this.electrodes.get(subjectCode);
@@ -1458,6 +1537,22 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.dispatch({
       type : "viewerApp.controller.setValue",
       data : data,
+      immediate : immediate
+    });
+  }
+
+  /**
+   * How far (mm) a drawn streamline may stray from its points, or 0 to draw
+   * every point (`Line Simplify Factor`). Each bundle rebuilds its geometry,
+   * which is far too expensive for a slider to do on every step, so this goes
+   * out throttled: during a drag only the value it rests on is acted on.
+   */
+  setStreamlineSimplify({ tolerance, immediate = false } = {}) {
+    // read by bundles that are created later
+    this.set_state( 'streamline_simplify_tolerance', tolerance );
+    this.dispatch({
+      type : "viewerApp.canvas.setStreamlineSimplify",
+      data : { tolerance : tolerance },
       immediate : immediate
     });
   }
@@ -1571,6 +1666,14 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
   setVoxelRenderDistance({ distance, immediate = true } = {}) {
     if( distance && typeof distance === "object" ) {
+      // the `Frustum` controller and R both come through here; recorded for
+      // readers such as `snapCrosshairToNearestClickable`
+      if( typeof distance.near === "number" ) {
+        this.set_state( "frustum_near", Math.abs( distance.near ) );
+      }
+      if( typeof distance.far === "number" ) {
+        this.set_state( "frustum_far", Math.abs( distance.far ) );
+      }
       this.dispatch({
         type : "viewerApp.canvas.setVoxelRenderDistance",
         data : {
@@ -1584,59 +1687,59 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // callbacks
   handle_resize(width, height, lazy = false, center_camera = false){
 
-    if( this._disposed ) { return; }
-    if(width === undefined){
+    if ( this._disposed ) { return; }
+    if ( width === undefined ) {
       width = this.client_width;
       height = this.client_height;
-
-    }else{
+    } else {
       this.client_width = width;
       this.client_height = height;
     }
 
     // console.debug('width: ' + width + '; height: ' + height);
 
-    if(lazy){
+    if ( lazy ) {
+
       this.trackball.handleResize();
-
       this.needsUpdate = true;
+      return;
 
-      return(undefined);
     }
-
-    var main_width = width,
-        main_height = height;
-
-    // Because when panning controls, we actually set views, hence need to calculate this smartly
-    // Update: might not need change
-	  if( center_camera ){
-      this.mainCamera.reset({ fov : true, position : false, zoom : false });
-	  }else{
-	    this.mainCamera.handleResize();
-	  }
-
-    this.main_canvas.style.width = main_width + 'px';
-    this.main_canvas.style.height = main_height + 'px';
-
-    this.main_renderer.setSize( main_width, main_height );
 
     const pixelRatio = this.pixel_ratio[0];
+    const mainWidth = width, 
+          mainHeight = height;
+    
+    this.main_canvas.style.width = mainWidth + 'px';
+    this.main_canvas.style.height = mainHeight + 'px';
 
-    if( this.domElement.width != main_width * pixelRatio ){
-      this.domElement.width = main_width * pixelRatio;
-      this.domElement.style.width = main_width + 'px';
+    this.mainRendererInterface.setSize( mainWidth, mainHeight );
+    
+    if( this.domElement.width != mainWidth * pixelRatio ){
+      this.domElement.width = mainWidth * pixelRatio;
+      this.domElement.style.width = mainWidth + 'px';
     }
 
-    if( this.domElement.height != main_height * pixelRatio ){
-      this.domElement.height = main_height * pixelRatio;
-      this.domElement.style.height = main_height + 'px';
+    if( this.domElement.height != mainHeight * pixelRatio ){
+      this.domElement.height = mainHeight * pixelRatio;
+      this.domElement.style.height = mainHeight + 'px';
     }
 
-    this.video_canvas.height = main_height / 4;
+    this.video_canvas.height = mainHeight / 4;
 
     this.trackball.handleResize();
 
     this.needsUpdate = true;
+
+    // Because when panning controls, we actually set views, hence need to calculate this smartly
+    // Update: might not need change
+    if( center_camera ){
+      this.mainCamera.reset({ fov : true, position : false, zoom : false });
+    }else{
+      this.mainCamera.handleResize();
+    }
+    
+
 
   }
 
@@ -1708,16 +1811,33 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
   }
 
-  // Font size magnification
+  // Font size magnification (R's `cex`)
   setFontSize( magnification = 1 ){
-    // font size
-    this._lineHeight_normal = Math.round( 24 * this.pixel_ratio[0] * magnification );
-    this._lineHeight_small = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_normal = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_small = Math.round( 16 * this.pixel_ratio[0] * magnification );
-    this._lineHeight_legend = Math.round( 20 * this.pixel_ratio[0] * magnification );
-    this._fontSize_legend = Math.round( 16 * this.pixel_ratio[0] * magnification );
+    this._fontMagnification = magnification;
     this.set_state("font_magnification", magnification);
+    this._applyFontSize();
+  }
+
+  /**
+   * Sizes the text drawn on the 3D view: base size x pixel ratio x `cex` x the
+   * layout's scale. In a `sliceview-*` layout the scale is the 3D view's height
+   * over the viewer's, so the text shrinks with the panel; in `3dview` it is 1.
+   * The title has never followed `cex`, only the layout.
+   */
+  _applyFontSize() {
+    const layoutScale = this._layoutFontScale ?? 1,
+          scale = this.pixel_ratio[0] * layoutScale,
+          size = ( base, s ) => Math.max( 1, Math.round( base * s ) );
+    const textScale = scale * ( this._fontMagnification ?? 1 );
+    this._lineHeight_normal = size( 24, textScale );
+    this._lineHeight_small = size( 20, textScale );
+    this._fontSize_normal = size( 20, textScale );
+    this._fontSize_small = size( 16, textScale );
+    this._lineHeight_legend = size( 20, textScale );
+    this._fontSize_legend = size( 16, textScale );
+    this._lineHeight_title = size( 25, scale );
+    this._fontSize_title = size( 20, scale );
+    this.needsUpdate = true;
   }
 
   // Get mouse position (normalized)
@@ -1741,11 +1861,83 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     return this.mouseRaycaster;
   }
 
+  /**
+   * Places the 3D view and the slice panels as `computeViewLayout()` says. In
+   * `3dview` the 3D view stays in the page flow, and the panels float over it
+   * where the user left them; in a `sliceview-*` layout every view is placed
+   * absolutely, the panels are locked in their cells, and the 3D view is
+   * framed in the foreground color.
+   */
+  applyViewLayout( layout ) {
+    const wasTiled = !!( this.viewLayout && this.viewLayout.slices );
+    this.viewLayout = layout;
+
+    const main = layout.main,
+          style = this.main_canvas.style;
+    if( layout.slices ) {
+      style.position = 'absolute';
+      style.left = `${ main.left }px`;
+      style.top = `${ main.top }px`;
+    } else {
+      style.position = '';
+      style.left = '';
+      style.top = '';
+    }
+    this.main_canvas.classList.toggle( 'framed', !!layout.slices );
+    this.handle_resize( main.width, main.height );
+
+    // the text on the 3D view shrinks with it
+    const layoutFontScale = layout.slices ? main.height / layout.view.height : 1;
+    if( layoutFontScale !== this._layoutFontScale ) {
+      this._layoutFontScale = layoutFontScale;
+      this._applyFontSize();
+    }
+
+    [ "coronal", "axial", "sagittal" ].forEach( ( type ) => {
+      const sideCanvas = this.sideCanvasList[ type ];
+      if( layout.slices ) {
+        const cell = layout.slices[ type ];
+        sideCanvas.locked = true;
+        sideCanvas.setDimension({
+          width   : cell.size,
+          offsetX : cell.left,
+          offsetY : cell.top
+        });
+      } else if( wasTiled ) {
+        // back to the floating column, as a double-click on the header does
+        sideCanvas.locked = false;
+        sideCanvas.reset({ zoomLevel : false, position : true, size : true });
+      }
+    });
+    this.needsUpdate = true;
+  }
+
+  // Whether the slice panels float over the left edge of the 3D view, which
+  // the text drawn on it and the captures have to leave room for
+  get sideCanvasOverlaysMain() {
+    return this.sideCanvasEnabled &&
+      ( !this.viewLayout || this.viewLayout.mode === "3dview" );
+  }
+
   // -------- Camera, control trackball ........
   resetSideCanvas({
     width, zoomLevel = true, position = false,
     coronal = true, axial = true, sagittal = true
   } = {}) {
+    // A tiled layout decides where the panels go and how big they are
+    if( this.viewLayout && this.viewLayout.slices ) {
+      [ "coronal", "axial", "sagittal" ].forEach( ( type ) => {
+        if( { coronal, axial, sagittal }[ type ] ) {
+          this.sideCanvasList[ type ].reset({
+            zoomLevel : zoomLevel,
+            position  : false,
+            size      : false,
+            crosshair : true
+          });
+        }
+      });
+      return;
+    }
     if( typeof width !== 'number' ) {
       width = this._sideCanvasCSSWidth;
     }
@@ -1844,6 +2036,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       const inst = getThreeBrainInstance( m );
       if( inst && inst.isElectrode ) {
+        // A caller that names an electrode but no point (`,`/`.`, R's
+        // `set_focused_electrode`, the `Highlight Box` toggle) focuses the
+        // contact already focused, or the first one, so the box still shows
+        if( !intersectPoint ) {
+          const contacts = Array.isArray( inst.contactCenter ) ? inst.contactCenter : [];
+          const contact = contacts[ inst.state.focusedContact ] ?? contacts[ 0 ];
+          intersectPoint = contact ?
+            inst.object.localToWorld( new Vector3().copy( contact ) ) :
+            inst.object.getWorldPosition( new Vector3() );
+        }
+
         // let electrode know where clicked so it can update the contact list
         inst.focusContactFromWorld( intersectPoint );
 
@@ -1874,9 +2077,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       } else {
         this.highlight( this.object_chosen, false );
       }
-
       this.animParameters.updateFocusedInstance( inst );
-
     } else {
       if( auto_unfocus ){
         if( this.object_chosen ) {
@@ -1892,6 +2093,72 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     this.dispatch( _newObjectFocusedEvent );
     return intersectPoint;
+  }
+
+  /**
+   * Focus `m` as a click does. A right-click, the backtick, or the
+   * snap-to-electrode slice mode also moves the crosshair onto the focused
+   * point (for an electrode, its nearest contact).
+   */
+  focusObjectAndCrosshair( m, { intersectPoint = null, setCrosshair = false, centerCrosshair = true } = {} ) {
+    const crosshairPosition = this.focusObject( m, { intersectPoint : intersectPoint } );
+    if( crosshairPosition && ( setCrosshair || crosshairPosition.centerCrosshair ) ) {
+      crosshairPosition.centerCrosshair = centerCrosshair;
+      this.setSliceCrosshair( crosshairPosition );
+    }
+    return crosshairPosition;
+  }
+
+  /**
+   * The clickable object nearest a world (tkrRAS) point, as answered by each
+   * instance's `distanceTo`.
+   *
+   * @returns {Object|null} `{ object, point, distance }`, or `null` when nothing
+   *    lies within `maxDistance`
+   */
+  nearestClickable( worldPosition, maxDistance = Infinity ) {
+    let best = null;
+    this.threebrain_instances.forEach(( inst ) => {
+      if( typeof inst.distanceTo !== "function" ) { return; }
+      const hit = inst.distanceTo({
+        worldPosition : worldPosition,
+        clickableOnly : true,
+        // only something closer than the current best is of interest
+        maxDistance   : best ? best.distance : maxDistance,
+      });
+      if( hit && ( !best || hit.distance < best.distance ) ) {
+        best = hit;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * Focus the clickable object nearest the crosshair and move the crosshair
+   * onto it, as a right-click on it would (the backtick key).
+   *
+   * The search reaches the farther frustum distance of the side views plus
+   * `crosshair-snap-margin`, since a contact's shell can show in a slice while
+   * its center sits outside the frustum; it never reaches past
+   * `crosshair-snap-max-distance`, whatever the frustum.
+   */
+  snapCrosshairToNearestClickable() {
+    const near = Math.abs( this.get_state( "frustum_near", 2 ) ),
+          far  = Math.abs( this.get_state( "frustum_far", 2 ) );
+    const maxDistance = Math.min(
+      Math.max( near, far ) + CONSTANT_GEOM_PARAMS[ "crosshair-snap-margin" ],
+      CONSTANT_GEOM_PARAMS[ "crosshair-snap-max-distance" ]
+    );
+
+    const hit = this.nearestClickable( this._crosshairPosition, maxDistance );
+    if( !hit ) { return; }
+
+    this.focusObjectAndCrosshair( hit.object, {
+      intersectPoint  : hit.point,
+      setCrosshair    : true,
+      centerCrosshair : false,
+    });
+    return hit;
   }
 
   /*
@@ -2090,6 +2357,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     if( this.needsUpdate === undefined ) { return; }
     let persistLevel = this.needsUpdate;
     this.needsUpdate = undefined;
+    if( persistLevel ) {
+      this._sideViewsNeedUpdate = true;
+    }
 
     if( persistLevel === true ) {
       persistLevel = CanvasState.RenderOnce;
@@ -2159,24 +2429,27 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // this.domContext.fillRect(0, 0, _width, _height);
     this.domContext.clearRect( 0, 0, _width, _height );
 
-    // copy the main_renderer context
+    // copy the main_renderer context. A WebGPU canvas does not preserve its
+    // drawing buffer: it can only be read in the same task that rendered it, so
+    // this must run synchronously right after the renderers draw, never after an
+    // `await` or from a timer.
     if( this.capturer_recording ) {
-      this.domContext.drawImage( this.main_renderer.domElement, 0, 0, _width, _height);
+      this.domContext.drawImage( this.$mainGLCanvas, 0, 0, _width, _height);
 
-      if( this.sideCanvasEnabled ){
+      if( this.sideCanvasOverlaysMain ){
         const sideWidth = this.side_width * this.pixel_ratio[0],
               sideHeight = sideWidth - this.pixel_ratio[0];
 
         this.domContext.drawImage(
-          this.sideCanvasList.axial.renderer.domElement,
+          this.sideCanvasList.axial.$canvas,
           0, 0, sideWidth, sideWidth
         );
         this.domContext.drawImage(
-          this.sideCanvasList.sagittal.renderer.domElement,
+          this.sideCanvasList.sagittal.$canvas,
           0, sideHeight, sideWidth, sideWidth
         );
         this.domContext.drawImage(
-          this.sideCanvasList.coronal.renderer.domElement,
+          this.sideCanvasList.coronal.$canvas,
           0, sideHeight * 2, sideWidth, sideWidth
         );
 
@@ -2188,11 +2461,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
   // Main render function, automatically scheduled
   render(){
 
-    if( this._renderFlag == CanvasState.NoRender ) { return; }
+    // the renderers throw until they are initialized; the render flags are kept,
+    // and `rendererInitialized` requests a render once they are ready
+    if( !this.rendererReady ) { return; }
 
-    if( this.__nerdStatsEnabled ) {
-      // this.nerdStats.begin();
-    }
+    if( this._renderFlag == CanvasState.NoRender ) { return; }
 
     const _width = this.domElement.width;
     const _height = this.domElement.height;
@@ -2203,7 +2476,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     // double-buffer to make sure depth renderings
     //this.main_renderer.setClearColor( renderer_colors[0], 0.0 );
-    this.main_renderer.clear();
+    this.mainRendererInterface.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
 
@@ -2277,9 +2550,34 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     });
 
     // this.main_renderer.clear();
-    this.main_renderer.render( this.scene, this.mainCamera );
+    this.mainRendererInterface.render( this.scene, this.mainCamera );
 
-    if(this.sideCanvasEnabled){
+    // A capture request (see `_onCaptureOnce`): the picture just drawn
+    if( this._lastRendered !== undefined && this._lastRendered !== null ) {
+      const request = this._lastRendered;
+      this._lastRendered = undefined;
+      try {
+        const dataURI = this.$mainGLCanvas.toDataURL( "image/png" );
+        if( !Array.isArray( request.views ) ) { request.views = []; }
+        request.views.push({ canvas : this.$mainGLCanvas, dataURI : dataURI });
+        request.dataURI = dataURI;
+      } catch (e) {
+        // left without `dataURI`: the page copies the canvases itself
+      }
+    }
+
+    // The side views keep their last picture unless something besides the main
+    // camera changed. A canvas that is not drawn into keeps showing its last
+    // frame. They are always drawn while animating, while their cameras follow
+    // the main camera, and while recording, which copies them every frame.
+    const sideViewsNeedUpdate = this._sideViewsNeedUpdate ||
+      ( this._renderFlag & CanvasState.Animate ) !== 0 ||
+      this.capturer_recording ||
+      this.get_state( "sideCameraTrackMainCamera", "canonical" ) !== "canonical";
+
+    if( this.sideCanvasEnabled && sideViewsNeedUpdate ){
+
+      this._sideViewsNeedUpdate = false;
 
       // Pre render all meshes
       this.mesh.forEach((m) => {
@@ -2299,6 +2597,12 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       this.sideCanvasList.coronal.render();
       this.sideCanvasList.axial.render();
       this.sideCanvasList.sagittal.render();
+
+      // A shared renderer is left pointed at the last side view, and its
+      // `domElement`, size and pixel ratio follow whichever canvas that is.
+      // Hand the main view back, so anything reading the renderer between
+      // frames sees it.
+      this.mainRendererInterface.activate();
 
     }
 
@@ -2332,23 +2636,23 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // check if capturer is working
     if( this.capturer_recording && this.capturer ){
 
-      if( this.sideCanvasEnabled ){
+      if( this.sideCanvasOverlaysMain ){
         const sideHeight = (this.side_width - 1) * this.pixel_ratio[0];
 
         const sideCanvasTitleSize = this._lineHeight_small;
         this.domContext.fillStyle = "#e2e2e2";
         this.domContext.font = `${ sideCanvasTitleSize }px ${ this._fontType }`;
 
-        this.context.fillText(
-          this.canvas.sideCanvasList.axial._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.axial._headerText,
           sideCanvasTitleSize, 0 + sideCanvasTitleSize
         );
-        this.context.fillText(
-          this.canvas.sideCanvasList.sagittal._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.sagittal._headerText,
           sideCanvasTitleSize, sideHeight + sideCanvasTitleSize
         );
-        this.context.fillText(
-          this.canvas.sideCanvasList.coronal._headerText,
+        this.domContext.fillText(
+          this.sideCanvasList.coronal._headerText,
           sideCanvasTitleSize, sideHeight * 2 + sideCanvasTitleSize
         );
       }
@@ -2361,11 +2665,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // reset render flag
     this._renderFlag = this._renderFlag & 0b110;
     this.needsUpdate = undefined;
-
-    if( this.__nerdStatsEnabled ) {
-      // this.nerdStats.end();
-      this.nerdStats.update();
-    }
 
   }
 
@@ -2543,15 +2842,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     const pixelRatio = this.pixel_ratio[0];
 
     this._fontType = 'Courier New, monospace';
-    this._lineHeight_title = this._lineHeight_title || Math.round( 25 * pixelRatio );
-    this._fontSize_title = this._fontSize_title || Math.round( 20 * pixelRatio );
 
     // this.domContext.fillStyle = this.foreground_color;
     // this.domContext.font = `${ this._fontSize_title }px ${ this._fontType }`;
     contextWrapper.set_font_color( this.foreground_color );
     contextWrapper.set_font( this._fontSize_title, this._fontType );
 
-    if( this.sideCanvasEnabled ) {
+    if( this.sideCanvasOverlaysMain ) {
       x += this.side_width;
     }
     x += 10; // padding left
@@ -2593,8 +2890,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       contextWrapper = this.domContextWrapper;
     }
 
-    this._lineHeight_normal = this._lineHeight_normal || Math.round( 25 * this.pixel_ratio[0] );
-    this._fontSize_normal = this._fontSize_normal || Math.round( 15 * this.pixel_ratio[0] );
 
     contextWrapper._lineHeight_normal = this._lineHeight_normal;
     contextWrapper._fontSize_normal = this._fontSize_normal;
@@ -2632,8 +2927,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       currentValue = this.animParameters.objectFocused.currentDataValue;
     }
 
-    this._lineHeight_legend = this._lineHeight_legend || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_legend = this._fontSize_legend || Math.round( 8 * this.pixel_ratio[0] );
 
     const pixelRatio = this.pixel_ratio[0];
     cmap.renderLegend(
@@ -2658,10 +2951,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
    * selection block and the focus-mode block so the two stay aligned.
    */
   _infoTextLayout( w ) {
-    this._lineHeight_normal = this._lineHeight_normal || Math.round( 20 * this.pixel_ratio[0] );
-    this._lineHeight_small = this._lineHeight_small || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_normal = this._fontSize_normal || Math.round( 12 * this.pixel_ratio[0] );
-    this._fontSize_small = this._fontSize_small || Math.round( 8 * this.pixel_ratio[0] );
 
     let text_left;
     const infoTextPosition = this.get_state( 'info_text_position' );
@@ -2669,7 +2958,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
     } else if ( infoTextPosition === "right" ) {
       text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
-    } else if ( this.sideCanvasEnabled ) {
+    } else if ( this.sideCanvasOverlaysMain ) {
       text_left = w - Math.ceil( 60 * this._fontSize_normal * 0.42 );
     } else {
       text_left = Math.ceil( this._fontSize_normal * 0.42 * 2 );
@@ -2814,10 +3103,17 @@ class ViewerCanvas extends ThrottledEventDispatcher {
       }
 
       // Line 6: Additional Display information
-      const additionalText = electrodeInstance.getInfoText("additionalDisplay");
-      if( additionalText ) {
-        textPosition.y += this._lineHeight_small;
-        contextWrapper.fill_text( additionalText, textPosition.x, textPosition.y );
+      let additionalText = electrodeInstance.getInfoText("additionalDisplay");
+      if( typeof additionalText === "string" ) {
+
+        const result = extractLink( additionalText );
+        if ( result.hasLink ) {
+          this._app.setMessage( result.html );
+        } else {
+          this._app.setMessage();
+          textPosition.y += this._lineHeight_small;
+          contextWrapper.fill_text( additionalText, textPosition.x, textPosition.y );
+        }
       }
     }
 
@@ -3580,15 +3876,18 @@ mapped = false,
 
     // set scenes
     if( this.background_color === "#ffffff" || this.background_color === "#FFFFFF" ) {
-      // transparent
-      this.scene.background = undefined;
+      // transparent; must be `null`, as `WebGPURenderer` fails on `undefined`
+      this.scene.background = null;
     } else {
       this.scene.background = this._backgroundObject.set( this.background_color );
     }
 
     // Set renderer background to be v
-    this.main_renderer.setClearColor( this.background_color, 0.0 );
+    this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
     this.$el.style.backgroundColor = this.background_color;
+    // for the CSS that has to stand out from the background (the 3D view's
+    // frame in a tiled layout)
+    this.$el.style.setProperty( '--threebrain-foreground', `${this.foreground_color}20` );
 
     if( backgroundLuma < 0.4 ) {
       this.$el.classList.add( 'dark-viewer' );
@@ -3605,6 +3904,8 @@ mapped = false,
       this.sideCanvasList.sagittal.setBackground( this.background_color );
     } catch (e) {}
      */
+
+    this.dispatch( _setBackground );
 
 
     // force re-render

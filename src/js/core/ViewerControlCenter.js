@@ -8,6 +8,8 @@ import { asColor } from '../utility/color.js';
 import { ColorMapKeywords, addToColorMapKeywords } from './CustomLut.js';
 import { testColorString } from '../utility/color.js';
 import { normalizeImageName } from '../utility/normalizeImageName.js';
+import { setShaderProperty } from '../utils.js';
+import { CONTROLLER_VALUE_CHANGED } from './EnhancedGUIController.js';
 
 // 1. Background colors
 import { registerPresetBackground } from '../controls/PresetBackground.js';
@@ -140,13 +142,18 @@ class ViewerControlCenter extends EventDispatcher {
 
     this.animParameters = this.canvas.animParameters;
 
-    this._animOnTimeChange = () => {
+    this._animOnTimeChange = ( event ) => {
       // update time controller
       if( this.ctrlAnimTime !== undefined ) {
+        // Update without triggering updating value (onChange callback)
         this.ctrlAnimTime.updateDisplay();
       }
+      // move the cursor on the electrode activity plot
+      if( this.ctrlClipGraph !== undefined ) {
+        this.ctrlClipGraph.setValue( event.value );
+      }
     };
-    this.animParameters._eventDispatcher.addEventListener( "animation.time.onChange", this._animOnTimeChange );
+    this.animParameters.addEventListener( "animation.time.onChange", this._animOnTimeChange );
 
     // keyboard event dispatcher
     this.canvas.$el.addEventListener( "viewerApp.keyboad.keydown" , this._onKeyDown );
@@ -437,7 +444,13 @@ class ViewerControlCenter extends EventDispatcher {
     this.canvas.$el.removeEventListener( "viewerApp.controller.setValue" , this._onDriveController );
     this.canvas.$el.removeEventListener( "viewerApp.controller.setOpen" , this._onSetOpen );
     this.canvas.$el.removeEventListener( "viewerApp.canvas.setSliceCrosshair", this._onSetSliceCrosshair );
+    if( this._onInstanceChosenUpdateGraph ) {
+      this.canvas.$el.removeEventListener( "viewerApp.canvas.newObjectFocused", this._onInstanceChosenUpdateGraph );
+    }
     // this.canvas.$el.removeEventListener( "viewerApp.subject.changed", this.updateSelectorOptions );
+    if ( this._animOnTimeChange ) {
+      this.animParameters.removeEventListener( "animation.time.onChange", this._animOnTimeChange );
+    }
   }
 
   _onSetSliceCrosshair = ( event ) => {
@@ -464,25 +477,24 @@ class ViewerControlCenter extends EventDispatcher {
     }
     // Calculate MNI305 positions
 
-    const ctrlChMNI = this.gui.getController( "Affine MNI152" );
-    if( !ctrlChMNI.isfake && ctrlChMNI.$input ) {
-      const crosshairMNI = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "MNI152" } );
-      ctrlChMNI.$input.value = `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}`;
-    }
-    // this.gui.getController( "Affine MNI152" )
-    //   .setValue( `${crosshairMNI.x.toFixed(1)}, ${crosshairMNI.y.toFixed(1)}, ${crosshairMNI.z.toFixed(1)}` );
+    // these three are display-only: write the value and refresh the widget,
+    // without firing the change handlers
+    const showCoordinate = ( controllerName, coordSys ) => {
+      const controller = this.gui.getController( controllerName );
+      if( controller.isfake ) { return; }
+      const position = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : coordSys } );
+      controller.object[ controller.property ] =
+        `${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)}`;
+      controller.updateDisplay();
+    };
 
-    const ctrlChScan = this.gui.getController( "Crosshair ScanRAS" );
-    if( !ctrlChScan.isfake && ctrlChScan.$input ) {
-      const crosshairScanner = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "Scanner" } );
-      ctrlChScan.$input.value = `${crosshairScanner.x.toFixed(1)}, ${crosshairScanner.y.toFixed(1)}, ${crosshairScanner.z.toFixed(1)}`;
-    }
+    showCoordinate( "Affine MNI152", "MNI152" );
+    showCoordinate( "Crosshair ScanRAS", "Scanner" );
+    showCoordinate( "Crosshair tkrRAS", "tkrRAS" );
 
-    const ctrlChSurf = this.gui.getController( "Crosshair tkrRAS" );
-    if( !ctrlChSurf.isfake && ctrlChSurf.$input ) {
-      const crosshairSurface = this.canvas.getSideCanvasCrosshair( tmpVec3, { "coordSys" : "tkrRAS" } );
-      ctrlChSurf.$input.value = `${crosshairSurface.x.toFixed(1)}, ${crosshairSurface.y.toFixed(1)}, ${crosshairSurface.z.toFixed(1)}`;
-    }
+    // the values above skipped the change handlers: announce them so that
+    // listeners (e.g. the R shiny driver) still learn the new crosshair
+    this.gui.dispatchEvent({ type : CONTROLLER_VALUE_CHANGED });
 
   }
 
@@ -527,80 +539,72 @@ class ViewerControlCenter extends EventDispatcher {
         return;
       }
 
-      // check controller type
-      const classList = controller.domElement.classList;
+      switch ( controller._type ) {
 
-      // Button
-      if( classList.contains( "function" ) ) {
-        controller.$button.click();
-        return;
-      }
+        // Button
+        case "function":
+          controller.fire();
+          return;
 
-      // Color
-      if( classList.contains( "color" ) ) {
-        controller.setValue(
-          asColor( message.value, new Color() ).getHexString()
-        );
-        return;
-      }
+        // Color
+        case "color":
+          controller.setValue(
+            asColor( message.value, new Color() ).getHexString()
+          );
+          return;
 
-      // Boolean
-      if( classList.contains( "boolean" ) ) {
-        if( message.value ) {
-          controller.setValue( true );
-        } else {
-          controller.setValue( false );
-        }
-        return;
-      }
-
-      // String
-      if( classList.contains( "string" ) ) {
-        if( typeof message.value === "object" ) {
-          controller.setValue( JSON.stringify( message.value ) );
-        } else {
-          controller.setValue( message.value.toString() );
-        }
-        return;
-      }
-
-      // option
-      if( classList.contains( "option" ) ) {
-        if(
-          (
-            Array.isArray( controller._names ) &&
-            controller._names.includes( message.value )
-          ) || (
-            Array.isArray( controller._values ) &&
-            controller._values.includes( message.value )
-          )
-        ) {
-          controller.setValue( message.value );
-        } else {
-          console.warn(`ThreeBrain viewer controller [${ message.name }] does not contain option choice: ${ message.value }`);
-        }
-        return;
-      }
-
-      // Number
-      if( classList.contains( "number" ) ) {
-
-        if( typeof message.value !== "number" || isNaN( message.value ) ||
-            !isFinite( message.value ) ) {
-          console.warn(`ThreeBrain viewer controller [${ message.name }] needs a valid (not NaN, Infinity) numerical input.`);
-        } else {
-
-          if(
-            ( controller._min !== undefined && controller._min > message.value ) ||
-            ( controller._max !== undefined && controller._max < message.value )
-          ) {
-            console.warn(`Trying to ThreeBrain viewer controller [${ message.name }]  numerical value that is out of range.`);
+        // Boolean
+        case "boolean":
+          if( message.value ) {
+            controller.setValue( true );
+          } else {
+            controller.setValue( false );
           }
+          return;
 
-          controller.setValue( message.value );
-        }
+        // String
+        case "string":
+          if( typeof message.value === "object" ) {
+            controller.setValue( JSON.stringify( message.value ) );
+          } else {
+            controller.setValue( message.value.toString() );
+          }
+          return;
 
-        return;
+        // option
+        case "option":
+          if(
+            (
+              Array.isArray( controller._names ) &&
+              controller._names.includes( message.value )
+            ) || (
+              Array.isArray( controller._values ) &&
+              controller._values.includes( message.value )
+            )
+          ) {
+            controller.setValue( message.value );
+          } else {
+            console.warn(`ThreeBrain viewer controller [${ message.name }] does not contain option choice: ${ message.value }`);
+          }
+          return;
+
+        // Number
+        case "number":
+          if( typeof message.value !== "number" || isNaN( message.value ) ||
+              !isFinite( message.value ) ) {
+            console.warn(`ThreeBrain viewer controller [${ message.name }] needs a valid (not NaN, Infinity) numerical input.`);
+          } else {
+
+            if(
+              ( controller._min !== undefined && controller._min > message.value ) ||
+              ( controller._max !== undefined && controller._max < message.value )
+            ) {
+              console.warn(`Trying to ThreeBrain viewer controller [${ message.name }]  numerical value that is out of range.`);
+            }
+
+            controller.setValue( message.value );
+          }
+          return;
 
       }
 
@@ -747,15 +751,8 @@ class ViewerControlCenter extends EventDispatcher {
       return controller;
     }
 
-    controller._values.length = 0;
-    controller.$select.innerHTML = "";
-    options.forEach(t => {
-      const $opt = document.createElement("option");
-      $opt.innerHTML = t;
-      controller.$select.appendChild( $opt );
-      controller._values.push( t );
-    });
-
+    // the choice list is fixed when the widget is built, so this replaces it
+    controller.options( options );
     controller.setValue( currentValue ).updateDisplay();
 
     return controller;
@@ -992,10 +989,10 @@ class ViewerControlCenter extends EventDispatcher {
       ctrl.onChange(v => {
         if(!v) { v = 0; }
         if( v < 0.99 ) {
-          inst.object.material.transparent = true;
+          setShaderProperty( inst.object.material, 'transparent', true );
           inst.object.material.opacity = v;
         } else {
-          inst.object.material.transparent = false;
+          setShaderProperty( inst.object.material, 'transparent', false );
         }
         this.canvas.needsUpdate = true;
       }).setValue( defaultValue );
@@ -1112,7 +1109,7 @@ class ViewerControlCenter extends EventDispatcher {
 
         if( inst.isFreeMesh ) {
           inst._materialColor.set( v );
-          inst.object.material.vertexColors = false;
+          setShaderProperty( inst.object.material, 'vertexColors', false );
         } else if( inst.isDataCube2 ) {
           const lut = this.continuousLookUpTables.default;
           inst.useColorLookupTable( lut, v );
@@ -1142,7 +1139,7 @@ class ViewerControlCenter extends EventDispatcher {
           const data = inst.object.userData[`${ inst._hemispherePrefix }h_annotation_[custom measurement]`];
           if( data ) {
             inst._materialColor.set( "#FFFFFF" );
-            inst.object.material.vertexColors = true;
+            setShaderProperty( inst.object.material, 'vertexColors', true );
 
             // re-selecting the data would reset the color range
             const ctrlVertData = this.gui.getController("Surface Color Data");

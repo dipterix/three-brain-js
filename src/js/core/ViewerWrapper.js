@@ -1,7 +1,6 @@
 // External libraries
 import { CONSTANTS } from './constants.js';
 import { MathUtils } from 'three';
-import WebGL from 'three/addons/capabilities/WebGL.js'
 import { StorageCache } from './StorageCache.js';
 import { ViewerApp } from './ViewerApp.js';
 
@@ -83,17 +82,17 @@ class ViewerWrapper {
     // this will be the root element of the viewer
     this.$viewerWrapper = undefined;
 
-    // For debug purposes, turn this.webgl2Enabled = true to force
-    // render even though only WebGL1 is available
-    // This is most likely to fail
-    this._webgl2Enabled = WebGL.isWebGL2Available();
-    this.webgl2Enabled = this._webgl2Enabled;
+    // Debug switch: `?forceWebGL` (or `=1`, `=true`) in the page URL runs the
+    // renderers on their WebGL2 backend even when WebGPU is available. Without
+    // it, the renderers pick WebGPU and fall back to WebGL2 by themselves.
+    const searchParams = new URLSearchParams( window.location.search );
+    const forceWebGL = searchParams.get( "forceWebGL" );
+    this.forceWebGL = forceWebGL === "" || forceWebGL === "1" || forceWebGL === "true";
 
-    if( !this.webgl2Enabled ) {
-      const $warning = WebGL.getWebGL2ErrorMessage();
-      this.$container.replaceChildren( $warning );
-      return;
-    }
+    // Debug switch: `?sharedDevice=0` gives every canvas a renderer of its own,
+    // as they had before they shared one GPU device. Only WebGPU can share.
+    const sharedDevice = searchParams.get( "sharedDevice" );
+    this.shareRenderer = !( sharedDevice === "0" || sharedDevice === "false" );
 
 
     if( this.viewer === undefined ) {
@@ -117,20 +116,17 @@ class ViewerWrapper {
   }
 
   addModal = () => {
-    if( !this.webgl2Enabled ) { return; }
     if( this.$modal ) { return; }
     this.$container.classList.add("threejs-brain-blank-container");
     this.$modal = document.createElement("div");
     this.$modal.classList.add("threejs-brain-modal");
-    // check webgl2 availability
     this.$modal.innerText = "Click me to load 3D viewer.";
     this.$container.innerHTML = "";
-    this.$container.appendChild( modal );
+    this.$container.appendChild( this.$modal );
     this.$container.addEventListener( "click", this.activateViewer );
   }
 
   activateViewer = () => {
-    if( !this.webgl2Enabled ) { return; }
     this.$container.removeEventListener( "click", this.activateViewer );
 
     if( this.$modal ) {
@@ -139,8 +135,11 @@ class ViewerWrapper {
       this.$modal = undefined;
     }
 
-    // check if viewer has been initialized
-    if( this.initialized ) {
+    // Reuse the viewer whenever there is one: this wrapper may have been built
+    // around a fresh element that Shiny put in place of the old one (same id,
+    // so `getCachedViewer()` finds it), and rebuilding would strand the cached
+    // viewer's renderers, each holding a GPU device or WebGL2 context.
+    if( this.initialized || ( this.viewer && this.viewer.isViewerApp ) ) {
       this.useCachedViewer( true );
     } else {
       this.createViewer( true );
@@ -152,7 +151,6 @@ class ViewerWrapper {
 
   // 1-op: this function will be executed once and then will always no-op
   createViewer( insertViewer = false ) {
-    if( !this.webgl2Enabled ) { return; }
     if( this.initialized ) {
       return this.useCachedViewer( insertViewer );
     }
@@ -168,11 +166,15 @@ class ViewerWrapper {
       width : this.width, height : this.height,
       cache : this.cache,
       debug : this.debug || CONSTANTS.DEBUG,
-      webgl2Enabled : this._webgl2Enabled
+      forceWebGL : this.forceWebGL,
+      shareRenderer : this.shareRenderer
     });
 
+    // Bind the viewer to the wrapper, so that the wrapper can be used to get the viewer
+    this.$viewerWrapper.threeBrainViewerApp = this.viewer;
+
     this.cacheViewer();
-    this.initalized = true;
+    this.initialized = true;
 
     if( insertViewer ) {
       // clear the container element
@@ -189,27 +191,28 @@ class ViewerWrapper {
   }
 
   useCachedViewer( insertViewer = false ) {
-    if( !this.initialized ) {
-      return this.createViewer();
-    }
-    if( !this.viewer ) {
+    if( !this.viewer || !this.viewer.isViewerApp ) {
       this.viewer = this.getCachedViewer();
       this.cacheViewer();
     }
-    if( !this.viewer ) { throw 'THREEBRAIN: Trying to use a cached/existing viewer, but the viewer is nowhere to be found!'; }
+    if( !this.viewer || !this.viewer.isViewerApp ) {
+      return this.createViewer( insertViewer );
+    }
     if( this.debug ) {
       console.debug('[ViewerWrapper.useCachedViewer]: Re-using an existing/cached viewer.');
     }
 
 
-    this.$viewerWrapper = this.viewer.el;
+    // the viewer's root element, which `createViewer()` made and the removed
+    // container held until now
+    this.$viewerWrapper = this.viewer.$wrapper;
     if( this.viewerMode ) {
       this.$viewerWrapper.style.height = '100vh';
       this.$viewerWrapper.style.width = '100vw';
     }
 
     // make sure (can be overkill)
-    this.initalized = true;
+    this.initialized = true;
     if( insertViewer ) {
       // clear the container element
       this.$container.innerHTML = '';
@@ -239,7 +242,7 @@ class ViewerWrapper {
     };
     this.debug = data.settings.debug || CONSTANTS.DEBUG;
 
-    if( !this.initalized ) {
+    if( !this.initialized ) {
       if( data.force_render ) {
         this.activateViewer();
       }

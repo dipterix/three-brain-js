@@ -2,7 +2,7 @@ import { AbstractThreeBrainObject } from './abstract.js';
 import { remove_comments } from '../utils.js';
 import {
   Vector3, Sprite, Texture, SpriteMaterial, TextureLoader,
-  CylinderGeometry, MeshBasicMaterial, Mesh, RawShaderMaterial
+  CylinderGeometry, MeshBasicMaterial, Mesh
 } from 'three';
 
 class ImageSprite extends AbstractThreeBrainObject {

@@ -4,8 +4,13 @@
  */
 
 // External libraries
-import * as THREE from 'three';
+// the WebGPU build: three's core plus `WebGPURenderer`, node materials and TSL,
+// without the WebGL renderer (`ExternLibs.THREE`, `window.THREE` in the widget)
+import * as THREE from 'three/webgpu';
 import WebGL from 'three/addons/capabilities/WebGL.js'
+// not three's `capabilities/WebGPU.js`, whose top-level `await` would make the
+// bundle's export a Promise
+import { WebGPU } from './utils/WebGPUCapability.js';
 import { Lut, ColorMapKeywords, addToColorMapKeywords } from './core/CustomLut.js'
 import { NamedLut } from './core/NamedLut.js'
 import * as download from 'downloadjs';
@@ -68,6 +73,7 @@ const SharedSettings = SHARED_SETTINGS;
 const ExternLibs = {
   THREE             : THREE,
   WebGL             : WebGL,
+  WebGPU            : WebGPU,
   ColorMap          : {
     Lut : Lut, NamedLut : NamedLut,
     ColorMapKeywords : ColorMapKeywords,
@@ -114,4 +120,15 @@ const Exporters = {
 
 const Workers = workerPool;
 
-export { ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, SharedSettings, Drivers, ExternLibs, Workers, GeometryFactory, DevTools };
+// Which build is running: the `package.json` version and when webpack built
+// this bundle (both are filled in by webpack.config.js)
+const VERSIONS = {
+  version   : __THREEBRAIN_VERSION__,
+  buildTime : __THREEBRAIN_BUILD_TIME__,
+};
+
+export { 
+  ViewerApp, ViewerWrapper, StorageCache, Importers, Exporters, Constants, 
+  SharedSettings, Drivers, ExternLibs, Workers, GeometryFactory, DevTools,
+  VERSIONS
+};

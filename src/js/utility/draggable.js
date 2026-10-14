@@ -9,7 +9,9 @@ function makeDraggable(
   elmnt, elmnt_header,
   // top range and left range
   parent_el = undefined,
-  mousedown_callback = (e, state)=>{}) {
+  mousedown_callback = (e, state)=>{},
+  // checked on every mouse down; dragging is ignored while it returns false
+  canDrag = () => true) {
   var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
   var range = [-Infinity, Infinity, -Infinity, Infinity];
   var state = 'pan', state_old;
@@ -38,6 +40,7 @@ function makeDraggable(
   function dragMouseDown(e) {
     e = e || window.event;
     e.preventDefault();
+    if( !canDrag() ) { return; }
     // get the mouse cursor position at startup:
     pos3 = e.clientX;
     pos4 = e.clientY;

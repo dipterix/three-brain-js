@@ -10,9 +10,14 @@ function raycast_volume_geneator(){
   let mx, my, mz, i, j, k, tmp, k1, k2, l_res;
   const res = [NaN, NaN, NaN, NaN, NaN, NaN, NaN];
 
+  // `depthAxis` (optional, model space): the voxels are ranked by
+  // `offset · depthAxis`. `intersect_volume` passes the axis that gives world
+  // depth, since `direction` is only proportional to the world ray in model
+  // space and, with anisotropic voxels, ranks by a skewed depth.
   const raycast_volume = (
     origin, direction, volumeModelShape,
-    map_array, delta = 0.5, snap_raycaster = true, colorChannels = 4 ) => {
+    map_array, delta = 0.5, snap_raycaster = true, colorChannels = 4,
+    depthAxis = undefined ) => {
 
     mx = volumeModelShape.x;
     my = volumeModelShape.y;
@@ -86,7 +91,7 @@ function raycast_volume_geneator(){
                   (j+0.5) - orig.y,
                   (k+0.5) - orig.z
                 );
-                tmp = p.dot( direction );
+                tmp = p.dot( depthAxis ?? direction );
                 if( tmp < dist ){
                   res[0] = i;
                   res[1] = j;
@@ -130,10 +135,13 @@ function electrode_from_ct_generator(){
 
   const origin = new Vector3(),
         direction = new Vector3(),
+        depthAxis = new Vector3(),
+        worldDirection = new Vector3(),
         pos = new Vector3();
   const matrix_ = new Matrix4(),
         matrix_inv = new Matrix4(),
-        matrix_rot = new Matrix3();
+        matrix_rot = new Matrix3(),
+        linearT = new Matrix3();
 
   let colorChannels = 4;
 
@@ -151,6 +159,12 @@ function electrode_from_ct_generator(){
     matrix_rot.setFromMatrix4(matrix_inv);
     direction.copy(dir).applyMatrix3(matrix_rot);
 
+    // world depth of a model-space offset p is (A p) · d = p · (Aᵀ d), with A
+    // the linear part of the model -> world transform
+    worldDirection.copy( dir ).normalize();
+    linearT.setFromMatrix4( matrix_ ).transpose();
+    depthAxis.copy( worldDirection ).applyMatrix3( linearT );
+
     /*if(!canvas.__localization_helper){
       canvas.__localization_helper = new ArrowHelper(new Vector3( 0, 0, 1 ), new Vector3( 0, 0, 0 ), 50, 0xff0000, 2 );
       canvas.scene.add( canvas.__localization_helper );
@@ -159,16 +173,24 @@ function electrode_from_ct_generator(){
     canvas.__localization_helper.setDirection(dir);
     */
 
+    // the hit voxel's center, snapped (if asked) onto the ray in world space:
+    // in model space the metric is anisotropic whenever the voxels are, and a
+    // projection there lands at another world depth
     const res = raycast_volume(
       origin, direction, inst.modelShape,
       inst.voxelColor,
-      delta, snap_raycaster, colorChannels
+      delta, false, colorChannels, depthAxis
     );
     pos.x = res[3];
     pos.y = res[4];
     pos.z = res[5];
 
     pos.applyMatrix4( matrix_ );
+
+    if( snap_raycaster && !isNaN( pos.x ) ) {
+      const along = pos.sub( src ).dot( worldDirection );
+      pos.copy( worldDirection ).multiplyScalar( along ).add( src );
+    }
 
     return ( pos );
   };

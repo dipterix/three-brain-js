@@ -6,10 +6,13 @@ import { Vector3, Matrix4, Color, Quaternion,
          BoxGeometry, BufferGeometry, SphereGeometry,
          BufferAttribute,
          MeshPhysicalMaterial, MeshBasicMaterial,
-         DoubleSide, FrontSide } from 'three';
+         DoubleSide, FrontSide, SRGBColorSpace } from 'three';
+import { MeshPhysicalNodeMaterial } from 'three/webgpu';
+import { vertexColor } from 'three/tsl';
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
 import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
+import { fromDisplayColor } from '../shaders/nodeHelpers.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
 import { buildFlatKDTree } from '../Math/computeStreamlineToTargets.js'
@@ -223,8 +226,6 @@ class DataCube2 extends AbstractThreeBrainObject {
       0.5
     );
 
-    this.object.material.uniformsNeedUpdate = true;
-
     this.colorTexture.needsUpdate = true;
 
     // Update gradient texture when color changes
@@ -370,7 +371,6 @@ class DataCube2 extends AbstractThreeBrainObject {
       ),
       0.5
     );
-    this.object.material.uniformsNeedUpdate = true;
     this.colorTexture.needsUpdate = true;
 
     // Update gradient texture when color changes
@@ -424,9 +424,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
         // Update material to use gradient texture
         if (this.object && this.object.material) {
-          this.object.material.uniforms.gradientMap.value = this.gradientTexture;
-          this.object.material.defines.USE_GRADIENT_MAP = 1;
-          this.object.material.needsUpdate = true;
+          this.object.material.gradientMap = this.gradientTexture;
         }
       } else {
         // Update existing texture data
@@ -436,8 +434,12 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.gradientTexture.needsUpdate = true;
 
     } catch (error) {
+      // `invokeWorker` falls back to `computeGradientsFromRGBA` on this thread
+      // whenever the worker cannot do it, so reaching here means the
+      // computation itself failed (an allocation on a very large volume, say).
+      // Give up on precomputed gradients for this volume and let the shader
+      // take central differences instead.
       console.warn('Failed to compute gradient texture:', error);
-      // Fallback to shader-based gradient computation
       this.usePrecomputedGradients = false;
     }
   }
@@ -530,7 +532,9 @@ class DataCube2 extends AbstractThreeBrainObject {
           timeOut : 60000,
         });
       } catch (e) {
-        console.warn( `DataCube2: worker build of the distance tree failed for [${ this.name }]; building on the main thread.`, e );
+        // quiet for the same reason as `buildBoundsTreeAsync`: the fallback
+        // already ran for every recoverable case
+        console.debug( `DataCube2: building the distance tree for [${ this.name }] on the main thread.`, e );
         built = buildLocally();
       }
     } else {
@@ -739,11 +743,15 @@ class DataCube2 extends AbstractThreeBrainObject {
             nColors = colorPalette.width,
             keyColors = colorPalette.data;
 
-      let colorKey, colorKeyIdx, alpha;
+      let colorKey, colorKeyIdx;
       for( let i = 0; i < surfaceParams.nVerts; i++ ) {
         const i4 = i * 4;
 
-        let colorKey = surfaceParams.color[ i * 3 ];
+        // `voxelColor` stores the ramp position as a byte; the bounds checks
+        // below are against a 0-1 key, as they were when this attribute held
+        // floats. Without the /255 every non-zero key takes the `>= 1` branch
+        // and the whole surface ends up the last ramp color.
+        colorKey = surfaceParams.color[ i * 3 ] / 255;
 
         if( colorKey <= 0 ) {
 
@@ -806,12 +814,20 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.isoSurface.isInvalid = undefined;
       oldGeometry.dispose();
     } else {
-      const material = new MeshPhysicalMaterial({
+      // The `color` attribute holds the display (sRGB) bytes every other
+      // consumer of `voxelColor` and `colorRampPalette` composites with, but
+      // three reads a `color` attribute as working (linear) values, so the
+      // shader decodes it. Decoding here rather than on the CPU keeps the full
+      // precision of the LUT: 8-bit linear collapses 256 sRGB codes into 183
+      // and drops the darkest labels below the thresholds elsewhere.
+      // `vertexColors` stays false only so `NodeMaterial` does not multiply the
+      // attribute in a second time; `vertexColor()` binds it regardless.
+      const material = new MeshPhysicalNodeMaterial({
         'transparent' : true,
         'side': FrontSide,
-        'vertexColors' : true,
+        'vertexColors' : false,
         'forceSinglePass' : false,
-        'reflectivity' : 0,
+        // 'reflectivity' : 0,
         'flatShading' : false,
         'roughness' : 0.3,
         'ior' : 1.6,
@@ -819,6 +835,17 @@ class DataCube2 extends AbstractThreeBrainObject {
         'clearcoatRoughness' : 1,
         'specularIntensity' : 1
       })
+      const isoColor = fromDisplayColor( vertexColor() );
+      material.colorNode = isoColor;
+
+      // The physical BRDF divides by PI, so with ambient 0.3 and directional 1.5
+      // the lit diffuse never exceeds 0.573 of the albedo and the ISO surface
+      // reads much darker than the ray-marched volume it stands in for. Lift it
+      // with an emissive term rather than a white pedestal: emissive adds the
+      // voxel's own color, so the labels keep their saturation. 0.35 was matched
+      // against the ray-marched atlas -- mean luminance 106.7 vs its 103.3, at
+      // the same mean saturation.
+      material.emissiveNode = isoColor.rgb.mul( 0.35 );
 
       this.isoSurface = new Mesh( geometry, material );
       this.isoSurface.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
@@ -925,7 +952,51 @@ class DataCube2 extends AbstractThreeBrainObject {
     }
     if( !this.isoSurface || this.isoSurface.isInvalid ) { return null; }
 
-    const mesh = this.isoSurface.clone();
+    // `clone()` would share the live geometry, and its `color` attribute holds
+    // the display (sRGB) bytes the ISO material decodes in its shader. glTF's
+    // COLOR_0 is linear and the exporter cannot carry a `colorNode`, so bake
+    // the decode into a copy. Floats, not bytes: 8-bit linear merges the
+    // darkest labels.
+    const geometry = this.isoSurface.geometry.clone();
+    const displayColor = geometry.getAttribute( 'color' );
+
+    if( displayColor ) {
+      const linearColor = new Float32Array( displayColor.count * 4 );
+      const tmpColor = new Color();
+
+      for( let i = 0; i < displayColor.count; i++ ) {
+        tmpColor.setRGB(
+          displayColor.getX( i ), displayColor.getY( i ), displayColor.getZ( i ),
+          SRGBColorSpace );
+        linearColor[ i * 4 ] = tmpColor.r;
+        linearColor[ i * 4 + 1 ] = tmpColor.g;
+        linearColor[ i * 4 + 2 ] = tmpColor.b;
+        linearColor[ i * 4 + 3 ] = displayColor.getW( i );
+      }
+
+      geometry.deleteAttribute( 'color' );
+      geometry.setAttribute( 'color', new BufferAttribute( linearColor, 4 ) );
+    }
+
+    // `GLTFExporter` only understands the stock materials -- it keys off
+    // `isMeshStandardMaterial`, which the node materials do not set -- so the
+    // export carries a plain one built from the live material's values. The
+    // attribute is linear now, so this one reads it the ordinary way.
+    const source = this.isoSurface.material;
+    const material = Object.assign( new MeshPhysicalMaterial({
+      'transparent'        : source.transparent,
+      'side'               : source.side,
+      'vertexColors'       : true,
+      'forceSinglePass'    : source.forceSinglePass,
+      'flatShading'        : source.flatShading,
+      'roughness'          : source.roughness,
+      'ior'                : source.ior,
+      'clearcoat'          : source.clearcoat,
+      'clearcoatRoughness' : source.clearcoatRoughness,
+      'specularIntensity'  : source.specularIntensity
+    }), materialModifier );
+
+    const mesh = new Mesh( geometry, material );
     mesh.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
     mesh.applyMatrix4( this.object.matrixWorld );
 
@@ -945,7 +1016,6 @@ class DataCube2 extends AbstractThreeBrainObject {
   }
 
   async updatePalette( selectedDataValues ){
-    if( !this._canvas.has_webgl2 ){ return; }
     if( this._holdePalette ) {
       return;
     }
@@ -983,10 +1053,6 @@ class DataCube2 extends AbstractThreeBrainObject {
 
 
     super( g, canvas );
-
-    if( !canvas.has_webgl2 ){
-      throw 'DataCube2, i.e. voxel cube must need WebGL2 support';
-    }
 
     // this._params is g
     // this.name = this._params.name;
@@ -1066,7 +1132,10 @@ class DataCube2 extends AbstractThreeBrainObject {
         ( this.modelShape.z - 1.0 ) / 2.0
       )
 
-      let minV = maxV = this.voxelData[0];
+      // (was `let minV = maxV = ...`: in the bundle's strict mode the undeclared
+      // `maxV` threw, so no volume from R data -- such as a CT passed to
+      // `brain$localize()` as a loaded image -- was ever created)
+      let minV = this.voxelData[0], maxV = minV;
       this.voxelData.forEach((vd) => {
         if( minV > vd ) {
           minV = vd;
@@ -1079,7 +1148,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         slope : 1,
         intercept : 0,
         dataMin : minV,
-        dataMin : maxV,
+        dataMax : maxV,
       };
     }
     this.nVoxels = this.modelShape.x * this.modelShape.y * this.modelShape.z;
@@ -1183,7 +1252,6 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     mesh.position.fromArray( g.position );
 
-    mesh.userData.dispose = () => { this.dispose(); };
 
     this._mesh = mesh;
     this.object = mesh;
@@ -1230,10 +1298,9 @@ class DataCube2 extends AbstractThreeBrainObject {
 
         // this._map_data = undefined;
         // this.voxelData = undefined;
-        const dataCube2List = this._canvas.atlases.get( this.subject_code )
-        if( dataCube2List[ this.name ] === this ) {
-          delete dataCube2List[ this.name ];
-        }
+        // `registerToMap( ['atlases'] )` owns the `canvas.atlases` entry and removes it
+        // on the dispose event, which `_dispose` fires before this hook -- on every
+        // path, including a direct `inst._dispose()`. Do not delete it here.
       }
     } catch (e) {}
 
@@ -1319,12 +1386,15 @@ class DataCube2 extends AbstractThreeBrainObject {
         tryLinearFilter = true;
       }
     }
+    // the filter decides how shaders bind the texture, so the volume's shader
+    // is rebuilt (the slices and surfaces check theirs)
     if( tryLinearFilter ) {
 
       if( this.colorTexture.magFilter !== LinearFilter ) {
         this.colorTexture.magFilter = LinearFilter;
         this.colorTexture.minFilter = LinearFilter;
         this.colorTexture.needsUpdate = true;
+        this.object.material.needsUpdate = true;
       }
 
     } else {
@@ -1333,6 +1403,7 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.colorTexture.magFilter = NearestFilter;
         this.colorTexture.minFilter = NearestFilter;
         this.colorTexture.needsUpdate = true;
+        this.object.material.needsUpdate = true;
       }
 
     }
@@ -1457,7 +1528,7 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     // Make sure the colormap is compatible
     const wasContinuous = this.isDataContinuous;
-    const uniforms = this.object.material.uniforms;
+    const material = this.object.material;
 
     if(
       lut && this.lut !== lut && lut.map && lut.mapDataType &&
@@ -1478,16 +1549,14 @@ class DataCube2 extends AbstractThreeBrainObject {
         if( this.isDataContinuous ) {
           this.colorFormat = RedFormat;
           this.nColorChannels = 1;
-
-          this.object.material.useSingleChannel = true;
-
         } else {
           this.colorFormat = RGBAFormat;
           this.nColorChannels = 4;
-
-          this.object.material.useSingleChannel = false;
         }
 
+        // A GPU texture keeps the format it was created with, so release it;
+        // the next render creates one in the new format
+        this.colorTexture.dispose();
         this.colorTexture.minFilter = NearestFilter;
         this.colorTexture.magFilter = NearestFilter;
         this.colorTexture.format = this.colorFormat;
@@ -1495,10 +1564,10 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.colorTexture.unpackAlignment = 1;
         this.colorTexture.needsUpdate = true;
 
-        uniforms.cmap.value = this.colorTexture;
+        material.uniforms.cmap.value = this.colorTexture;
+        // rebuilds the shader for one or four channels
         material.colorChannels = this.nColorChannels;
-
-        this.object.material.defines.N_SINGLE_CHANNEL_COLORS = nColors;
+        material.colorCount = nColors;
       }
 
       if( this.isDataContinuous ) {
@@ -1515,8 +1584,7 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.updatePalette();
     }
 
-    this.object.material.changePalette( paletteName );
-    this.object.material.uniformsNeedUpdate = true;
+    material.changePalette( paletteName );
 
     this.dispatchEvent( {
       type: CONSTANTS.EVENTS.onDataCube2ColorUpdated,

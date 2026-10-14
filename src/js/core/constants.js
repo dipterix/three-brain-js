@@ -49,6 +49,19 @@ CONSTANTS.MAIN_CAMERA_MAX_ZOOM = 40;
 CONSTANTS.SIDE_CAMERA_MAX_ZOOM = 40;
 CONSTANTS.SIDE_CAMERA_ZOOM_SPEED = 1.5;
 
+/* ------------------------------------ Volume size limits ------------------------------------
+  `NiftiImage` (`formats/NIfTIImage.js`) never returns a volume larger than
+  these: a bigger file is read decimated, and its non-zero core re-read at a
+  finer stride when that core is small. The voxels in a volume set the size of
+  every buffer the volume objects keep, several of them 4 bytes per voxel
+  (`DataCube2.voxelColor`, its gradient volume), so 2^27 keeps each at 512 MiB.
+  Each volume is also one 3D texture, and WebGPU allows 2048 texels per axis
+  unless the device asks for more (`maxTextureDimension3D`; ours does not).
+*/
+CONSTANTS.MAX_VOLUME_VOXELS = 2 ** 27;        // voxels per frame
+CONSTANTS.MAX_VOLUME_CORE_VOXELS = 2 ** 24;   // a non-zero core this small is re-read at a finer stride
+CONSTANTS.MAX_VOLUME_AXIS = 2048;             // voxels per axis
+
 /* ------------------------------------ Global constants ------------------------------------
 */
 
@@ -85,6 +98,7 @@ CONSTANTS.KEY_HIDDEN_FEATURES         = "KeyH";         // `cmd+opt+shift+H` - H
 CONSTANTS.KEY_SIDE_PANEL              = "KeyP";         // `p` - toggle side panel
 CONSTANTS.KEY_ZOOM                    = "KeyZ";         // `z/⇧Z` - zoom out/in
 CONSTANTS.KEY_CYCLE_SLICE_MODE        = "KeyM";         // `m` - cycle through slice mode
+CONSTANTS.KEY_CYCLE_VIEW_LAYOUT       = "KeyL";         // `l` - cycle through view layouts
 CONSTANTS.KEY_CYCLE_LEFT              = "BracketLeft";  // `[` - cycle through left hemisphere material
 CONSTANTS.KEY_CYCLE_RIGHT             = "BracketRight"; // `]` - cycle through right hemisphere material
 CONSTANTS.KEY_CYCLE_LEFT_OPACITY      = "BracketLeft";  // `⇧[` - cycle through left hemisphere opacity
@@ -102,7 +116,7 @@ CONSTANTS.KEY_CYCLE_ELEC_SHAPE        = "KeyO";         // `⇧O` - cycle throug
 CONSTANTS.KEY_CYCLE_SURFACE           = "KeyP";         // `⇧P` - cycle through surfaces types
 CONSTANTS.KEY_CYCLE_MATERIAL          = "KeyM";         // `⇧M` - change surface material types (lighting model)
 CONSTANTS.KEY_CYCLE_VOXEL_TYPE        = "KeyA";         // `a` - change voxel (volume) to be displayed
-CONSTANTS.KEY_CYCLE_ATLAS_MODE        = "KeyL";         // `l` - cycle through voxel display mode
+CONSTANTS.KEY_CYCLE_ATLAS_MODE        = "KeyL";         // `⇧L` - cycle through voxel display mode
 CONSTANTS.KEY_OVERLAY_CORONAL         = "KeyC";         // `⇧C` - toggle coronal plane in main scene
 CONSTANTS.KEY_OVERLAY_AXIAL           = "KeyA";         // `⇧A` - toggle axial plane in main scene
 CONSTANTS.KEY_OVERLAY_SAGITTAL        = "KeyS";         // `⇧S` - toggle sagittal plane in main scene
@@ -118,12 +132,15 @@ CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_A = "Digit2";     // `2/⇧2` - adjust e
 CONSTANTS.KEY_ADJUST_ELECTRODE_LOCATION_S = "Digit3";     // `3/⇧3` - adjust electrode locations along Superior/Inferior axis
 CONSTANTS.KEY_ADJUST_ELECTRODE_QUATERNION = "Digit4";     // `4/⇧4` - rotate electrode shaft
 CONSTANTS.KEY_REGISTER_FROM_CROSSHAIR = "Backquote";    // `` ` `` - Register electrode from crosshair
+// same key; the canvas state `backtickIntent` decides which of the two it means
+CONSTANTS.KEY_SNAP_NEAREST_CLICKABLE  = "Backquote";    // `` ` `` - Focus the clickable object nearest the crosshair
 
 
 CONSTANTS.TOOLTIPS = {};
 CONSTANTS.TOOLTIPS.KEY_SIDE_PANEL              = "p";
 CONSTANTS.TOOLTIPS.KEY_ZOOM                    = "z/Z";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_SLICE_MODE        = "m";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_VIEW_LAYOUT       = "l";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT              = "[";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_RIGHT             = "]";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_LEFT_OPACITY      = "⇧[";
@@ -151,7 +168,7 @@ CONSTANTS.TOOLTIPS.KEY_CYCLE_ANIMATION         = "d/D";
 CONSTANTS.TOOLTIPS.KEY_SYNC_THRESHOLD          = "t";
 CONSTANTS.TOOLTIPS.KEY_TOGGLE_ANIMATION        = "s";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_VOXEL_TYPE        = "a";
-CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "l";
+CONSTANTS.TOOLTIPS.KEY_CYCLE_ATLAS_MODE        = "⇧L";
 CONSTANTS.TOOLTIPS.KEY_CYCLE_FOCUS_TYPE        = "f/⇧F";
 CONSTANTS.TOOLTIPS.KEY_REGISTER_FROM_CROSSHAIR     = "`";
 CONSTANTS.TOOLTIPS.KEY_ADJUST_ELECTRODE_LOCATION_R = "1/⇧1";
@@ -262,9 +279,17 @@ CONSTANTS.GEOMETRY = {
   "electrode-outline-threhsold" : 0.7,
   "streamline-retention-count": 200,
   "streamline-linewidth-factor": 0.5,
+  // `Line Simplify Factor`: how far (mm) a drawn streamline may stray from its
+  // points, and the controller's upper limit; 0 draws every point
+  "streamline-simplify-tolerance": 0.05,
+  "streamline-simplify-tolerance-max": 0.2,
   // On-screen radius of the focus-mode marker at `mainCamera.zoom === 1`; the
   // marker divides by the live zoom each frame to stay this size.
   "focus-marker-size": 3.0,
+  // Backtick snap to the clickable object nearest the crosshair: it reaches
+  // this far (mm) past the side views' frustum, and never past the maximum
+  "crosshair-snap-margin": 5,
+  "crosshair-snap-max-distance": 10,
 };
 
 

@@ -5,7 +5,7 @@ import { GLSL3, Object3D, LineBasicMaterial, BufferGeometry, Data3DTexture, RedF
          LinearFilter, NearestFilter, SpriteMaterial, Matrix4, Quaternion,
          UnsignedByteType, RawShaderMaterial, Vector3, DoubleSide, UniformsUtils,
          PlaneGeometry, Mesh, LineSegments, FloatType, Color } from 'three';
-import { SliceShader, SliceMaterial } from '../shaders/SliceShader.js';
+import { SliceMaterial } from '../shaders/SliceMaterial.js';
 import { formatDataValue } from '../utility/formatDataValue.js';
 
 
@@ -199,27 +199,13 @@ class DataCube extends AbstractThreeBrainObject {
 
   	this.object = [ sliceMeshXZ, sliceMeshXY, sliceMeshYZ ];
 
-    sliceMeshXY.userData.dispose = () => {
-  	  sliceMaterial.dispose();
-  	  sliceGeometryXY.dispose();
-      this.dataTexture.dispose();
-    };
+    // `dispose()` frees all three planes; these only need to point back at the instance
     sliceMeshXY.userData.instance = this;
     this.sliceXY = sliceMeshXY;
 
-    sliceMeshXZ.userData.dispose = () => {
-  	  sliceMaterial.dispose();
-  	  sliceGeometryXZ.dispose();
-      this.dataTexture.dispose();
-    };
     sliceMeshXZ.userData.instance = this;
     this.sliceXZ = sliceMeshXZ;
 
-    sliceMeshYZ.userData.dispose = () => {
-  	  sliceMaterial.dispose();
-  	  sliceGeometryYZ.dispose();
-      this.dataTexture.dispose();
-    };
     sliceMeshYZ.userData.instance = this;
     this.sliceYZ = sliceMeshYZ;
 
@@ -252,9 +238,14 @@ class DataCube extends AbstractThreeBrainObject {
       this.sliceMaterial.uniforms.maskMap.value.dispose();
     }
 
-    this._canvas.removeClickable( '_coronal_' + this.name );
-    this._canvas.removeClickable( '_axial_' + this.name );
-    this._canvas.removeClickable( '_sagittal_' + this.name );
+    // `finish_init` registers the three planes under their own keys as well as the
+    // instance's, so take those back. `_dispose` only knows about `this.name`, and
+    // `clear_all()` only hides this by emptying `mesh` wholesale -- disposing a single
+    // volume (a dropped file replaced through `VolumeHandler`) would strand all three.
+    [ '_coronal_', '_axial_', '_sagittal_' ].forEach(( prefix ) => {
+      this._canvas.mesh.delete( prefix + this.name );
+      this._canvas.removeClickable( prefix + this.name );
+    });
   }
 
   get_track_data( track_name, reset_material ){}
@@ -336,8 +327,10 @@ class DataCube extends AbstractThreeBrainObject {
               typeof volume.getValueFromPosition === "function" ) {
             const overlay = volume.getValueFromPosition( hit.point );
             if( overlay !== undefined ) {
+              // value before name, as on surfaces: a long volume name (a
+              // dropped file, say) may run off the panel but cannot hide it
               const atlasType = this._canvas.get_state( "atlas_type" );
-              text += `  (${ atlasType ? atlasType + ": " : "" }${ overlay })`;
+              text += `  (${ overlay }${ atlasType ? ", " + atlasType : "" })`;
             }
           }
         }
@@ -365,6 +358,8 @@ class DataCube extends AbstractThreeBrainObject {
     if( this.dataTexture.magFilter !== megFilter ) {
       this.dataTexture.magFilter = megFilter;
       this.dataTexture.needsUpdate = true;
+      // filtered and unfiltered textures bind differently
+      this.sliceMaterial.needsUpdate = true;
     }
 
     /*
@@ -401,17 +396,9 @@ class DataCube extends AbstractThreeBrainObject {
             displayOverlay === "anat. slices";
     }
 
-    if( useOverlay ) {
-      if( typeof this.sliceMaterial.defines.USE_OVERLAY !== "string" ) {
-        this.sliceMaterial.defines.USE_OVERLAY = "";
-        this.sliceMaterial.needsUpdate = true;
-      }
-    } else {
-      if( typeof this.sliceMaterial.defines.USE_OVERLAY === "string" ) {
-        delete this.sliceMaterial.defines.USE_OVERLAY;
-        this.sliceMaterial.needsUpdate = true;
-      }
-    }
+    // can differ between the main and side passes of one frame; a uniform, so
+    // switching it does not rebuild the shader
+    this.sliceMaterial.useOverlay = useOverlay;
 
     const brightness = this._canvas.get_state("sliceBrightness", 0.0);
     this.sliceMaterial.underlayBrightness = brightness;

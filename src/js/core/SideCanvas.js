@@ -1,5 +1,6 @@
 import { CONSTANTS } from './constants.js';
-import { Vector3, Matrix4, OrthographicCamera, DirectionalLight, WebGLRenderer, Quaternion } from 'three';
+import { Vector3, Matrix4, OrthographicCamera, DirectionalLight, Quaternion } from 'three';
+import { createSideRendererInterface } from './createRenderer.js';
 import { get_element_size } from '../utils.js';
 import { makeDraggable } from '../utility/draggable.js';
 import { makeResizable } from '../utility/resizable.js';
@@ -35,6 +36,17 @@ class SideCanvas {
 
   get enabled () {
     return this._enabled;
+  }
+
+  // A locked panel sits in a cell of a tiled view layout: it cannot be
+  // dragged, resized, or reset to the floating column
+  set locked( v ) {
+    this._locked = v === true;
+    this.$el.classList.toggle( 'locked', this._locked );
+  }
+
+  get locked () {
+    return this._locked;
   }
 
   _updateRenderThreshold( distance, save = true ) {
@@ -189,8 +201,9 @@ class SideCanvas {
     this.$canvas.style.width = '100%';
 		this.$canvas.style.height = '100%';
 
-    let _offsetX = Math.round( offsetX || 0 );
-    let _offsetY = Math.round( offsetY || (this.order * w) );
+    // `reset()` passes NaN for the default column position; 0 is a real offset
+    let _offsetX = Math.round( Number.isFinite( offsetX ) ? offsetX : 0 );
+    let _offsetY = Math.round( Number.isFinite( offsetY ) ? offsetY : (this.order * w) );
     if( _offsetX === 0 ) { _offsetX = '0'; } else { _offsetX = `${_offsetX}px`; }
     if( _offsetY === 0 ) { _offsetY = '0'; } else { _offsetY = `${_offsetY}px`; }
 
@@ -339,8 +352,10 @@ class SideCanvas {
     const canvasPosition = this.$canvas.getBoundingClientRect(); // left, top
     const canvasSize = get_element_size( this.$canvas );
 
-    const right = event.clientX - canvasPosition.left - canvasSize[0]/2 - 1;
-    const up = canvasSize[1]/2 + canvasPosition.top - event.clientY + 2;
+    // the crosshair goes exactly where the pointer is (it used to be nudged
+    // 1 px left and 2 px up, 1-2 mm at the default zoom)
+    const right = event.clientX - canvasPosition.left - canvasSize[0]/2;
+    const up = canvasSize[1]/2 + canvasPosition.top - event.clientY;
 
     this.raiseTop();
     // this.mainCanvas.updateCrosshairGroup();
@@ -351,9 +366,31 @@ class SideCanvas {
   }
 
 
+  /**
+   * Gives this view the renderer it draws with: a canvas target on the main
+   * renderer when that can be shared, otherwise a renderer of its own. Called
+   * by `ViewerCanvas` once the main renderer has initialized.
+   */
+  useRendererInterface( rendererInterface ) {
+    this.rendererInterface = rendererInterface;
+    this.renderer = rendererInterface.renderer;
+    this.rendererInterface.setPixelRatio( this.mainCanvas.pixel_ratio[1] );
+    // What a renderer with `alpha: true` clears to by default, and so what
+    // these views were cleared to when each had a renderer of its own. The
+    // main view clears to the viewer's background color instead.
+    this.rendererInterface.setClearColor( this._backgroundColor ?? 0x000000, 0.0 );
+    // Manual update so that it can render two scenes
+    this.renderer.autoClear = false;
+    // no CSS size: this canvas fills its panel (`setDimension()` keeps it at
+    // 100%), while the drawing buffer stays at `_renderHeight`
+    this.rendererInterface.setSize( this._renderHeight, this._renderHeight, false );
+  }
+
   render() {
     if( !this._enabled ) { return; }
-    this.renderer.clear();
+    // the renderer throws until it is initialized
+    if( !this.mainCanvas.rendererReady ) { return; }
+    this.rendererInterface.clear();
 
     // whether Radiographic?
     this.viewMode = this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical");
@@ -365,8 +402,32 @@ class SideCanvas {
 
     this.headerTextNeedsUpdate = undefined;
 
-    // Let side slices track camera rotation
-    this.renderer.render( this.mainCanvas.scene, this.camera );
+    // Let side slices track camera rotation.
+    // The viewer's background color is for the 3D view; the slices sit on this
+    // panel's black. Where no slice covers the view (past the volume's outer
+    // voxel faces), the scene's background would otherwise show through.
+    const scene = this.mainCanvas.scene,
+          background = scene.background;
+    scene.background = null;
+    try {
+      this.rendererInterface.render( scene, this.camera );
+    } finally {
+      scene.background = background;
+    }
+
+    // A capture request (see `ViewerCanvas._onCaptureOnce`): the picture just
+    // drawn, added to the views of the request the main view also answers
+    if( this._lastRendered ) {
+      const request = this._lastRendered;
+      this._lastRendered = undefined;
+      try {
+        const dataURI = this.$canvas.toDataURL( "image/png" );
+        if( !Array.isArray( request.views ) ) { request.views = []; }
+        request.views.push({ canvas : this.$canvas, dataURI : dataURI });
+      } catch (e) {
+        // left out of `views`: the page copies this canvas itself
+      }
+    }
   }
 
   dispose() {
@@ -382,6 +443,8 @@ class SideCanvas {
     this.$canvas.removeEventListener( "mousemove" , this._onMouseMove );
     this.$canvas.removeEventListener( "wheel" , this._onMouseWheel );
 
+    this._resizeObserver.disconnect();
+
     this.mainCanvas.$el.removeEventListener(
       "viewerApp.canvas.setVoxelRenderDistance",
       this._onSetVoxelRenderDistance );
@@ -389,7 +452,9 @@ class SideCanvas {
       "viewerApp.canvas.setSliceCrosshair",
       this._onSetSliceCrosshair );
 
-    this.renderer.dispose();
+    if( this.rendererInterface ) {
+      this.rendererInterface.dispose();
+    }
   }
 
   // currently does nothing but setting to black background. No point to
@@ -397,7 +462,9 @@ class SideCanvas {
   setBackground( color ) {
     color = "#000000";
     this._backgroundColor = color;
-    this.renderer.setClearColor( color );
+    if( this.rendererInterface ) {
+      this.rendererInterface.setClearColor( color, 0.0 );
+    }
     this.$el.style.backgroundColor = color;
   }
 
@@ -567,7 +634,6 @@ class SideCanvas {
 		this.$canvas.style.height = '100%';
 		this.$canvas.style.position = 'absolute';
 		this.$el.appendChild( this.$canvas );
-		this.context = this.$canvas.getContext('webgl2');
 
 		// Add footer
 		this.$footer = document.createElement('div');
@@ -576,14 +642,11 @@ class SideCanvas {
     this.$footer.id = this._container_id + '__' + type + 'footer';
     this.$el.appendChild( this.$footer );
 
-		this.renderer = new WebGLRenderer({
-    	  antialias: false, alpha: true,
-    	  canvas: this.$canvas, context: this.context,
-    	  depths: false
-    	});
-  	this.renderer.setPixelRatio( this.mainCanvas.pixel_ratio[1] );
-  	this.renderer.autoClear = false; // Manual update so that it can render two scenes
-  	this.renderer.setSize( this._renderHeight, this._renderHeight );
+		// How this view draws is settled by `ViewerCanvas` once the main renderer
+		// has initialized and its backend is known; until then there is nothing to
+		// draw with, and `render()` returns early on `rendererReady`.
+		this.rendererInterface = null;
+		this.renderer = null;
 
 		// Add widgets
 		// zoom in tool
@@ -625,14 +688,22 @@ class SideCanvas {
 		// make sure z-index is set so overlay canvas is underneath
 		this.zIndex = 0;
 
+		this._locked = false;
+
 		// Make header draggable within viewer
     makeDraggable( this.$el, this.$header, undefined, () => {
       this.raiseTop();
-    });
+    }, () => !this._locked );
 
 
     // Make $el resizable, keep current width and height
     makeResizable( this.$el, true );
+
+    // The drawing buffer follows the panel's size, however it was changed
+    // (a view layout, the resize corner, a reset), so a large panel is not an
+    // upscaled small picture. It never drops below the 256 px it always had.
+    this._resizeObserver = new ResizeObserver( this._onResize );
+    this._resizeObserver.observe( this.$el );
 
 
     // remembers rotation
@@ -833,7 +904,20 @@ class SideCanvas {
 	  this.zoom( newZoomLevel );
   }
   _onDoubleClick = () => {
+    if( this._locked ) { return; }
     this.reset({ zoomLevel : false, position : true, size : true })
+  }
+
+  _onResize = ( entries ) => {
+    const entry = entries[ entries.length - 1 ];
+    const renderHeight = Math.max( 256, Math.round( entry.contentRect.width ) );
+    if( renderHeight === this._renderHeight ) { return; }
+    this._renderHeight = renderHeight;
+    // before the renderer is ready, `useRendererInterface()` picks the size up
+    if( this.rendererInterface ) {
+      this.rendererInterface.setSize( renderHeight, renderHeight, false );
+      this.mainCanvas.needsUpdate = true;
+    }
   }
 
   _onSetVoxelRenderDistance = ( event ) => {

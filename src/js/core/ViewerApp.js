@@ -5,6 +5,7 @@ import { asArray } from '../utility/asArray.js';
 import { EnhancedGUI } from './EnhancedGUI.js';
 import { ViewerControlCenter } from './ViewerControlCenter.js';
 import { ViewerCanvas } from './ViewerCanvas.js';
+import { VIEW_LAYOUTS, computeViewLayout } from './ViewLayout.js';
 import { MouseKeyboard } from './MouseKeyboard.js';
 import { CONSTANTS } from './constants.js';
 import { requestAnimationFrame } from './requestAnimationFrame.js';
@@ -52,7 +53,11 @@ class ViewerApp extends ThrottledEventDispatcher {
     // debug mode?
     debug = false,
 
-    webgl2Enabled = true,
+    // run the renderers on their WebGL2 backend even when WebGPU is available
+    forceWebGL = false,
+
+    // draw every canvas with one renderer, hence one GPU device (WebGPU only)
+    shareRenderer = true,
 
   }) {
 
@@ -60,10 +65,16 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     // Flags
     this.debug = debug;
-    this.webgl2Enabled = webgl2Enabled;
+    this.forceWebGL = forceWebGL === true;
+    this.shareRenderer = shareRenderer !== false;
     this.isViewerApp = true;
     this.controllerClosed = false;
     this.ready = false;
+
+    // Where the 3D view and the slice panels go, one of `VIEW_LAYOUTS`:
+    // 3dview (default, slices float over the 3D view) or sliceview-* (tiled)
+    this.viewMode = "3dview";
+
     // timer reading when the pointer left the viewer; undefined = clock stopped
     this._idleRenderSince = undefined;
     // this.outputId = this.$wrapper.getAttribute( 'data-target' );
@@ -127,7 +138,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$brandWrapper = document.createElement('div');
     this.$brandWrapper.style.width = '100%';
     this.$brandWrapper.style.height = "40px";
-    this.$brandWrapper.style.padding = "0 calc(var(--folder-indent))";
+    this.$brandWrapper.style.padding = "0 calc(var(--cnt-hp))";
 
     const $logoWrapper = document.createElement('div');
     $logoWrapper.style.height = "40px";
@@ -147,12 +158,28 @@ class ViewerApp extends ThrottledEventDispatcher {
     $RAVEmsg.style.top = "50%";
     $RAVEmsg.style.transform = "translate(0, -50%)";
     $RAVEmsg.style.textAlign = "center";
-    $RAVEmsg.innerHTML = 'Learn more about RAVE <a href="https://rave.wiki/" target="_blank" style="color: var(--text-color);">rave.wiki</a>';
+    $RAVEmsg.innerHTML = 'Learn more about RAVE <a href="https://rave.wiki/" target="_blank" style="color: var(--tp-blade-foreground-color);">rave.wiki</a>';
 
     $RAVEmsgWrapper.appendChild($RAVEmsg);
     this.$brandWrapper.appendChild($RAVEmsgWrapper);
 
     // --- A ---
+    // 0. A small message layer at the bottom for links, status, etc.
+    this.$messageWrapper = document.createElement('div');
+    this.$messageWrapper.style.display = "none";
+    this.$messageWrapper.style.position = "absolute";
+    this.$messageWrapper.style.width = "calc(100% - 600px)";
+    this.$messageWrapper.style.left = "300px";
+    this.$messageWrapper.style.bottom = "0";
+    this.$messageWrapper.style.textAlign = "center";
+    this.$messageWrapper.style.zIndex = "9";
+
+    this.$message = document.createElement('span');
+    this.$message.style.textShadow = "2px 0 2px #fff, -2px 0 2px #fff, 0 2px 2px #fff, 0 -2px 2px #fff, 1px 1px 2px #fff, -1px -1px 2px #fff, 1px -1px 2px #fff, -1px 1px 2px #fff";
+
+    this.$messageWrapper.appendChild(this.$message);
+    
+
     // 1. Control panel
     this.$settingsPanel = document.createElement('div');
     this.$settingsPanel.style.maxHeight = `${ height ?? this.$wrapper.clientHeight }px`;
@@ -163,7 +190,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.$controllerContainer.style.width = '100%';
 
     // 3. Controller placeholder
-    // initialized as placeholder, will be replaced by lil-gui
+    // initialized as placeholder, will be replaced by the control panel
     // this.$controllerGUI = document.createElement('div');
 
     // 4. Information container
@@ -203,6 +230,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     // add 4 to 1
     this.$settingsPanel.appendChild( this.$informationContainer );
     // add 1 to $wrapper
+    this.$wrapper.appendChild( this.$messageWrapper );
     this.$wrapper.appendChild( this.$settingsPanel );
 
     // --- B Canvas container ------------------------------------------------
@@ -266,15 +294,26 @@ class ViewerApp extends ThrottledEventDispatcher {
 
     if ( available !== false ) {
       // Workers available - use them
-      return await startWorker( workerScript, {
-        methodNames: available,
-        args: args,
-        onProgress: onProgress,
-        logger: this.debugVerbose.bind(this),
-        token: token,
-        timeOut: timeOut,
-        transferables: transferables
-      });
+      try {
+        return await startWorker( workerScript, {
+          methodNames: available,
+          args: args,
+          onProgress: onProgress,
+          logger: this.debugVerbose.bind(this),
+          token: token,
+          timeOut: timeOut,
+          transferables: transferables
+        });
+      } catch (e) {
+        // A superseded call is a cancellation, not a failure: running its
+        // fallback would compute an already-obsolete result on the main thread.
+        if ( e && e._muffle === true ) { throw e; }
+        if ( typeof fallback !== "function" ) { throw e; }
+        // Anything else - a worker that cannot load, a task that threw - is
+        // recoverable here, because every caller hands us a way to do the work
+        // in this thread. `Workers.js` reports the cause once.
+        this.debugVerbose( `[invokeWorker] ${ name } failed in a worker; using the fallback.` );
+      }
     }
 
     // Workers unavailable - use fallback if provided
@@ -315,6 +354,25 @@ class ViewerApp extends ThrottledEventDispatcher {
     }
   }
 
+  setMessage( content ) {
+    if ( !content || content === "" ) {
+      if ( this.$messageWrapper.style.display !== "none" ) {
+        this.$message.innerHTML = "";
+        this.$message._innerHTML = "";
+        this.$messageWrapper.style.display = "none";
+      }
+    } else {
+      if ( this.$message._innerHTML !== content ) {
+        this.$message.innerHTML = content;
+        this.$message._innerHTML = content;
+      }
+      if ( this.$messageWrapper.style.display !== "block" ) {
+        this.$messageWrapper.style.display = "block";
+      }
+    }
+  }
+  
+
   resize( width, height ) {
     const _width = width ?? this.$wrapper.clientWidth;
     const _height = height ?? this.$wrapper.clientHeight;
@@ -322,20 +380,20 @@ class ViewerApp extends ThrottledEventDispatcher {
       return ;
     }
     this.$settingsPanel.style.maxHeight = _height + 'px';
-    if( this.controllerClosed ) {
-      this.canvas.handle_resize( _width, _height );
-    } else {
-      this.canvas.handle_resize( _width - 300, _height );
-    }
-    /* FIXME : move to canvas, not here!!!
-    if( this._reset_flag ){
-      this._reset_flag = false;
-      this.canvas.sideCanvasList.coronal.reset({ zoomLevel: true, position: true, size : true });
-      this.canvas.sideCanvasList.axial.reset({ zoomLevel: true, position: true, size : true });
-      this.canvas.sideCanvasList.sagittal.reset({ zoomLevel: true, position: true, size : true });
-    }
-    this.canvas.start_animation(0);
-    */
+
+    const viewWidth = this.controllerClosed ? _width : ( _width - 300 ),
+          viewHeight = _height;
+
+    // With the slice panels hidden there is nothing to tile, so the 3D view
+    // takes the whole view; the chosen layout comes back with the panels.
+    const viewMode = this.canvas.sideCanvasEnabled ? this.viewMode : "3dview";
+    this.canvas.applyViewLayout( computeViewLayout( viewMode, viewWidth, viewHeight ) );
+
+  }
+
+  setViewMode( mode ) {
+    this.viewMode = VIEW_LAYOUTS.includes( mode ) ? mode : "3dview";
+    this.resize();
   }
 
   bootstrap( { bootstrapData, reset = false } ) {
@@ -1168,7 +1226,8 @@ class ViewerApp extends ThrottledEventDispatcher {
   // Only use 0 or 1
   animate(){
 
-    if( this._disposed ){ return; }
+    // a disposed canvas has no scene or renderers left to draw with
+    if( this._disposed || this.canvas._disposed ){ return; }
     this.canvas.rendering = true;
 
     requestAnimationFrame( this.animate.bind(this) );

@@ -9,3 +9,6 @@ package-lock.json
 lil-gui
 README.html
 .positai
+WEBGPU-MIGRATION.md
+webgpu-migration/
+MAIN-TODO.md

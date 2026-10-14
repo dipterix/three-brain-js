@@ -489,14 +489,18 @@ class RulerHelper extends Object3D {
 
   dispose() {
 
+    // three r186: `Object3D.dispose()` announces the disposal, so the renderer
+    // frees this object's render objects. It touches no geometry or material.
+    super.dispose();
+
     this.solidLine.geometry.dispose();
     this.solidLine.material.dispose();
 
     this.dashedLine.geometry.dispose();
     this.dashedLine.material.dispose();
 
-    this.coneSource.geometry.dispose();
-    this.coneTarget.geometry.dispose();
+    // not the cone geometries: they are module-level, shared with every other
+    // `RulerHelper`, so a second viewer on this page still draws with them
     this.coneMaterial.dispose();
 
   }

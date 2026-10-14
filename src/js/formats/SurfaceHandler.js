@@ -54,7 +54,7 @@ class SurfaceHandler extends FileDataHandler {
     };
     const disposeItem = () => {
       try {
-        inst.dispose();
+        inst._dispose();
         // delete app.canvas.surfaces.get( inst.subject_code )[ inst.name ];
       } catch (e) {
         console.warn(e);

@@ -3,6 +3,7 @@ const path = require('path');
 const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
 // const HtmlWebpackPlugin = require('html-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
+const { version } = require('./package.json');
 
 module.exports = {
   mode: 'production',
@@ -27,6 +28,23 @@ module.exports = {
           'file-loader',
         ]
       },
+      {
+        // see inspector-extensions-loader.js
+        test: /[\\/]three[\\/]examples[\\/]jsm[\\/]inspector[\\/]tabs[\\/]Settings\.js$/,
+        use: [
+          path.resolve(__dirname, 'inspector-extensions-loader.js'),
+        ]
+      },
+      {
+        // three's Inspector expects `three` to be the WebGPU build, as in three's
+        // own WebGPU examples: the TSL graph hands its `import * as THREE` to the
+        // node code it generates. The plain `three` would also pull the WebGL
+        // renderer into the bundle.
+        test: /[\\/]three[\\/]examples[\\/]jsm[\\/]inspector[\\/]/,
+        resolve: {
+          alias: { three$: 'three/webgpu' },
+        },
+      },
     ],
   },
   resolve: {
@@ -49,6 +67,13 @@ module.exports = {
   },
   plugins: [
     new WebpackManifestPlugin({}),
+    // `threeBrain.VERSIONS` (src/js/index.js). The time is taken again at every
+    // build, so a rebuild in watch mode is stamped as well.
+    new webpack.DefinePlugin({
+      __THREEBRAIN_VERSION__    : JSON.stringify(version),
+      __THREEBRAIN_BUILD_TIME__ : webpack.DefinePlugin.runtimeValue(
+        () => JSON.stringify(new Date().toISOString()), true),
+    }),
     // new webpack.SourceMapDevToolPlugin({})
   ],
   optimization: {

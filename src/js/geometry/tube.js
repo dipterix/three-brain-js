@@ -280,6 +280,7 @@ class Tube extends AbstractThreeBrainObject {
   }
 
   dispose(){
+    super.dispose();
     this.object.material.dispose();
     this.object.geometry.dispose();
   }

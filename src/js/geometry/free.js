@@ -1,12 +1,13 @@
 import { AbstractThreeBrainObject } from './abstract.js';
 import { DoubleSide, FrontSide, BufferAttribute, DataTexture, NearestFilter,
          LinearFilter, RGBAFormat, UnsignedByteType, Vector3, Matrix4,
-         MeshPhysicalMaterial, MeshLambertMaterial, BufferGeometry, Mesh,
-         Data3DTexture, Color, Vector4 } from 'three';
+         BufferGeometry, Mesh, Data3DTexture, Color, Vector4 } from 'three';
 import { CONSTANTS } from '../core/constants.js';
-import { to_array, min2, sub2 } from '../utils.js';
+import { to_array, min2, sub2, setShaderProperty } from '../utils.js';
 import { asArray } from '../utility/asArray.js';
-import { compile_free_material } from '../shaders/SurfaceShader.js';
+import {
+  SurfacePhysicalMaterial, SurfaceLambertMaterial, createSurfaceMaterialOptions
+} from '../shaders/SurfaceMaterial.js';
 import { Lut } from '../core/CustomLut.js'
 import { NamedLut } from '../core/NamedLut.js'
 import { buildBoundsTreeAsync } from '../Math/meshBVH.js';
@@ -22,18 +23,24 @@ const BASE_MORPH_KEY = "__base__";
 // pial, white, smoothwm, inflated, sphere.reg
 const BOUNDS_TREE_CACHE_LIMIT = 6;
 
-const MATERIAL_PARAMS_BASIC = {
+const MATERIAL_PARAMS_COMMON = {
   'transparent' : true,
   'side': DoubleSide,
   'wireframeLinewidth' : 0.1,
   'vertexColors' : true,
   'forceSinglePass' : false,
-  'reflectivity' : 0,
   'flatShading' : false
 };
 
+const MATERIAL_PARAMS_BASIC = {
+  ...MATERIAL_PARAMS_COMMON,
+  'reflectivity' : 0
+};
+
+// no `reflectivity`: the physical node material does not have it, and `ior`
+// sets the same thing
 const MATERIAL_PARAMS_MORE = {
-  ...MATERIAL_PARAMS_BASIC,
+  ...MATERIAL_PARAMS_COMMON,
   'roughness' : 0.3,
   'ior' : 1.6,
   'clearcoat' : 0,
@@ -94,7 +101,9 @@ function continuousValueToColor(values, buffer, {
 
     colorLut = new Lut( cmapName , 256 );
   }*/
-  colorLut = new Lut( cmapName , 256 );
+  // display (sRGB) bytes, like the annotation colors that share this attribute:
+  // `SurfaceMaterial` blends it in display space and converts once at the end
+  colorLut = new Lut( cmapName , 256, false );
   colorLut.minV = dynamicColorRange ? cutoffVMin : minValue;
   colorLut.maxV = dynamicColorRange ? cutoffVMax : maxValue;
 
@@ -342,9 +351,11 @@ class FreeMesh extends AbstractThreeBrainObject {
   }
 
   /**
-   * What a named vertex dataset carries at `vertexIndex`, as `"<name> = <v>"`
-   * for measurements or `"<name> = <label>"` for annotations. Returns undefined
-   * when the data is absent, still loading, or belongs to another surface.
+   * What a named vertex dataset carries at `vertexIndex`, as `"<v> (<name>)"`
+   * for measurements or `"<label> (<name>)"` for annotations. The value leads
+   * because the info panel is narrow: a long data name (a file name, say) may
+   * run off the edge, but it cannot hide the value. Returns undefined when the
+   * data is absent, still loading, or belongs to another surface.
    */
   formatVertexValue( dataName, vertexIndex ) {
     if( typeof dataName !== "string" || dataName === "" || dataName === "[none]" ) { return; }
@@ -361,7 +372,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       // `_frameData` is the frame currently on screen; `vertexData` holds them all
       const values = dataObject._frameData;
       if( !values || values.length <= vertexIndex ) { return; }
-      return `${ dataName } = ${ formatDataValue( values[ vertexIndex ] ) }`;
+      return `${ formatDataValue( values[ vertexIndex ] ) } (${ dataName })`;
     }
 
     if( dataObject.isSurfaceAnnotation ) {
@@ -370,7 +381,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       if( !vertexKeys || !labels ) { return; }
       const label = labels.get( vertexKeys[ vertexIndex ] );
       if( label === undefined ) { return; }
-      return `${ dataName } = ${ label }`;
+      return `${ label } (${ dataName })`;
     }
 
     return;
@@ -468,7 +479,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     // the signature is not stored and the next render retries)
     const disableThreshold = ( resolved ) => {
       if( thresholdState.active ) {
-        maskArray.fill( 255 );
+        maskArray.fill( 1 );
         maskAttribute.needsUpdate = true;
       }
       thresholdState.active = false;
@@ -562,7 +573,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       // `vertexData`
       const values = dataObject.vertexData;
       for( let ii = 0; ii < this.__nvertices; ii++ ) {
-        maskArray[ ii ] = isPassed( values[ ii ] ) ? 255 : 0;
+        maskArray[ ii ] = isPassed( values[ ii ] ) ? 1 : 0;
       }
 
     } else if ( dataObject.isSurfaceAnnotation ) {
@@ -586,7 +597,7 @@ class FreeMesh extends AbstractThreeBrainObject {
       });
 
       for( let ii = 0; ii < this.__nvertices; ii++ ) {
-        maskArray[ ii ] = passingKeys.has( vertexKeys[ ii ] ) ? 255 : 0;
+        maskArray[ ii ] = passingKeys.has( vertexKeys[ ii ] ) ? 1 : 0;
       }
 
     } else {
@@ -630,11 +641,11 @@ class FreeMesh extends AbstractThreeBrainObject {
     //   m._originalData.ijk2tkrRAS
     // ).invert();
 
+    // world -> voxel index, with voxel centers at integer indices (the volume's
+    // `model2vox`, as its ray-march and the slice overlay use); the shader adds
+    // 0.5 to land in the texel of the voxel whose center is nearest
     this._material_options.volumeMatrixInverse.value
-      .set( 1, 0, 0, m.modelShape.x / -2,
-            0, 1, 0, m.modelShape.y / -2,
-            0, 0, 1, m.modelShape.z / -2,
-            0, 0, 0, 1 )
+      .copy( m.model2vox ).invert()
       .premultiply( m.object.matrixWorld )
       .invert();
 
@@ -649,7 +660,7 @@ class FreeMesh extends AbstractThreeBrainObject {
      * This requires vertexAlphas to be true
      * https://github.com/mrdoob/three.js/blob/be137e6da5fd682555cdcf5c8002717e4528f879/src/renderers/WebGLRenderer.js#L1442
     */
-    this._mesh.material.vertexColors = true;
+    setShaderProperty( this._mesh.material, 'vertexColors', true );
     // this._material_options.sampler_bias.value = bias;
     // this._material_options.sampler_step.value = bias / 2;
     this._volume_texture.needsUpdate = true;
@@ -728,6 +739,16 @@ class FreeMesh extends AbstractThreeBrainObject {
         this.object.morphTargetInfluences[ morphTargetIndex ] = 0;
         morphAttributes.position[ morphTargetIndex ] = new BufferAttribute( morphArrayDstPosition, 3);
         morphAttributes.normal[ morphTargetIndex ] = new BufferAttribute( morphArrayDstNormal, 3);
+
+        // A shader only reads morph targets when the geometry had them while it
+        // was built, and three compares the render object's cache key (which
+        // lists the morph attributes) only after the material's version
+        // changes. Without this, a new morph target animates its influences and
+        // nothing moves. `WebGLRenderer` rebuilt by itself, because its program
+        // cache key counted the morph targets.
+        for( const materialType in this._materials ) {
+          this._materials[ materialType ].needsUpdate = true;
+        }
       }
 
       targetInfluence = isNaN(targetInfluence) ? 1 : targetInfluence;
@@ -800,8 +821,8 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     for( let ii = 0 ; ii < this.__nvertices; ii++ ) {
       const ii3 = ii * 3;
-      // masked-out vertices display the underlay color (see SurfaceShader.js)
-      const overlaySource = ( maskActive && maskArray[ ii ] < 128 ) ? underlayArray : overlayArray;
+      // masked-out vertices display the underlay color (see SurfaceMaterial.js)
+      const overlaySource = ( maskActive && maskArray[ ii ] < 0.5 ) ? underlayArray : overlayArray;
 
       // gl_FragColor.rgb = gl_FragColor.rgb * 0.5 + mix( vUnderlayColor.rgb, vColor2.rgb, blend_factor ) * 0.5;
       blendArray[ ii * 4 ] = underlayArray[ ii3 ] * (1 - blendFactor) + overlaySource[ ii3 ] * blendFactor;
@@ -879,6 +900,9 @@ class FreeMesh extends AbstractThreeBrainObject {
 
       this._material_options.elec_size.value = elec_size;
       this._material_options.elec_active_size.value = elec_size;
+      // the textures are part of the shader's cache key (see
+      // `SurfaceMaterial.customProgramCacheKey()`)
+      this._mesh.material.needsUpdate = true;
     }
 
     const e_size = this._linked_electrodes.length;
@@ -1083,28 +1107,19 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.__initialized = true;
   }
 
-  disposeGPU() {
-    super.disposeGPU();
-    try {
-      this._volume_texture.dispose();
-    } catch (e) {}
-  }
-
   dispose(){
     super.dispose();
     this.disposeBoundsTrees();
+    // `registerToMap( ['surfaces'] )` owns the `canvas.surfaces` entry and removes it on
+    // the dispose event, which `_dispose` fires before this hook -- on every path,
+    // including a direct `inst._dispose()`. Do not delete it here.
     try {
       this.object.removeFromParent();
-      const surfaceList = this._canvas.surfaces.get( this.subject_code )
-      if( surfaceList[ this.name ] === this ) {
-        delete surfaceList[ this.name ];
-      }
     } catch (e) {}
 
     try {
       this.object.material.dispose();
       this.object.geometry.dispose();
-      this._volume_texture.dispose();
     } catch (e) {}
   }
 
@@ -1235,7 +1250,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     let col_code, material_needs_update = false;
 
-    this._mesh.material.transparent = this._mesh.material.opacity < 0.99;
+    setShaderProperty( this._mesh.material, 'transparent', this._mesh.material.opacity < 0.99 );
     switch (ctype) {
       case 'vertices':
         col_code = CONSTANTS.VERTEX_COLOR;
@@ -1294,7 +1309,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
       case 'sync from voxels':
         col_code = CONSTANTS.VOXEL_COLOR;
-        this._mesh.material.transparent = true;
+        setShaderProperty( this._mesh.material, 'transparent', true );
 
         // get current frame
         if( this.time_stamp.length ){
@@ -1500,9 +1515,10 @@ class FreeMesh extends AbstractThreeBrainObject {
     this.overlayArray = new Uint8Array( this.__nvertices * 3 ).fill(255);
     this._geometry.setAttribute( 'overlayColor', new BufferAttribute( this.overlayArray, 3, true ) );
 
-    // overlay threshold mask: 255 = pass (show overlay), 0 = masked out (show underlay)
-    this.overlayMaskArray = new Uint8Array( this.__nvertices ).fill(255);
-    this._geometry.setAttribute( 'overlayMask', new BufferAttribute( this.overlayMaskArray, 1, true ) );
+    // overlay threshold mask: 1 = pass (show overlay), 0 = masked out (show underlay)
+    // Float32Array because WebGPU has no single-component 8-bit vertex format
+    this.overlayMaskArray = new Float32Array( this.__nvertices ).fill(1);
+    this._geometry.setAttribute( 'overlayMask', new BufferAttribute( this.overlayMaskArray, 1 ) );
 
     this.state = {
       defaultColorMap : "BlueRed",
@@ -1602,48 +1618,21 @@ class FreeMesh extends AbstractThreeBrainObject {
     this._volume_texture.unpackAlignment = 1;
 
 
-    this._material_options = {
-      // 'mapping_type'      : { value : CONSTANTS.DEFAULT_COLOR },
-      'volume_map'        : { value : this._volume_texture },
-      'volumeMatrixInverse':{ value : new Matrix4() },
-      'scale_inv'         : {
-        value : new Vector3(
-          1 / this._volume_margin_size, 1 / this._volume_margin_size,
-          1 / this._volume_margin_size
-        )
-      },
-      'shift'             : { value : new Vector3() },
-      // 'sampler_bias'      : { value : 3.0 },
-      // 'sampler_step'      : { value : 1.5 },
-      'elec_cols'         : { value : null },
-      'elec_locs'         : { value : null },
-      'elec_size'         : { value : 0 },
-      'elec_active_size'  : { value : 0 },
-      'elec_radius'       : { value: 10.0 },
-      'elec_decay'        : { value : 0.15 },
-      'blend_factor'      : { value : 0.4 },
-
-      // for mesh clipping (rename?)
-      'mask_threshold'    : { value : 0.0 },
-
-      'clippingNormal'    : { value : new Vector3() },
-      'clippingThrough'   : { value : this._canvas.crosshairGroup.position },
-      'clippingMap'       : { value : null },
-      'clippingMapMatrixWorldInverse' : { value : new Matrix4() },
-      'brightness'        : { value : 0.0 },
-      'contrast'          : { value : 0.0 },
-
-    };
+    // shader uniforms; each has a `.value`
+    this._material_options = createSurfaceMaterialOptions({
+      volumeTexture : this._volume_texture,
+      volumeScaleInverse : new Vector3(
+        1 / this._volume_margin_size, 1 / this._volume_margin_size,
+        1 / this._volume_margin_size
+      ),
+      clippingThrough : this._canvas.crosshairGroup.position,
+    });
 
     this._materials = {
-      'MeshPhysicalMaterial' : compile_free_material(
-        new MeshPhysicalMaterial( MATERIAL_PARAMS_MORE ),
-        this._material_options
-      ),
-      'MeshLambertMaterial': compile_free_material(
-        new MeshLambertMaterial( MATERIAL_PARAMS_BASIC ),
-        this._material_options
-      )
+      'MeshPhysicalMaterial' : new SurfacePhysicalMaterial(
+        MATERIAL_PARAMS_MORE, this._material_options ),
+      'MeshLambertMaterial' : new SurfaceLambertMaterial(
+        MATERIAL_PARAMS_BASIC, this._material_options )
     };
     this._materials.MeshPhysicalMaterial.color = this._materialColor;
     this._materials.MeshLambertMaterial.color = this._materialColor;

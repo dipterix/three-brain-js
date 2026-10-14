@@ -4,7 +4,7 @@ import {
   BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute, InstancedBufferAttribute,
   Mesh, Vector2, Vector3, Matrix4, Color, ArrowHelper,
   ColorKeyframeTrack, NumberKeyframeTrack, AnimationClip, AnimationMixer,
-  SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth
+  SphereGeometry, InstancedMesh, DoubleSide, FrontSide, AlwaysDepth, DynamicDrawUsage
 } from 'three';
 // import { addColorCoat } from '../shaders/addColorCoat.js';
 import {
@@ -350,7 +350,7 @@ class Electrode extends AbstractThreeBrainObject {
       this._textSprite.removeFromParent();
       this._textSprite.material.map.dispose();
       this._textSprite.material.dispose();
-      this._textSprite.geometry.dispose();
+      // not the geometry: three shares one across every Sprite on the page
       if( this._dataTexture ) {
         this._dataTexture.dispose();
       }
@@ -472,8 +472,9 @@ class Electrode extends AbstractThreeBrainObject {
           keyframe[ v.time ][ idx ] = v.value;
         });
       });
+      // object keys are strings; times are numbers, as in `_registerAnimationKeyFrames`
       const keyframe2 = Object.keys( keyframe ).map(t => {
-        return [t, keyframe[ t ]];
+        return [Number( t ), keyframe[ t ]];
       }).sort((a, b) => {
         return a[0] - b[0];
       });
@@ -746,6 +747,15 @@ class Electrode extends AbstractThreeBrainObject {
         instancedObjects.setColorAt( ii, this.defaultColor );
       });
       this.instancedObjects.instanceMatrix.needsUpdate = true;
+      // three r185 drew instance colors from a copy whose version it synced
+      // only after deciding whether to upload, so a `needsUpdate` showed one
+      // render late -- and `updateColors()` recolors inside the one render a
+      // controller asks for. Dynamic usage uploads on every render instead.
+      // r186 shows a static `instanceColor` in the same render too
+      // (webgpu-migration/instance-color-lag, mechanism check, 2026-10-10);
+      // dynamic usage stays: r186 then refreshes these contacts on every render.
+      // Must be set before the first render, when the material is built.
+      this.instancedObjects.instanceColor.setUsage( DynamicDrawUsage );
       this.object.add( instancedObjects );
     }
 
@@ -770,7 +780,6 @@ class Electrode extends AbstractThreeBrainObject {
       this.arrowHelper = null;
     }
 
-    this.object.userData.dispose = () => { this.dispose(); };
   }
 
   resetBuiltinTransforms() {
@@ -1930,6 +1939,45 @@ class Electrode extends AbstractThreeBrainObject {
     }
     this.object.localToWorld( pos );
     return;
+  }
+
+  /**
+   * The contact center nearest `worldPosition`, in world space; the object's
+   * own position when the electrode has no contacts. Electrodes are always
+   * clickable, so `clickableOnly` only asks that the electrode be shown: it and
+   * every ancestor visible.
+   */
+  distanceTo({ worldPosition, clickableOnly = true, maxDistance = Infinity } = {}) {
+    if( !worldPosition || !worldPosition.isVector3 || !this.object ) { return null; }
+    if( clickableOnly ) {
+      for( let obj = this.object; obj; obj = obj.parent ) {
+        if( !obj.visible ) { return null; }
+      }
+    }
+
+    const maxDistSq = maxDistance * maxDistance;
+    const contacts = Array.isArray( this.contactCenter ) ? this.contactCenter : [];
+    let point;
+    if( contacts.length === 0 ) {
+      point = this.object.getWorldPosition( new Vector3() );
+    } else {
+      let bestIndex = -1, bestDistSq = Infinity;
+      for( let ii = 0; ii < contacts.length; ii++ ) {
+        if( !contacts[ ii ] ) { continue; }
+        const d = this.object.localToWorld( this._tmpVec3.copy( contacts[ ii ] ) )
+          .distanceToSquared( worldPosition );
+        if( d < bestDistSq ) {
+          bestDistSq = d;
+          bestIndex = ii;
+        }
+      }
+      if( bestIndex < 0 ) { return null; }
+      point = this.object.localToWorld( new Vector3().copy( contacts[ bestIndex ] ) );
+    }
+
+    const distSq = point.distanceToSquared( worldPosition );
+    if( distSq > maxDistSq ) { return null; }
+    return { object : this.object, point : point, distance : Math.sqrt( distSq ) };
   }
 
   useMatrix4( m44 ) {

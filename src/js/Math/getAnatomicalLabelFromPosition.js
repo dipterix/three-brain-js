@@ -75,14 +75,15 @@ function getAnatomicalLabelFromPosition(
     1 / pos.set(0, 0, 1).applyMatrix4(matrix_).sub(pos0).length()
   );
 
-  // world -> model (voxel coordinate)
-  pos.copy( position ).applyMatrix4(matrix_inv);
+  // world -> model -> voxel index, with voxel centers at integer indices; the
+  // voxel containing the point is the one whose center is nearest. (This used
+  // to be `round( model + N/2 - 1 )`, half a voxel below that.)
+  pos.copy( position ).applyMatrix4(matrix_inv).applyMatrix4( atlasInstance.model2vox );
 
-  // round model coord -> IJK coord
   const ijk0 = new Vector3().set(
-    Math.round( ( pos.x + modelShape.x / 2 ) - 1.0 ),
-    Math.round( ( pos.y + modelShape.y / 2 ) - 1.0 ),
-    Math.round( ( pos.z + modelShape.z / 2 ) - 1.0 )
+    Math.round( pos.x ),
+    Math.round( pos.y ),
+    Math.round( pos.z )
   );
   const ijk1 = new Vector3().set(
     Math.max( Math.min( ijk0.x, mx - delta.x * maxStepSize - 1 ), delta.x * maxStepSize ),
@@ -95,7 +96,10 @@ function getAnatomicalLabelFromPosition(
   // from IJK to array index multiplier factor
   const multiplyFactor = new Vector3().set( 1, mx, mx * my );
   let count = {};
-  let label_id = atlasVoxelData[ ijk0.dot(multiplyFactor) ] || 0;
+  // outside the volume the flat index would wrap into a neighboring row
+  const ijk0Inside = ijk0.x >= 0 && ijk0.y >= 0 && ijk0.z >= 0 &&
+    ijk0.x < mx && ijk0.y < my && ijk0.z < mz;
+  let label_id = ijk0Inside ? ( atlasVoxelData[ ijk0.dot(multiplyFactor) ] || 0 ) : 0;
 
   let furtherSearchNeeded = false;
   let isLeft, isRight;

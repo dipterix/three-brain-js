@@ -2,6 +2,7 @@ import { CONSTANTS } from '../core/constants.js';
 import { CCanvasRecorder } from '../capture/CCanvasRecorder.js';
 import { PDFContext } from '../core/context.js';
 import { exportScene } from '../formats/exportScene.js'
+import { getMaxTextureSize } from '../core/createRenderer.js';
 
 // 2. Record Videos
 function formatLocalYYMMDDTHHmmss(date) {
@@ -84,10 +85,15 @@ function registerPresetRecorder( ViewerControlCenter ){
     this.gui.addController('Screenshot', () => {
       // const doc = this.canvas.mapToPDF();
 
-      const glCanvas = this.canvas.main_renderer.domElement,
-            pixelRatio = this.canvas.main_renderer.getPixelRatio();
+      // the renderers throw until they are initialized
+      if( !this.canvas.rendererReady ) { return; }
+
+      // the canvas the main view draws into; `renderer.domElement` follows
+      // whichever canvas target the renderer is pointed at
+      const glCanvas = this.canvas.$mainGLCanvas,
+            pixelRatio = this.canvas.mainRendererInterface.getPixelRatio();
       let totalHeight = glCanvas.height,
-          sideWidth = this.canvas.sideCanvasEnabled ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
+          sideWidth = this.canvas.sideCanvasOverlaysMain ? Math.floor( this.canvas.side_width * pixelRatio ) : 0,
           sideHeight = sideWidth - pixelRatio,
           totalWidth = glCanvas.width + sideWidth,
           mainWidth = totalWidth - sideWidth;
@@ -99,27 +105,28 @@ function registerPresetRecorder( ViewerControlCenter ){
       // copy the main_renderer context
       pdf_wrapper.background_color = this.canvas.background_color;
 
-      this.canvas.main_renderer.clear();
-      this.canvas.main_renderer.render( this.canvas.scene, this.canvas.mainCamera );
+      this.canvas.mainRendererInterface.clear();
+      this.canvas.mainRendererInterface.render( this.canvas.scene, this.canvas.mainCamera );
       pdf_wrapper.draw_image( glCanvas, sideWidth, 0, mainWidth, totalHeight );
 
-      // draw side panels
-      if( this.canvas.sideCanvasEnabled ) {
+      // draw side panels, where they float over the 3D view; a tiled layout
+      // captures the 3D view alone
+      if( this.canvas.sideCanvasOverlaysMain ) {
         this.canvas.sideCanvasList.axial.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.axial.renderer.domElement,
+          this.canvas.sideCanvasList.axial.$canvas,
           0, 0, sideWidth, sideWidth
         );
 
         this.canvas.sideCanvasList.sagittal.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.sagittal.renderer.domElement,
+          this.canvas.sideCanvasList.sagittal.$canvas,
           0, sideHeight, sideWidth, sideWidth
         );
 
         this.canvas.sideCanvasList.coronal.render();
         pdf_wrapper.draw_image(
-          this.canvas.sideCanvasList.coronal.renderer.domElement,
+          this.canvas.sideCanvasList.coronal.$canvas,
           0, sideHeight * 2, sideWidth, sideWidth
         );
 
@@ -165,12 +172,13 @@ function registerPresetRecorder( ViewerControlCenter ){
     }, {folder_name: folder_name });
 
     this.gui.addController('Download GLTF', async () => {
+      await this.canvas.rendererInitialized;
       const scene = this.canvas.cloneForExporter();
       exportScene(
         scene,
         "GLB",
         {
-          maxTextureSize: this.canvas.main_renderer.capabilities.maxTextureSize,
+          maxTextureSize: getMaxTextureSize( this.canvas.main_renderer ),
         }
       );
     });

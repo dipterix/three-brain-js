@@ -187,12 +187,21 @@ function nearest( tree, vec3, best ) {
 }
 
 
+/**
+ * Distance from each streamline to the targets, written to every segment of it.
+ *
+ * The search walks the source points (full resolution, in file order), not the
+ * segments that are drawn: those may be simplified, and a vertex-only search on
+ * a simplified line would over-estimate the distance by up to half a segment.
+ * `tractRange` maps a drawn tract `[ tractID, nPoints, firstSegment ]` back to
+ * its source points `[ sourceOffset[tractID], sourceOffset[tractID + 1] )`.
+ */
 function computeStreamlineToTargets(
   targetArray,              // array of Vector3, Float32Array, or a kdtree
   distanceToTargets,        // Float32Array, output: distance per segment
   instanceWeight,           // Float32Array, one per segment
-  pointOffset,              // Int32Array, length nTracts+1
-  pointPositions,           // Float32Array, length ~ 3*(total segments+1)
+  sourceOffset,             // Uint32Array, length nTracts+1, into `sourcePoints`
+  sourcePoints,             // Float32Array, full-resolution xyz in file order
   tractRange,               // Uint32Array, nTracts * 3
   maxInstanceCount = Infinity, // Maximum number of instances
   matrixWorld = new Matrix4()
@@ -222,12 +231,15 @@ function computeStreamlineToTargets(
 
     const best = { index: -1, distSq: Infinity }
 
+    const sourceStart = sourceOffset[ idx ],
+          sourceEnd = sourceOffset[ idx + 1 ];
+
     let previousDist = 0;
-    ptPrevious.fromArray( pointPositions, iPos * 3 );
+    ptPrevious.fromArray( sourcePoints, sourceStart * 3 );
 
-    for (let i = 0; i < len; i++) {
+    for (let i = sourceStart; i < sourceEnd; i++) {
 
-      pt.fromArray( pointPositions, (iPos + i) * 3 );
+      pt.fromArray( sourcePoints, i * 3 );
 
       previousDist -= pt.distanceTo( ptPrevious );
       ptPrevious.copy( pt );

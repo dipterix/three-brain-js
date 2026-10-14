@@ -1,761 +1,486 @@
+import { Vector2, LineDashedMaterial } from 'three';
+import { NodeMaterial } from 'three/webgpu';
 import {
-	ShaderLib,
-	ShaderMaterial,
-	UniformsLib,
-	UniformsUtils,
-	Vector2,
-} from 'three';
-
-UniformsLib.line = {
-
-	worldUnits: { value: 1 },
-	linewidth: { value: 1 },
-	resolution: { value: new Vector2() },
-	dashOffset: { value: 0 },
-	dashScale: { value: 1 },
-	dashSize: { value: 1 },
-	gapSize: { value: 1 } // todo FIX - maybe change to totalSize
-
-};
-
-// `LineSegments2` and `Line2` pull in the upstream `three/addons/lines/LineMaterial.js`,
-// which registers its own shader under `ShaderLib[ 'line' ]`. Both modules end up in the
-// bundle, so whichever evaluates last would win that key and could silently replace this
-// fork's shader. Keep the fork's shader in a module-local binding and publish it under a
-// private key so the two can coexist regardless of module evaluation order.
-const lineShader = {
-
-	uniforms: UniformsUtils.merge( [
-		UniformsLib.common,
-		UniformsLib.fog,
-		UniformsLib.line
-	] ),
-
-	vertexShader:
-	/* glsl */`
-		#include <common>
-		#include <color_pars_vertex>
-		#include <fog_pars_vertex>
-		#include <logdepthbuf_pars_vertex>
-		#include <clipping_planes_pars_vertex>
-
-		uniform float linewidth;
-		uniform vec2 resolution;
-
-		attribute vec3 instanceStart;
-		attribute vec3 instanceEnd;
-
-		attribute vec3 instanceColorStart;
-		attribute vec3 instanceColorEnd;
-		
-		varying float perspective;
-
-		#ifdef WORLD_UNITS
-
-			varying vec4 worldPos;
-			varying vec3 worldStart;
-			varying vec3 worldEnd;
-
-			#ifdef USE_DASH
-
-				varying vec2 vUv;
-
-			#endif
-
-		#else
-
-			varying vec2 vUv;
-
-		#endif
-
-		#ifdef USE_DASH
-
-			uniform float dashScale;
-			attribute float instanceDistanceStart;
-			attribute float instanceDistanceEnd;
-			varying float vLineDistance;
-
-		#endif
-
-		float trimSegmentAlpha( const in vec4 start, const in vec4 end ) {
-
-			// compute the interpolation factor needed to trim the segment so it terminates
-			// between the camera plane and the near plane
-
-			// conservative estimate of the near plane
-			float a = projectionMatrix[ 2 ][ 2 ]; // 3nd entry in 3th column
-			float b = projectionMatrix[ 3 ][ 2 ]; // 3nd entry in 4th column
-
-			// we need different nearEstimate formula for reversed and default depth buffer
-			// a is positive with a reversed depth buffer so it can be used for controlling the code flow
-			float nearEstimate = ( a > 0.0 ) ? ( - b / ( a + 1.0 ) ) : ( - 0.5 * b / a );
-
-			return ( nearEstimate - start.z ) / ( end.z - start.z );
-
-		}
-
-		void main() {
-
-			#ifdef USE_COLOR
-
-				vColor.xyz = ( position.y < 0.5 ) ? instanceColorStart : instanceColorEnd;
-
-			#endif
-
-			float aspect = resolution.x / resolution.y;
-
-			// camera space
-			vec4 start = modelViewMatrix * vec4( instanceStart, 1.0 );
-			vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );
-
-			#ifdef USE_DASH
-
-				float lineDistanceStart = dashScale * instanceDistanceStart;
-				float lineDistanceEnd = dashScale * instanceDistanceEnd;
-
-			#endif
-
-			#ifdef WORLD_UNITS
-
-				worldStart = start.xyz;
-				worldEnd = end.xyz;
-
-			#else
-
-				vUv = uv;
-
-			#endif
-
-			// special case for perspective projection, and segments that terminate either in, or behind, the camera plane
-			// clearly the gpu firmware has a way of addressing this issue when projecting into ndc space
-			// but we need to perform ndc-space calculations in the shader, so we must address this issue directly
-			// perhaps there is a more elegant solution -- WestLangley
-
-			bool isPerspective = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ); // 4th entry in the 3rd column
-
-			if ( isPerspective ) {
-
-				perspective = 1.0;
-
-				if ( start.z < 0.0 && end.z >= 0.0 ) {
-
-					float alpha = trimSegmentAlpha( start, end );
-					end.xyz = mix( start.xyz, end.xyz, alpha );
-
-					#ifdef USE_DASH
-
-						lineDistanceEnd = mix( lineDistanceStart, lineDistanceEnd, alpha );
-
-					#endif
-
-				} else if ( end.z < 0.0 && start.z >= 0.0 ) {
-
-					float alpha = trimSegmentAlpha( end, start );
-					start.xyz = mix( end.xyz, start.xyz, alpha );
-
-					#ifdef USE_DASH
-
-						lineDistanceStart = mix( lineDistanceEnd, lineDistanceStart, alpha );
-
-					#endif
-
-				}
-
-			} else {
-
-				perspective = 0.0;
-
-			}
-
-			#ifdef USE_DASH
-
-				vLineDistance = ( position.y < 0.5 ) ? lineDistanceStart : lineDistanceEnd;
-				vUv = uv;
-
-			#endif
-
-			// clip space
-			vec4 clipStart = projectionMatrix * start;
-			vec4 clipEnd = projectionMatrix * end;
-
-			// ndc space
-			vec3 ndcStart = clipStart.xyz / clipStart.w;
-			vec3 ndcEnd = clipEnd.xyz / clipEnd.w;
-
-			// direction
-			vec2 dir = ndcEnd.xy - ndcStart.xy;
-
-			// account for clip-space aspect ratio
-			dir.x *= aspect;
-			dir = normalize( dir );
-
-			#ifdef WORLD_UNITS
-
-				vec3 worldDir = normalize( end.xyz - start.xyz );
-				vec3 tmpFwd = normalize( mix( start.xyz, end.xyz, 0.5 ) );
-				vec3 worldUp = normalize( cross( worldDir, tmpFwd ) );
-				vec3 worldFwd = cross( worldDir, worldUp );
-				worldPos = position.y < 0.5 ? start: end;
-
-				// height offset
-				float hw = linewidth * 0.5;
-				worldPos.xyz += position.x < 0.0 ? hw * worldUp : - hw * worldUp;
-
-				// don't extend the line if we're rendering dashes because we
-				// won't be rendering the endcaps
-				#ifndef USE_DASH
-
-					// cap extension
-					worldPos.xyz += position.y < 0.5 ? - hw * worldDir : hw * worldDir;
-
-					// add width to the box
-					worldPos.xyz += worldFwd * hw;
-
-					// endcaps
-					if ( position.y > 1.0 || position.y < 0.0 ) {
-
-						worldPos.xyz -= worldFwd * 2.0 * hw;
-
-					}
-
-				#endif
-
-				// project the worldpos
-				vec4 clip = projectionMatrix * worldPos;
-
-				// shift the depth of the projected points so the line
-				// segments overlap neatly
-				vec3 clipPose = ( position.y < 0.5 ) ? ndcStart : ndcEnd;
-				clip.z = clipPose.z * clip.w;
-
-			#else
-
-				vec2 offset = vec2( dir.y, - dir.x );
-				// undo aspect ratio adjustment
-				dir.x /= aspect;
-				offset.x /= aspect;
-
-				// sign flip
-				if ( position.x < 0.0 ) offset *= - 1.0;
-
-				// endcaps
-				if ( position.y < 0.0 ) {
-
-					offset += - dir;
-
-				} else if ( position.y > 1.0 ) {
-
-					offset += dir;
-
-				}
-
-				// adjust for linewidth
-				offset *= linewidth;
-
-				// adjust for clip-space to screen-space conversion // maybe resolution should be based on viewport ...
-				offset /= resolution.y;
-
-				// select end
-				vec4 clip = ( position.y < 0.5 ) ? clipStart : clipEnd;
-
-				// back to clip space
-				offset *= clip.w;
-
-				clip.xy += offset;
-
-			#endif
-
-			gl_Position = clip;
-
-			vec4 mvPosition = ( position.y < 0.5 ) ? start : end; // this is an approximation
-
-			#include <logdepthbuf_vertex>
-			#include <clipping_planes_vertex>
-			#include <fog_vertex>
-
-		}
-		`,
-
-	fragmentShader:
-	/* glsl */`
-		uniform vec3 diffuse;
-		uniform float opacity;
-		uniform float linewidth;
-
-		#ifdef USE_DASH
-
-			uniform float dashOffset;
-			uniform float dashSize;
-			uniform float gapSize;
-
-		#endif
-
-		varying float vLineDistance;
-		varying float perspective;
-
-		#ifdef WORLD_UNITS
-
-			varying vec4 worldPos;
-			varying vec3 worldStart;
-			varying vec3 worldEnd;
-
-			#ifdef USE_DASH
-
-				varying vec2 vUv;
-
-			#endif
-
-		#else
-
-			varying vec2 vUv;
-
-		#endif
-
-		#include <common>
-		#include <color_pars_fragment>
-		#include <fog_pars_fragment>
-		#include <logdepthbuf_pars_fragment>
-		#include <clipping_planes_pars_fragment>
-
-		vec2 closestLineToLine(vec3 p1, vec3 p2, vec3 p3, vec3 p4) {
-
-			float mua;
-			float mub;
-
-			vec3 p13 = p1 - p3;
-			vec3 p43 = p4 - p3;
-
-			vec3 p21 = p2 - p1;
-
-			float d1343 = dot( p13, p43 );
-			float d4321 = dot( p43, p21 );
-			float d1321 = dot( p13, p21 );
-			float d4343 = dot( p43, p43 );
-			float d2121 = dot( p21, p21 );
-
-			float denom = d2121 * d4343 - d4321 * d4321;
-
-			float numer = d1343 * d4321 - d1321 * d4343;
-
-			mua = numer / denom;
-			mua = clamp( mua, 0.0, 1.0 );
-			mub = ( d1343 + d4321 * ( mua ) ) / d4343;
-			mub = clamp( mub, 0.0, 1.0 );
-
-			return vec2( mua, mub );
-
-		}
-
-		void main() {
-
-			#include <clipping_planes_fragment>
-
-			#ifdef USE_DASH
-
-				if ( vUv.y < - 1.0 || vUv.y > 1.0 ) discard; // discard endcaps
-
-				if ( mod( vLineDistance + dashOffset, dashSize + gapSize ) > dashSize ) discard; // todo - FIX
-
-			#endif
-
-			float alpha = opacity;
-			float shade = 1.0;
-
-			#ifdef WORLD_UNITS
-
-				// Find the closest points on the view ray and the line segment
-				vec3 rayOrigin = vec3(0.0, 0.0, 0.0);
-				vec3 rayEnd;
-				if(perspective < 0.5) {
-					rayEnd = normalize( worldPos.xyz ) * 1e5;
-				} else {
-					rayOrigin = worldPos.xyz;
-					rayEnd = rayOrigin + vec3(0.0, 0.0, 1e5);
-				}
-				vec3 lineDir = worldEnd - worldStart;
-				vec2 params = closestLineToLine( worldStart, worldEnd, rayOrigin, rayEnd );
-
-				vec3 p1 = worldStart + lineDir * params.x;
-				vec3 p2 = rayEnd * params.y;
-				vec3 delta = p1 - p2;
-				float len = length( delta );
-				float norm = len / linewidth;
-
-				// calculate the projection of delta onto lineDir
-				vec3 lineDirUnit = normalize(lineDir);
-				float projection = dot(delta, lineDirUnit);
-				vec3 residualDir = delta - lineDirUnit * projection;
-				residualDir.z = 0.0;
-				float residual = length(residualDir) / linewidth * 4.0 - 1.0;
-
-				// Only apply shading to the sides (not endcaps/joints)
-				// Check if we're on the main body of the line (not endcaps)
-				if (residual > 0.0 && residual <= 1.0) {
-					shade = 1.0 - smoothstep(0.0, 1.2, residual);
-				}
-
-				#ifdef USE_ALPHA_TO_COVERAGE
-
-					float dnorm = fwidth( norm );
-					alpha = 1.0 - smoothstep( 0.5 - dnorm, 0.5 + dnorm, norm );
-
-				#else
-
-					if ( norm > 0.5 ) {
-
-						discard;
-
-					}
-
-				#endif
-
-			#else
-
-				#ifdef USE_ALPHA_TO_COVERAGE
-
-					// artifacts appear on some hardware if a derivative is taken within a conditional
-					float a = vUv.x;
-					float b = ( vUv.y > 0.0 ) ? vUv.y - 1.0 : vUv.y + 1.0;
-					float len2 = a * a + b * b;
-					float dlen = fwidth( len2 );
-
-					if ( abs( vUv.y ) > 1.0 ) {
-
-						alpha = 1.0 - smoothstep( 1.0 - dlen, 1.0 + dlen, len2 );
-
-					}
-
-				#else
-
-					if ( abs( vUv.y ) > 1.0 ) {
-
-						float a = vUv.x;
-						float b = ( vUv.y > 0.0 ) ? vUv.y - 1.0 : vUv.y + 1.0;
-						float len2 = a * a + b * b;
-
-						if ( len2 > 1.0 ) discard;
-
-					}
-
-				#endif
-
-			#endif
-
-			vec4 diffuseColor = vec4( diffuse * shade, alpha );
-
-			#include <logdepthbuf_fragment>
-			#include <color_fragment>
-
-			gl_FragColor = vec4( diffuseColor.rgb, alpha );
-
-			#include <tonemapping_fragment>
-			#include <colorspace_fragment>
-			#include <fog_fragment>
-			#include <premultiplied_alpha_fragment>
-
-		}
-		`
-};
-
-ShaderLib[ 'streamline' ] = lineShader;
+  Fn, If, float, vec2, vec3, vec4, attribute, uv, mix, smoothstep,
+  positionGeometry, modelViewMatrix, cameraProjectionMatrix, varyingProperty,
+  diffuseColor, dashSize, gapSize, materialLineWidth, materialLineScale,
+  materialLineDashSize, materialLineGapSize, materialLineDashOffset,
+  viewport, screenDPR
+} from 'three/tsl';
 
 /**
- * A material for drawing wireframe-style geometries.
+ * Fat lines for `LineSegments2` and `Line2`, as a node (TSL) material. It is a
+ * fork of three's `Line2NodeMaterial` that keeps what the viewer's GLSL fork of
+ * `LineMaterial` did:
+ *   - `lineWidthNode` can replace the width, e.g. with a per-segment attribute
+ *   - lines in world units are shaded darker towards their edges, like tubes
+ *   - alpha-to-coverage stays off unless asked for
  *
- * Unlike {@link LineBasicMaterial}, it supports arbitrary line widths and allows using world units
- * instead of screen space units. This material is used with {@link LineSegments2} and {@link Line2}.
+ * Screen-space widths are CSS pixels of the canvas being drawn, as before:
+ * three's WebGL `LineSegments2` overwrote `resolution` with each renderer's
+ * viewport. `resolution` is still a property, for callers and for raycasting.
  *
- * This module can only be used with {@link WebGLRenderer}. When using {@link WebGPURenderer},
- * use {@link Line2NodeMaterial}.
- *
- * @augments ShaderMaterial
- * @three_import import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+ * Use it with the `three/addons/lines/LineSegments2.js` and `Line2.js` classes.
+ * Their raycasting reads `material.resolution`, which callers set to the main
+ * canvas size; the WebGPU variants read the viewport of whichever renderer drew
+ * last, often a side view.
  */
-class LineMaterial extends ShaderMaterial {
 
-	/**
-	 * Constructs a new line segments geometry.
-	 *
-	 * @param {Object} [parameters] - An object with one or more properties
-	 * defining the material's appearance. Any property of the material
-	 * (including any property from inherited materials) can be passed
-	 * in here. Color values can be passed any type of value accepted
-	 * by {@link Color#set}.
-	 */
-	constructor( parameters ) {
+const _defaultValues = /*@__PURE__*/ new LineDashedMaterial();
 
-		super( {
+const worldStart = varyingProperty( 'vec3', 'worldStart' );
+const worldEnd = varyingProperty( 'vec3', 'worldEnd' );
+const lineDistance = varyingProperty( 'float', 'lineDistance' );
+const worldPos = varyingProperty( 'vec4', 'worldPos' );
 
-			type: 'LineMaterial',
-			uniforms: UniformsUtils.clone( lineShader.uniforms ),
+const trimSegmentAlpha = Fn( ( { start, end } ) => {
 
-			vertexShader: lineShader.vertexShader,
-			fragmentShader: lineShader.fragmentShader,
+  const a = cameraProjectionMatrix.element( 2 ).element( 2 ); // 3nd entry in 3th column
+  const b = cameraProjectionMatrix.element( 3 ).element( 2 ); // 3nd entry in 4th column
 
-			clipping: true // required for clipping support
+  // different near estimates for reversed and default depth buffers; a is
+  // positive with a reversed depth buffer
+  const nearEstimate = a.greaterThan( 0 ).select( b.negate().div( a.add( 1 ) ), b.mul( - 0.5 ).div( a ) );
 
-		} );
+  return nearEstimate.sub( start.z ).div( end.z.sub( start.z ) );
 
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		this.isLineMaterial = true;
+}, { start: 'vec4', end: 'vec4', return: 'float' } );
 
-		this.setValues( parameters );
+const closestLineToLine = Fn( ( { p1, p2, p3, p4 } ) => {
 
-	}
+  const p13 = p1.sub( p3 );
+  const p43 = p4.sub( p3 );
 
-	/**
-	 * The material's color.
-	 *
-	 * @type {Color}
-	 * @default (1,1,1)
-	 */
-	get color() {
+  const p21 = p2.sub( p1 );
 
-		return this.uniforms.diffuse.value;
+  const d1343 = p13.dot( p43 );
+  const d4321 = p43.dot( p21 );
+  const d1321 = p13.dot( p21 );
+  const d4343 = p43.dot( p43 );
+  const d2121 = p21.dot( p21 );
 
-	}
+  const denom = d2121.mul( d4343 ).sub( d4321.mul( d4321 ) );
+  const numer = d1343.mul( d4321 ).sub( d1321.mul( d4343 ) );
 
-	set color( value ) {
+  const mua = numer.div( denom ).clamp();
+  const mub = d1343.add( d4321.mul( mua ) ).div( d4343 ).clamp();
 
-		this.uniforms.diffuse.value = value;
+  return vec2( mua, mub );
 
-	}
+}, { p1: 'vec3', p2: 'vec3', p3: 'vec3', p4: 'vec3', return: 'vec2' } );
 
-	/**
-	 * Whether the material's sizes (width, dash gaps) are in world units.
-	 *
-	 * @type {boolean}
-	 * @default false
-	 */
-	get worldUnits() {
+const lineWidthOf = ( material ) =>
+  material.lineWidthNode ? float( material.lineWidthNode ) : materialLineWidth;
 
-		return 'WORLD_UNITS' in this.defines;
+const mvpLine = Fn( ( { material } ) => {
 
-	}
+  const useDash = material._useDash;
+  const useWorldUnits = material._useWorldUnits;
+  const lineWidth = lineWidthOf( material );
 
-	set worldUnits( value ) {
+  const instanceStart = attribute( 'instanceStart' );
+  const instanceEnd = attribute( 'instanceEnd' );
 
-		if ( ( value === true ) !== this.worldUnits ) {
+  // camera space
 
-			this.needsUpdate = true;
+  const start = vec4( modelViewMatrix.mul( vec4( instanceStart, 1.0 ) ) ).toVar( 'start' );
+  const end = vec4( modelViewMatrix.mul( vec4( instanceEnd, 1.0 ) ) ).toVar( 'end' );
 
-		}
+  let distanceStart, distanceEnd;
 
-		if ( value === true ) {
+  if ( useDash ) {
 
-			this.defines.WORLD_UNITS = '';
+    distanceStart = float( attribute( 'instanceDistanceStart' ) ).toVar( 'distanceStart' );
+    distanceEnd = float( attribute( 'instanceDistanceEnd' ) ).toVar( 'distanceEnd' );
 
-		} else {
+  }
 
-			delete this.defines.WORLD_UNITS;
+  if ( useWorldUnits ) {
 
-		}
+    worldStart.assign( start.xyz );
+    worldEnd.assign( end.xyz );
 
-	}
+  }
 
-	/**
-	 * Controls line thickness in CSS pixel units when `worldUnits` is `false` (default),
-	 * or in world units when `worldUnits` is `true`.
-	 *
-	 * @type {number}
-	 * @default 1
-	 */
-	get linewidth() {
+  const aspect = viewport.z.div( viewport.w );
 
-		return this.uniforms.linewidth.value;
+  // segments that end in, or behind, the camera plane of a perspective camera
+  // must be trimmed before the ndc-space calculations below
 
-	}
+  const perspective = cameraProjectionMatrix.element( 2 ).element( 3 ).equal( - 1.0 ); // 4th entry in the 3rd column
 
-	set linewidth( value ) {
+  If( perspective, () => {
 
-		if ( ! this.uniforms.linewidth ) return;
-		this.uniforms.linewidth.value = value;
+    If( start.z.lessThan( 0.0 ).and( end.z.greaterThan( 0.0 ) ), () => {
 
-	}
+      const alpha = trimSegmentAlpha( { start, end } );
+      end.assign( vec4( mix( start.xyz, end.xyz, alpha ), end.w ) );
 
-	/**
-	 * Whether the line is dashed, or solid.
-	 *
-	 * @type {boolean}
-	 * @default false
-	 */
-	get dashed() {
+      if ( useDash ) {
 
-		return 'USE_DASH' in this.defines;
+        distanceEnd.assign( mix( distanceStart, distanceEnd, alpha ) );
 
-	}
+      }
 
-	set dashed( value ) {
+    } ).ElseIf( end.z.lessThan( 0.0 ).and( start.z.greaterThanEqual( 0.0 ) ), () => {
 
-		if ( ( value === true ) !== this.dashed ) {
+      const alpha = trimSegmentAlpha( { start: end, end: start } );
+      start.assign( vec4( mix( end.xyz, start.xyz, alpha ), start.w ) );
 
-			this.needsUpdate = true;
+      if ( useDash ) {
 
-		}
+        distanceStart.assign( mix( distanceEnd, distanceStart, alpha ) );
 
-		if ( value === true ) {
+      }
 
-			this.defines.USE_DASH = '';
+    } );
 
-		} else {
+  } );
 
-			delete this.defines.USE_DASH;
+  if ( useDash ) {
 
-		}
+    const dashScaleNode = material.dashScaleNode ? float( material.dashScaleNode ) : materialLineScale;
+    const offsetNode = material.offsetNode ? float( material.offsetNode ) : materialLineDashOffset;
 
-	}
+    let lineDist = positionGeometry.y.lessThan( 0.5 ).select( dashScaleNode.mul( distanceStart ), dashScaleNode.mul( distanceEnd ) );
+    lineDist = lineDist.add( offsetNode );
 
-	/**
-	 * The scale of the dashes and gaps.
-	 *
-	 * @type {number}
-	 * @default 1
-	 */
-	get dashScale() {
+    lineDistance.assign( lineDist );
 
-		return this.uniforms.dashScale.value;
+  }
 
-	}
+  // clip space
+  const clipStart = cameraProjectionMatrix.mul( start );
+  const clipEnd = cameraProjectionMatrix.mul( end );
 
-	set dashScale( value ) {
+  // ndc space
+  const ndcStart = clipStart.xyz.div( clipStart.w );
+  const ndcEnd = clipEnd.xyz.div( clipEnd.w );
 
-		this.uniforms.dashScale.value = value;
+  // direction
+  const dir = ndcEnd.xy.sub( ndcStart.xy ).toVar();
 
-	}
+  // account for clip-space aspect ratio
+  dir.x.assign( dir.x.mul( aspect ) );
+  dir.assign( dir.normalize() );
 
-	/**
-	 * The size of the dash.
-	 *
-	 * @type {number}
-	 * @default 1
-	 */
-	get dashSize() {
+  const clip = vec4().toVar();
 
-		return this.uniforms.dashSize.value;
+  if ( useWorldUnits ) {
 
-	}
+    // get the offset direction as perpendicular to the view vector
 
-	set dashSize( value ) {
+    const worldDir = end.xyz.sub( start.xyz ).normalize();
+    const tmpFwd = mix( start.xyz, end.xyz, 0.5 ).normalize();
+    const worldUp = worldDir.cross( tmpFwd ).normalize();
+    const worldFwd = worldDir.cross( worldUp );
 
-		this.uniforms.dashSize.value = value;
+    worldPos.assign( positionGeometry.y.lessThan( 0.5 ).select( start, end ) );
 
-	}
+    // height offset
+    const hw = lineWidth.mul( 0.5 );
+    worldPos.addAssign( vec4( positionGeometry.x.lessThan( 0.0 ).select( worldUp.mul( hw ), worldUp.mul( hw ).negate() ), 0 ) );
 
-	/**
-	 * Where in the dash cycle the dash starts.
-	 *
-	 * @type {number}
-	 * @default 0
-	 */
-	get dashOffset() {
+    // dashes have no endcaps, so do not extend the line
+    if ( ! useDash ) {
 
-		return this.uniforms.dashOffset.value;
+      // cap extension
+      worldPos.addAssign( vec4( positionGeometry.y.lessThan( 0.5 ).select( worldDir.mul( hw ).negate(), worldDir.mul( hw ) ), 0 ) );
 
-	}
+      // add width to the box
+      worldPos.addAssign( vec4( worldFwd.mul( hw ), 0 ) );
 
-	set dashOffset( value ) {
+      // endcaps
+      If( positionGeometry.y.greaterThan( 1.0 ).or( positionGeometry.y.lessThan( 0.0 ) ), () => {
 
-		this.uniforms.dashOffset.value = value;
+        worldPos.subAssign( vec4( worldFwd.mul( 2.0 ).mul( hw ), 0 ) );
 
-	}
+      } );
 
-	/**
-	 * The size of the gap.
-	 *
-	 * @type {number}
-	 * @default 0
-	 */
-	get gapSize() {
+    }
 
-		return this.uniforms.gapSize.value;
+    // project the worldpos
+    clip.assign( cameraProjectionMatrix.mul( worldPos ) );
 
-	}
+    // shift the depth of the projected points so the line segments overlap neatly
+    const clipPose = vec3().toVar();
 
-	set gapSize( value ) {
+    clipPose.assign( positionGeometry.y.lessThan( 0.5 ).select( ndcStart, ndcEnd ) );
+    clip.z.assign( clipPose.z.mul( clip.w ) );
 
-		this.uniforms.gapSize.value = value;
+  } else {
 
-	}
+    const offset = vec2( dir.y, dir.x.negate() ).toVar( 'offset' );
 
-	/**
-	 * The opacity.
-	 *
-	 * @type {number}
-	 * @default 1
-	 */
-	get opacity() {
+    // undo aspect ratio adjustment
+    dir.x.assign( dir.x.div( aspect ) );
+    offset.x.assign( offset.x.div( aspect ) );
 
-		return this.uniforms.opacity.value;
+    // sign flip
+    offset.assign( positionGeometry.x.lessThan( 0.0 ).select( offset.negate(), offset ) );
 
-	}
+    // endcaps
+    If( positionGeometry.y.lessThan( 0.0 ), () => {
 
-	set opacity( value ) {
+      offset.assign( offset.sub( dir ) );
 
-		if ( ! this.uniforms ) return;
-		this.uniforms.opacity.value = value;
+    } ).ElseIf( positionGeometry.y.greaterThan( 1.0 ), () => {
 
-	}
+      offset.assign( offset.add( dir ) );
 
-	/**
-	 * The size of the viewport, in screen pixels. This must be kept updated to make
-	 * screen-space rendering accurate. The `LineSegments2.onBeforeRender` callback
-	 * performs the update for visible objects.
-	 *
-	 * @type {Vector2}
-	 */
-	get resolution() {
+    } );
 
-		return this.uniforms.resolution.value;
+    // adjust for linewidth
+    offset.assign( offset.mul( lineWidth ) );
 
-	}
+    // widths are CSS pixels of the canvas being drawn
+    offset.assign( offset.div( viewport.w.div( screenDPR ) ) );
 
-	set resolution( value ) {
+    // select end
+    clip.assign( positionGeometry.y.lessThan( 0.5 ).select( clipStart, clipEnd ) );
 
-		this.uniforms.resolution.value.copy( value );
+    // back to clip space
+    offset.assign( offset.mul( clip.w ) );
 
-	}
+    clip.assign( clip.add( vec4( offset, 0, 0 ) ) );
 
-	/**
-	 * Whether to use alphaToCoverage or not. When enabled, this can improve the
-	 * anti-aliasing of line edges when using MSAA.
-	 *
-	 * @type {boolean}
-	 */
-	get alphaToCoverage() {
+  }
 
-		return 'USE_ALPHA_TO_COVERAGE' in this.defines;
+  return clip;
 
-	}
+} )();
 
-	set alphaToCoverage( value ) {
+// Discards fragments outside the line, and returns ( alpha, shade ) to
+// multiply the color with
+const lineFragment = Fn( ( { material, renderer } ) => {
 
-		if ( ! this.defines ) return;
+  const useAlphaToCoverage = material._useAlphaToCoverage && renderer.currentSamples > 0;
+  const useDash = material._useDash;
+  const useWorldUnits = material._useWorldUnits;
+  const lineWidth = lineWidthOf( material );
 
-		if ( ( value === true ) !== this.alphaToCoverage ) {
+  const vUv = uv();
 
-			this.needsUpdate = true;
+  if ( useDash ) {
 
-		}
+    const dashSizeNode = material.dashSizeNode ? float( material.dashSizeNode ) : materialLineDashSize;
+    const gapSizeNode = material.gapSizeNode ? float( material.gapSizeNode ) : materialLineGapSize;
 
-		if ( value === true ) {
+    dashSize.assign( dashSizeNode );
+    gapSize.assign( gapSizeNode );
 
-			this.defines.USE_ALPHA_TO_COVERAGE = '';
+    vUv.y.lessThan( - 1.0 ).or( vUv.y.greaterThan( 1.0 ) ).discard(); // discard endcaps
+    lineDistance.mod( dashSize.add( gapSize ) ).greaterThan( dashSize ).discard(); // todo - FIX
 
-		} else {
+  }
 
-			delete this.defines.USE_ALPHA_TO_COVERAGE;
+  const alpha = float( 1 ).toVar( 'alpha' );
+  const shade = float( 1 ).toVar( 'shade' );
 
-		}
+  if ( useWorldUnits ) {
 
-	}
+    // closest points on the view ray and the segment. The ray runs from the view
+    // origin through the fragment, also for orthographic cameras, as in the
+    // GLSL fork (its orthographic branch was only taken for perspective cameras)
+    const rayEnd = worldPos.xyz.normalize().mul( 1e5 );
+    const lineDir = worldEnd.sub( worldStart );
+    const params = closestLineToLine( { p1: worldStart, p2: worldEnd, p3: vec3( 0.0, 0.0, 0.0 ), p4: rayEnd } );
+
+    const p1 = worldStart.add( lineDir.mul( params.x ) );
+    const p2 = rayEnd.mul( params.y );
+    const delta = p1.sub( p2 );
+    const norm = delta.length().div( lineWidth );
+
+    // darker towards the sides, like a tube; not on the endcaps
+    const lineDirUnit = lineDir.normalize();
+    const across = delta.sub( lineDirUnit.mul( delta.dot( lineDirUnit ) ) );
+    const residual = vec2( across.x, across.y ).length().div( lineWidth ).mul( 4.0 ).sub( 1.0 ).toVar();
+    If( residual.greaterThan( 0.0 ).and( residual.lessThanEqual( 1.0 ) ), () => {
+
+      shade.assign( smoothstep( 0.0, 1.2, residual ).oneMinus() );
+
+    } );
+
+    if ( useAlphaToCoverage ) {
+
+      const dnorm = norm.fwidth();
+      alpha.assign( smoothstep( dnorm.negate().add( 0.5 ), dnorm.add( 0.5 ), norm ).oneMinus() );
+
+    } else {
+
+      norm.greaterThan( 0.5 ).discard();
+
+    }
+
+  } else {
+
+    // round endcaps
+
+    if ( useAlphaToCoverage ) {
+
+      const a = vUv.x;
+      const b = vUv.y.greaterThan( 0.0 ).select( vUv.y.sub( 1.0 ), vUv.y.add( 1.0 ) );
+
+      const len2 = a.mul( a ).add( b.mul( b ) );
+
+      const dlen = float( len2.fwidth() ).toVar( 'dlen' );
+
+      If( vUv.y.abs().greaterThan( 1.0 ), () => {
+
+        alpha.assign( smoothstep( dlen.oneMinus(), dlen.add( 1 ), len2 ).oneMinus() );
+
+      } );
+
+    } else {
+
+      If( vUv.y.abs().greaterThan( 1.0 ), () => {
+
+        const a = vUv.x;
+        const b = vUv.y.greaterThan( 0.0 ).select( vUv.y.sub( 1.0 ), vUv.y.add( 1.0 ) );
+        const len2 = a.mul( a ).add( b.mul( b ) );
+
+        len2.greaterThan( 1.0 ).discard();
+
+      } );
+
+    }
+
+  }
+
+  return vec2( alpha, shade );
+
+} )();
+
+class LineMaterial extends NodeMaterial {
+
+  static get type() {
+
+    return 'LineMaterial';
+
+  }
+
+  constructor( parameters = {} ) {
+
+    super();
+
+    this.isLineMaterial = true;
+
+    this.setDefaultValues( _defaultValues );
+
+    this.vertexColors = parameters.vertexColors;
+
+    this.dashOffset = 0;
+
+    // replaces `linewidth` when set, e.g. `attribute( 'linewidth', 'float' )`
+    this.lineWidthNode = null;
+
+    this.offsetNode = null;
+    this.dashScaleNode = null;
+    this.dashSizeNode = null;
+    this.gapSizeNode = null;
+
+    // the main canvas size, set by callers; read by `LineSegments2.raycast`
+    this.resolution = new Vector2( 1, 1 );
+
+    this._useDash = parameters.dashed ?? false;
+    this._useAlphaToCoverage = false;
+    this._useWorldUnits = false;
+
+    this.setValues( parameters );
+
+  }
+
+  setupDiffuseColor( builder ) {
+
+    super.setupDiffuseColor( builder );
+
+    const alphaShade = vec2( lineFragment ).toVar( 'alphaShade' );
+    diffuseColor.a.mulAssign( alphaShade.x );
+    diffuseColor.rgb.mulAssign( alphaShade.y );
+
+    if ( this.vertexColors === true && builder.geometry.hasAttribute( 'instanceColorStart' ) ) {
+
+      const instanceColorStart = attribute( 'instanceColorStart' );
+      const instanceColorEnd = attribute( 'instanceColorEnd' );
+
+      const instanceColor = positionGeometry.y.lessThan( 0.5 ).select( instanceColorStart, instanceColorEnd );
+
+      diffuseColor.rgb.mulAssign( instanceColor );
+
+    }
+
+  }
+
+  setupModelViewProjection( /*builder*/ ) {
+
+    return mvpLine;
+
+  }
+
+  get worldUnits() {
+
+    return this._useWorldUnits;
+
+  }
+
+  set worldUnits( value ) {
+
+    if ( this._useWorldUnits !== value ) {
+
+      this._useWorldUnits = value;
+      this.needsUpdate = true;
+
+    }
+
+  }
+
+  get dashed() {
+
+    return this._useDash;
+
+  }
+
+  set dashed( value ) {
+
+    if ( this._useDash !== value ) {
+
+      this._useDash = value;
+      this.needsUpdate = true;
+
+    }
+
+  }
+
+  get alphaToCoverage() {
+
+    return this._useAlphaToCoverage;
+
+  }
+
+  set alphaToCoverage( value ) {
+
+    if ( this._useAlphaToCoverage !== value ) {
+
+      this._useAlphaToCoverage = value;
+      this.needsUpdate = true;
+
+    }
+
+  }
+
+  copy( source ) {
+
+    super.copy( source );
+
+    this.resolution.copy( source.resolution );
+    this._useDash = source._useDash;
+    this._useAlphaToCoverage = source._useAlphaToCoverage;
+    this._useWorldUnits = source._useWorldUnits;
+
+    return this;
+
+  }
 
 }
 
 export { LineMaterial };
-

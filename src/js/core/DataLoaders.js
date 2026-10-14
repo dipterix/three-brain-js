@@ -2,6 +2,7 @@ import { Loader, FileLoader, LoadingManager, EventDispatcher } from 'three';
 import { Cache } from './StorageCache.js';
 import { workerLoaders, asyncLoaderAvailable,
   startWorker, stopWorker } from './Workers.js';
+import { decodeEmbeddedBlob } from './EmbeddedData.js';
 
 import { parse as csvParse } from 'papaparse';
 import { NiftiImage } from '../formats/NIfTIImage.js';
@@ -78,45 +79,11 @@ function simpleLoad (loader, url, postMessage, token) {
 function resolveURL( url ) {
   if( url.startsWith("#") ) {
 
-    const dataElements = document.querySelectorAll(`script[data-for='${ url }']`);
-    const dataMIMEType = dataElements[0].getAttribute("data-type");
-    let isPlainText = false;
-    if( dataMIMEType && dataMIMEType.length > 0 ) {
-      const dataMIMETypeLower = dataMIMEType.toLowerCase();
-      const urlLower = url.toLowerCase();
-      if(
-        dataMIMETypeLower.endsWith("json") ||
-        dataMIMETypeLower.endsWith("csv") ||
-        dataMIMETypeLower.endsWith("txt") ||
-        dataMIMETypeLower.endsWith("text") ||
-        dataMIMETypeLower.endsWith("plain") ||
-        dataMIMETypeLower.endsWith("tsv") ||
-        urlLower.endsWith("json") ||
-        urlLower.endsWith("csv") ||
-        urlLower.endsWith("tsv") ||
-        urlLower.endsWith("txt")
-      ) {
-        isPlainText = true;
-      }
+    // embedded in the page by `save_brain()`; see `EmbeddedData.js`
+    const blob = decodeEmbeddedBlob( url );
+    if( !blob ) {
+      throw new Error(`No embedded data block for [${ url }]`);
     }
-
-    const dataArrays = [];
-    dataElements.forEach(el => {
-        const currentPartition = parseInt( el.getAttribute("data-partition") );
-        const parsedBase64 = atob( el.innerHTML.trim() );
-        if( isPlainText ) {
-          // https://stackoverflow.com/questions/16245767/creating-a-blob-from-a-base64-string-in-javascript
-          dataArrays[ currentPartition ] = parsedBase64;
-        } else {
-          const partitionSize = parseInt( el.getAttribute("data-parition-size") );
-          const byteArray = new Uint8Array( partitionSize );
-          for (let index = 0; index < partitionSize; index++ ) {
-            byteArray[index] = parsedBase64.charCodeAt(index);
-          }
-          dataArrays[ currentPartition ] = byteArray;
-        }
-    })
-    const blob = new Blob(dataArrays, { type: dataMIMEType });
     return {
       originalUrl : url,
       response : blob,
@@ -127,7 +94,7 @@ function resolveURL( url ) {
     try {
       const urlSolved = new URL(url, document.baseURI);
       absoluteURL = `${urlSolved.pathname}${ urlSolved.search }`;
-      if(!startsWith(absoluteURL, "/")) {
+      if(!absoluteURL.startsWith("/")) {
         absoluteURL = `/${absoluteURL}`;
       }
     } catch (e) {}

@@ -1,6 +1,7 @@
 import { CONSTANTS } from '../core/constants.js';
 import { AbstractThreeBrainObject } from './abstract.js';
 import { Vector3, Color, Mesh, DoubleSide, InstancedBufferAttribute } from 'three';
+import { attribute } from 'three/tsl';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineMaterial } from '../shaders/LineMaterial.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
@@ -76,11 +77,8 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
       // side: DoubleSide,
       alphaToCoverage: false,
 
-      onBeforeCompile: (shader) => {
-        shader.vertexShader = `
-          ${shader.vertexShader}
-        `.replace(`uniform float linewidth;`, `attribute float linewidth;`);
-      }
+      // each segment's width comes from the `linewidth` attribute
+      lineWidthNode: attribute( 'linewidth', 'float' ),
     });
 
     this.reference_position = new Vector3();
@@ -99,7 +97,9 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
 
     this.finish_init();
 
-    // Do not use object. This is not regular mesh
+    // Do not use object. This is not regular mesh. `dispose()` still has to
+    // take it out of the scene.
+    this._lineSegments = this.object;
     this.object = null;
 
   }
@@ -293,10 +293,10 @@ class LineSegmentsMesh extends AbstractThreeBrainObject {
   }
 
   dispose() {
-    this.object.removeFromParent();
+    super.dispose();
+    this._lineSegments.removeFromParent();
     this.geometry.dispose();
     this.material.dispose();
-    this.disposed = true;
   }
 }
 

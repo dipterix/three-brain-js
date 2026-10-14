@@ -1,4 +1,5 @@
 import { CONSTANTS } from '../core/constants.js';
+import { VIEW_LAYOUTS } from '../core/ViewLayout.js';
 import { Vector3, Matrix4 } from 'three';
 
 // 6. toggle side panel
@@ -20,11 +21,45 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
         }else{
           this.canvas.disableSideCanvas();
         }
+        // a tiled layout collapses to the 3D view alone, and comes back
+        this.app.resize();
         // this.fire_change({ 'side_display' : v });
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
       .setValue( initialDisplay );
+
+    const viewLayoutCtrl = this.gui.addController(
+      'View Layout', "3dview", {
+        args: VIEW_LAYOUTS, folderName: folderName
+      })
+      .onChange((v) => {
+        if( typeof v !== "string" ) { return; }
+        this.app.setViewMode( v );
+        // a tiled layout needs the panels it tiles
+        if( v !== "3dview" && !sidePanelCtrl.getValue() ) {
+          sidePanelCtrl.setValue( true );
+        }
+        this.broadcast();
+      })
+      .setValue( "3dview" );
+
+    this.bindKeyboard({
+      codes     : CONSTANTS.KEY_CYCLE_VIEW_LAYOUT,
+      shiftKey  : false,
+      ctrlKey   : false,
+      altKey    : false,
+      metaKey   : false,
+      tooltip   : {
+        key     : CONSTANTS.TOOLTIPS.KEY_CYCLE_VIEW_LAYOUT,
+        name    : 'View Layout',
+        folderName : folderName,
+      },
+      callback  : () => {
+        const idx = ( VIEW_LAYOUTS.indexOf( viewLayoutCtrl.getValue() ) + 1 ) % VIEW_LAYOUTS.length;
+        viewLayoutCtrl.setValue( VIEW_LAYOUTS[ idx ] );
+      }
+    });
 
     this.bindKeyboard({
       codes     : CONSTANTS.KEY_SIDE_PANEL,
@@ -432,49 +467,73 @@ function registerPresetSliceOverlay( ViewerControlCenter ){
     };
 
     // show electrodes trimmed
-    this.gui.addController('Frustum Near', 1, { folderName : folderName })
-      .min(0.1).max(15).step(0.1)
-      .onChange((v) => {
-        if( typeof v !== 'number' ) { return; }
-        if( v >= 15 ) {
-          v = 250;
-        } else if (v < 0.1) {
-          v = 0.1;
-        }
-        renderDistances.near = v;
-        this.canvas.setVoxelRenderDistance({
-          distance : renderDistances
-        });
-        // type : "viewerApp.canvas.setVoxelRenderDistance",
-        // this.canvas.sideCanvasList.coronal.renderThreshold = v;
-        // this.canvas.sideCanvasList.axial.renderThreshold = v;
-        // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
-        this.broadcast();
-        this.canvas.needsUpdate = true;
-      })
-      .setValue( 1 );
+    this.gui.addController("Frustum", { min : -1, max : 1 }, { folderName : folderName, type : "interval" })
+      .min(-15).max(15).step(0.1)
+      .onChange(v => {
+        if ( !v ) { return; }
+        let vnear = typeof v.min === "number" ? v.min : renderDistances.near,
+            vfar = typeof v.max === "number" ? v.max : renderDistances.far;
+        if ( vnear < 0 ) { vnear = - vnear; }
+        if ( vnear >= 15 ) { vnear = 250; }
+        if ( vnear < 0.1 ) { vnear = 0.1; }
+        if ( vfar < 0 ) { vfar = - vfar; }
+        if ( vfar >= 15 ) { vfar = 250; }
+        if ( vfar < 0.1 ) { vfar = 0.1; }
+        renderDistances.near = vnear;
+        renderDistances.far = vfar;
 
-    this.gui.addController('Frustum Far', 1, { folderName : folderName })
-      .min(0.1).max(15).step(0.1)
-      .onChange((v) => {
-        if( typeof v !== 'number' ) { return; }
-        if( v >= 15 ) {
-          v = 250;
-        } else if (v < 0.1) {
-          v = 0.1;
-        }
-        renderDistances.far = v;
         this.canvas.setVoxelRenderDistance({
           distance : renderDistances
         });
-        // type : "viewerApp.canvas.setVoxelRenderDistance",
-        // this.canvas.sideCanvasList.coronal.renderThreshold = v;
-        // this.canvas.sideCanvasList.axial.renderThreshold = v;
-        // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
+
         this.broadcast();
         this.canvas.needsUpdate = true;
       })
-      .setValue( 1 );
+      .setValue({ min : -1, max : 1 });
+
+    // this.gui.addController('Frustum Near', 1, { folderName : folderName })
+    //   .min(0.1).max(15).step(0.1)
+    //   .onChange((v) => {
+    //     if( typeof v !== 'number' ) { return; }
+    //     if( v >= 15 ) {
+    //       v = 250;
+    //     } else if (v < 0.1) {
+    //       v = 0.1;
+    //     }
+    //     renderDistances.near = v;
+    //     this.canvas.setVoxelRenderDistance({
+    //       distance : renderDistances
+    //     });
+    //     // type : "viewerApp.canvas.setVoxelRenderDistance",
+    //     // this.canvas.sideCanvasList.coronal.renderThreshold = v;
+    //     // this.canvas.sideCanvasList.axial.renderThreshold = v;
+    //     // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
+    //     this.broadcast();
+    //     this.canvas.needsUpdate = true;
+    //   })
+    //   .setValue( 1 );
+
+    // this.gui.addController('Frustum Far', 1, { folderName : folderName })
+    //   .min(0.1).max(15).step(0.1)
+    //   .onChange((v) => {
+    //     if( typeof v !== 'number' ) { return; }
+    //     if( v >= 15 ) {
+    //       v = 250;
+    //     } else if (v < 0.1) {
+    //       v = 0.1;
+    //     }
+    //     renderDistances.far = v;
+    //     this.canvas.setVoxelRenderDistance({
+    //       distance : renderDistances
+    //     });
+    //     // type : "viewerApp.canvas.setVoxelRenderDistance",
+    //     // this.canvas.sideCanvasList.coronal.renderThreshold = v;
+    //     // this.canvas.sideCanvasList.axial.renderThreshold = v;
+    //     // this.canvas.sideCanvasList.sagittal.renderThreshold = v;
+    //     this.broadcast();
+    //     this.canvas.needsUpdate = true;
+    //   })
+    //   .setValue( 1 );
   }
 
   return( ViewerControlCenter );

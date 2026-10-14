@@ -59,28 +59,40 @@ function registerPresetTractography( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
-
-    this.gui.addController("Line MinLen", 0.0, {folderName: folderName})
+    
+    this.gui.addController("Line Length", { min : 0, max : 500 }, {folderName: folderName, type : "interval"})
       .min(0).max(500).step(1)
       .onChange(v => {
-        if( typeof v !== "number" || v <= 0.0 ) {
-          v = 0;
-        }
-        this.canvas.set_state('streamline_minlen', v);
+        if ( !v ) { return; }
+        const vmin = ( typeof v.min  === "number" && v.min > 0.0 ) ? v.min : 0.0;
+        const vmax = ( typeof v.max  === "number" && v.max < 500 ) ? v.max : Infinity;
+        this.canvas.set_state('streamline_minlen', vmin);
+        this.canvas.set_state('streamline_maxlen', vmax);
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
 
-    this.gui.addController("Line MaxLen", 500, {folderName: folderName})
-      .min(0).max(500).step(1)
-      .onChange(v => {
-        if( typeof v !== "number" || v <= 0.0 || v >= 500 ) {
-          v = Infinity;
-        }
-        this.canvas.set_state('streamline_maxlen', v);
-        this.broadcast();
-        this.canvas.needsUpdate = true;
-      });
+    // this.gui.addController("Line MinLen", 0.0, {folderName: folderName})
+    //   .min(0).max(500).step(1)
+    //   .onChange(v => {
+    //     if( typeof v !== "number" || v <= 0.0 ) {
+    //       v = 0;
+    //     }
+    //     this.canvas.set_state('streamline_minlen', v);
+    //     this.broadcast();
+    //     this.canvas.needsUpdate = true;
+    //   });
+
+    // this.gui.addController("Line MaxLen", 500, {folderName: folderName})
+    //   .min(0).max(500).step(1)
+    //   .onChange(v => {
+    //     if( typeof v !== "number" || v <= 0.0 || v >= 500 ) {
+    //       v = Infinity;
+    //     }
+    //     this.canvas.set_state('streamline_maxlen', v);
+    //     this.broadcast();
+    //     this.canvas.needsUpdate = true;
+    //   });
 
     this.gui.addController("Line Retention", 0.0, {folderName: folderName})
       .min(0.0).max(1).step(0.01)
@@ -93,6 +105,20 @@ function registerPresetTractography( ViewerControlCenter ){
         this.canvas.set_state('streamline_retention', v);
         this.broadcast();
         this.canvas.needsUpdate = true;
+      });
+
+    // How far (mm) a drawn streamline may stray from its points; 0 draws every
+    // point. Finely resampled tracts put many segments under each pixel, and the
+    // GPU transforms every one of them in every view. Rebuilding the geometry
+    // (on `alic/*`, 6.7M points, about 150ms) happens in the bundles, off a
+    // throttled event, and each one asks for a render when it is done.
+    this.gui.addController(
+      "Line Simplify Factor", CONSTANTS.GEOMETRY["streamline-simplify-tolerance"],
+      {folderName: folderName})
+      .min(0.0).max(CONSTANTS.GEOMETRY["streamline-simplify-tolerance-max"]).step(0.01)
+      .onFinishChange(v => {
+        this.canvas.setStreamlineSimplify({ tolerance : v });
+        this.broadcast();
       });
 
     const highlightStreamlineConfig = {

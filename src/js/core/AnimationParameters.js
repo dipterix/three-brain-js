@@ -7,7 +7,6 @@ class AnimationParameters extends EventDispatcher {
   // `timer` is the shared THREE.Timer owned by ViewerApp
   constructor ( timer ) {
     super();
-    this._eventDispatcher = new EventDispatcher();
     this.object = {
       'Play/Pause' : false,
       'Time' : 0,
@@ -96,7 +95,7 @@ class AnimationParameters extends EventDispatcher {
       }
     }
     this.object[ 'Time' ] = v;
-    this._eventDispatcher.dispatchEvent({
+    this.dispatchEvent({
       type : "animation.time.onChange",
       value : v
     })
