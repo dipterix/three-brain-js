@@ -64,6 +64,9 @@ import { registerPresetACPCReAlign } from '../controls/PresetACPCReAlign.js';
 // 998. QRCode
 import { registerPresetQRCode } from '../controls/PresetQRCode.js';
 
+// Remote control through a hub on this computer
+import { registerPresetRemoteControl } from '../controls/PresetRemoteControl.js';
+
 // 999. QRCode
 import { registerPresetHiddenFeatures } from '../controls/PresetHiddenFeatures.js';
 
@@ -1226,6 +1229,7 @@ ViewerControlCenter = registerPresetTractography( ViewerControlCenter );
 ViewerControlCenter = register_controls_localization( ViewerControlCenter );
 ViewerControlCenter = registerPresetACPCReAlign( ViewerControlCenter );
 ViewerControlCenter = registerPresetQRCode( ViewerControlCenter );
+ViewerControlCenter = registerPresetRemoteControl( ViewerControlCenter );
 ViewerControlCenter = registerPresetHiddenFeatures( ViewerControlCenter );
 ViewerControlCenter = registerPresetFocusObject( ViewerControlCenter );
 

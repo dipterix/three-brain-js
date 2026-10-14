@@ -1133,6 +1133,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.controlCenter.addPreset_resetCamera();
     this.controlCenter.addPreset_copyViewerState();
     this.controlCenter.addPreset_focusObject();
+    this.controlCenter.addPreset_remoteControl();
     // this.controlCenter.addPreset_recorder();
 
     // ---- Side canvas --------------------------------------------------------
