@@ -375,9 +375,14 @@ class ViewerDriver {
     }
   }
 
-  /** Controller values, slice crosshair and camera, plus the current subject. */
+  /**
+   * The viewer state: `controllers` (panel values by name, as in the
+   * `controllers` input), `sliceCrosshair`, `cameraState`, `currentSubject`, and
+   * `controllerData` (the panel's own nested save format).
+   */
   getState() {
     const state = this.app.controlCenter.getControllerData();
+    state.controllers = this.collectControllers();
     state.currentSubject = this.collectCurrentSubject() ?? null;
     return state;
   }
