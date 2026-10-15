@@ -60,29 +60,20 @@ function registerPresetRemoteControl( ViewerControlCenter ){
       controller.updateDisplay();
     };
 
-    // the checkbox appears once this site has connected
+    // the checkbox appears once this page has connected
     const refresh = () => {
       const driver = app.remoteDriver;
       const busy = !!driver && ( driver.connected || driver.connecting || driver.retrying );
       connect.name( busy ? "Disconnect" : "Connect" );
       display( status, driver ? driver.status : "Not connected" );
-      const everConnected = driver ? driver.everConnected : remembered !== null;
+      const everConnected = !!driver && driver.everConnected;
       if( everConnected === autoConnect._hidden ) { autoConnect.show( everConnected ); }
       display( autoConnect, driver ? driver.autoConnect : ( remembered?.autoConnect ?? true ) );
     };
     if( app.remoteDriver ) { app.remoteDriver.onStatusChange = refresh; }
     refresh();
-
-    // a site that connected before, with Auto-connect left on, reconnects by
-    // itself once the viewer has loaded
-    if( !app.remoteDriver && remembered?.autoConnect === true && typeof remembered.passkey === "string" ) {
-      app.$wrapper.addEventListener( "viewerApp.updateData.end", () => {
-        if( app.remoteDriver ) { return; }
-        const created = WebSocketDriver.attach( app );
-        created.onStatusChange = refresh;
-        created.connect( remembered.passkey, { automatic: true } );
-      }, { once: true } );
-    }
+    // A page never connects by itself when it opens, even where this site
+    // connected before: it may show other data, so a person clicks Connect
   };
 
   return ViewerControlCenter;

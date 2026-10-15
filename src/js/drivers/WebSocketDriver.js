@@ -4,9 +4,11 @@ import { ViewerDriver, DriverError, INPUTS } from './ViewerDriver.js';
 /**
  * The WebSocket transport: the viewer joins a hub on this computer
  * (`threebrain-hub serve`, 127.0.0.1) and other programs drive it through the
- * hub. The user always makes the first connection (Remote Control > Connect);
- * after that, "Auto-connect" (remembered per site) reconnects after drops and
- * on the next page load.
+ * hub. A person connects each viewer (Connect, in the control panel); a page
+ * never connects by itself when it opens, because another page of the same
+ * site may show other data. "Auto-connect" (on by default) only brings a
+ * connected viewer back after its hub went away, once a hub with the same
+ * passkey runs again.
  *
  * Protocol 1, JSON text frames:
  *   viewer -> hub   { type: "hello", protocol: 1, role: "viewer", key?, viewer: {...} }
@@ -118,8 +120,10 @@ class WebSocketDriver extends ViewerDriver {
     this.onStatusChange = null;
 
     const remembered = loadRemembered();
-    this.everConnected = remembered !== null;
+    // connected at least once in this page (the Auto-connect box shows then)
+    this.everConnected = false;
     this._autoConnect = remembered?.autoConnect ?? true;
+    this._resumeOnShow = false;
 
     this._wanted = false;        // keep a connection: Connect was clicked, or Auto-connect
     this._automatic = false;     // the current connection attempt was not clicked
@@ -134,6 +138,8 @@ class WebSocketDriver extends ViewerDriver {
     this.$wrapper.addEventListener( "viewerApp.updateData.start", this._onUpdateStart );
     this.$wrapper.addEventListener( "viewerApp.updateData.end", this._onUpdateEnd );
     document.addEventListener( "visibilitychange", this._onVisibilityChange );
+    window.addEventListener( "pagehide", this._onPageHide );
+    window.addEventListener( "pageshow", this._onPageShow );
     this.listen();
     // created after the first load: the control panel exists already
     if( this.app.controlCenter && this.app.controllerGUI ) {
@@ -183,7 +189,7 @@ class WebSocketDriver extends ViewerDriver {
     return true;
   }
 
-  disconnect() {
+  disconnect({ code = 1000, reason = "Disconnected by the user" } = {}) {
     this._wanted = false;
     this._stopRetrying();
     const socket = this.socket;
@@ -191,9 +197,31 @@ class WebSocketDriver extends ViewerDriver {
     this.connected = false;
     this.connecting = false;
     if( socket ) {
-      try { socket.close( 1000, "Disconnected by the user" ); } catch (e) {}
+      try {
+        socket.close( code, reason );
+      } catch (e) {
+        // browsers only accept 1000 and 3000-4999 here; never leave it open
+        try { socket.close(); } catch (e2) {}
+      }
     }
     this._setStatus( "Disconnected" );
+  }
+
+  // The page is going away (closed, navigated, or put in the back/forward
+  // cache): close the connection now instead of whenever the browser does
+  _onPageHide = () => {
+    this._resumeOnShow = this.connected && this._autoConnect;
+    if( this.socket ) {
+      this.disconnect({ code: 1000, reason: "Page closed" });
+    }
+  }
+
+  // The same page back from the back/forward cache: join again if it was
+  // connected (a page that opens anew never connects by itself)
+  _onPageShow = ( event ) => {
+    if( !event.persisted || !this._resumeOnShow ) { return; }
+    this._resumeOnShow = false;
+    this.connect( this.passkey );
   }
 
   _stopRetrying() {
@@ -248,6 +276,7 @@ class WebSocketDriver extends ViewerDriver {
         page_title   : document.title,
         subjects     : [ ...this.canvas.subject_codes ],
         version      : VERSION,
+        visible      : document.visibilityState === "visible",
       },
     };
     if( key ) { hello.key = key; }
@@ -282,6 +311,12 @@ class WebSocketDriver extends ViewerDriver {
     if( event.code === 4401 ) {
       this._wanted = false;
       this._setStatus( "Wrong key: check the passkey (port.key)" );
+      return;
+    }
+    // removed by the hub (an agent or a program asked): stay disconnected
+    if( event.code === 4001 ) {
+      this._wanted = false;
+      this._setStatus( "Disconnected by the hub" );
       return;
     }
     if( event.code === 4400 ) {
@@ -323,6 +358,11 @@ class WebSocketDriver extends ViewerDriver {
   }
 
   _onVisibilityChange = () => {
+    // the hub tells controllers which viewers the user can see
+    if( this.connected ) {
+      this._send({ type: "event", name: "visibility",
+                   value: { visible: document.visibilityState === "visible" } });
+    }
     if( document.visibilityState !== "visible" || !this._retryWhenVisible ) { return; }
     this._retryWhenVisible = false;
     if( this._wanted && !this.socket ) {
@@ -444,6 +484,8 @@ class WebSocketDriver extends ViewerDriver {
     this.$wrapper.removeEventListener( "viewerApp.updateData.start", this._onUpdateStart );
     this.$wrapper.removeEventListener( "viewerApp.updateData.end", this._onUpdateEnd );
     document.removeEventListener( "visibilitychange", this._onVisibilityChange );
+    window.removeEventListener( "pagehide", this._onPageHide );
+    window.removeEventListener( "pageshow", this._onPageShow );
     super.dispose();
   }
 
