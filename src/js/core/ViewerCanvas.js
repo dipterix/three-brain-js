@@ -387,7 +387,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$mainGLCanvas = this.mainRendererInterface.canvas;
     this.mainRendererInterface.setPixelRatio( this.pixel_ratio[0] );
     this.mainRendererInterface.setSize( width, height );
-  	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
   	// transparent background if the bg is white
   	this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
 
@@ -2473,10 +2472,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Do not render if the canvas is too small
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
-
-    // double-buffer to make sure depth renderings
-    //this.main_renderer.setClearColor( renderer_colors[0], 0.0 );
-    this.mainRendererInterface.clear();
 
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
 
