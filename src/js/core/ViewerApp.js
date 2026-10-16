@@ -858,6 +858,7 @@ class ViewerApp extends ThrottledEventDispatcher {
             "displayName"   : name,
             "isContinuous"  : !isDiscrete,
             "controlColors" : [],
+            "timeRange"     : hasTime ? [sample.Time, sample.Time] : null,   // time range where the color map is valid
             "valueRange"    : [
               existingColorMap.minV ?? existingColorMap._defaultMinV,
               existingColorMap.maxV ?? existingColorMap._defaultMaxV
