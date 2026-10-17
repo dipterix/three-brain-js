@@ -379,8 +379,6 @@ class SideCanvas {
     // these views were cleared to when each had a renderer of its own. The
     // main view clears to the viewer's background color instead.
     this.rendererInterface.setClearColor( this._backgroundColor ?? 0x000000, 0.0 );
-    // Manual update so that it can render two scenes
-    this.renderer.autoClear = false;
     // no CSS size: this canvas fills its panel (`setDimension()` keeps it at
     // 100%), while the drawing buffer stays at `_renderHeight`
     this.rendererInterface.setSize( this._renderHeight, this._renderHeight, false );
@@ -390,7 +388,6 @@ class SideCanvas {
     if( !this._enabled ) { return; }
     // the renderer throws until it is initialized
     if( !this.mainCanvas.rendererReady ) { return; }
-    this.rendererInterface.clear();
 
     // whether Radiographic?
     this.viewMode = this.mainCanvas.get_state("sideCameraTrackMainCamera", "canonical");

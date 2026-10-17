@@ -64,6 +64,13 @@ function createRenderer({ canvas, forceWebGL = false } = {}) {
   });
   // before `init()`, which hands the lighting to the render lists
   renderer.lighting = new ViewLighting();
+  // Every render clears its own buffer; nothing calls `renderer.clear()`. With
+  // the sRGB output, three draws each view into a frame-buffer target and copies
+  // it to the canvas at the end of both `render()` and `clear()`, so clearing
+  // first wrote every canvas twice a frame: blank, then the picture. Safari
+  // sometimes displays the blank copy, and the views flickered during playback,
+  // when all four are redrawn every frame.
+  renderer.autoClear = true;
   return renderer;
 }
 
@@ -160,12 +167,8 @@ class RendererInterface {
     }
   }
 
-  clear() {
-    this.activate();
-    this.renderer.clear();
-  }
-
-  // the lights node follows the camera (see `ViewLighting`)
+  // Clears and draws in one pass (`autoClear`, see `createRenderer()`); the
+  // lights node follows the camera (see `ViewLighting`)
   render( scene, camera ) {
     this.activate();
     const lighting = this.renderer.lighting;

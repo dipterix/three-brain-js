@@ -213,6 +213,7 @@ CONSTANTS.FOLDERS = {
   'main-camera-position'  : 'Default',
   'toggle-helpper'        : 'Default',
   'focus-object'          : 'Default',
+  'remote-control'        : 'Default',
   'toggle-side-panels'    : 'Volume Settings',
   'reset-side-panels'     : 'Volume Settings',
   'side-three-planes'     : 'Volume Settings',

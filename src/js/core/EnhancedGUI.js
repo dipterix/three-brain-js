@@ -392,10 +392,10 @@ class EnhancedGUI {
       type = "option";
     } else {
       switch ( typeof value ) {
-        case 'number':  type = "number";   break;
-        case 'string':  type = "string";   break;
-        case 'boolean': type = "boolean";  break;
-        default:        type = "function";
+        case 'number':    type = "number";   break;
+        case 'string':    type = "string";   break;
+        case 'boolean':   type = "boolean";  break;
+        default:          type = "function";
       }
     }
 
@@ -403,14 +403,12 @@ class EnhancedGUI {
     // there and it has to match the type
     if( value === undefined || value === null ) {
       switch ( type ) {
-        case "color":   value = COLOR_FALLBACK; break;
-        case "option":  value = Array.isArray( controllerArgs ) ? controllerArgs[0]
-                                                                : Object.values( controllerArgs )[0];
-                        break;
-        case "number":  value = 0;   break;
-        case "string":  value = "";  break;
-        case "boolean": value = false; break;
-        case "interval": value = { min: options.min ?? 0 , max: options.max ?? 1 }; break;
+        case "color":     value = COLOR_FALLBACK; break;
+        case "option":    value = Array.isArray( controllerArgs ) ? controllerArgs[0] : Object.values( controllerArgs )[0]; break;
+        case "number":    value = 0;   break;
+        case "string":    value = "";  break;
+        case "boolean":   value = false; break;
+        case "interval":  value = { min: options.min ?? 0 , max: options.max ?? 1 }; break;
       }
     }
 
@@ -423,6 +421,7 @@ class EnhancedGUI {
       object  : controllerObject,
       type    : type,
       choices : controllerArgs,
+      moreArgs: options.moreArgs ?? {},
     });
     folder.controllers.push( controller );
     controller._announce( CONTROLLER_SPEC_CHANGED );
