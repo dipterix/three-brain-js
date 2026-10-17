@@ -61,9 +61,10 @@ class LineGraphView {
   }
 
   /**
-   * Replaces the series. `values` and `times` are parallel; entries whose value
-   * or time is not finite are dropped. Several values at one time are averaged,
-   * so a contact carrying more than one reading per sample plots as its mean.
+   * Replaces the series. `values` and `times` are parallel, one number per
+   * sample; entries whose value or time is not finite are dropped. Several
+   * values at one time are averaged, so a contact carrying more than one
+   * reading per sample plots as its mean.
    */
   setData( values, times ) {
     const byTime = new Map();
@@ -83,13 +84,7 @@ class LineGraphView {
     };
 
     ( values ?? [] ).forEach(( value, i ) => {
-      const time = Array.isArray( times ) ? times[ i ] : i;
-      if( Array.isArray( value ) ) {
-        // a multi-contact reading: plot its mean, as the viewer colors by one value
-        value.forEach( v => push( time, v ) );
-      } else {
-        push( time, value );
-      }
+      push( Array.isArray( times ) ? times[ i ] : i, value );
     });
 
     const sorted = [ ...byTime.entries() ].sort(( a, b ) => a[0] - b[0] );

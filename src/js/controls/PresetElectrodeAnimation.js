@@ -67,7 +67,8 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
    * electrode, a discrete colormap, or a track with a single time point.
    *
    * The series is the electrode's stored keyframes for the displayed variable,
-   * which is the same data the animation colors by.
+   * which is the same data the animation colors by. On a multi-contact
+   * electrode it is the focused contact's; focusing another contact redraws it.
    */
   ViewerControlCenter.prototype.updateElectrodeActivityGraph = function(){
     const graph = this.ctrlClipGraph;
@@ -90,8 +91,13 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     const colorMap = this.canvas.switchColorMap( variableName, false );
     if( !colorMap || !colorMap.isContinuous ) { return graph.hide(); }
 
+    // A multi-contact electrode stores one value per contact at each time, in
+    // contact order (the order `updateColors` paints them). Plot the focused
+    // contact; a sphere electrode has a single contact, at index 0.
+    const contact = Math.max( instance.state.focusedContact, 0 );
     const times = keyFrames.map( frame => frame[0] );
-    const values = keyFrames.map( frame => frame[1] );
+    const values = keyFrames.map( frame =>
+      Array.isArray( frame[1] ) ? frame[1][ contact ] : frame[1] );
 
     graph.setData( values, times );
     if( !graph.hasData ) { return graph.hide(); }
