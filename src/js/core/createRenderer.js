@@ -180,6 +180,30 @@ class RendererInterface {
     }
   }
 
+  /**
+   * Draws into `target` instead of this canvas, cleared to transparent black,
+   * at this canvas's drawing-buffer size (see `VolumePass`). The canvas is not
+   * written, and the render target and this interface's clear color are put
+   * back afterwards.
+   */
+  renderToTarget( scene, camera, target ) {
+    this.activate();
+    const renderer = this.renderer;
+    const lighting = renderer.lighting;
+    lighting.camera = camera;
+    renderer.setRenderTarget( target );
+    renderer.setClearColor( 0x000000, 0 );
+    try {
+      renderer.render( scene, camera );
+    } finally {
+      renderer.setRenderTarget( null );
+      lighting.camera = null;
+      if( this._clearColor !== null ) {
+        renderer.setClearColor( this._clearColor, this._clearAlpha );
+      }
+    }
+  }
+
   dispose() {}
 
 }

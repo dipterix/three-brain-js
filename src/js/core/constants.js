@@ -32,6 +32,7 @@ CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 = 8;            // System reserved, main camer
 CONSTANTS.LAYER_SYS_CORONAL_9 = 9;                // System reserved, coronal camera only
 CONSTANTS.LAYER_SYS_AXIAL_10 = 10;                // System reserved, axial camera only
 CONSTANTS.LAYER_SYS_SAGITTAL_11 = 11;             // System reserved, sagittal camera only
+CONSTANTS.LAYER_SYS_VOLUME_PASS_12 = 12;          // System reserved, ray-marched volumes; only `VolumePass` draws it
 CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 = 13;     // System reserved, all side cameras visible
 CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 = 14;            // System reserved, raycaster use for all "clickables"
 // Nothing is a permanent member: objects join and leave through

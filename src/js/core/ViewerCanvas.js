@@ -25,6 +25,7 @@ import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
 import { createMainRendererInterface, createSideRendererInterface } from './createRenderer.js';
+import { VolumePass } from './VolumePass.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
@@ -389,6 +390,11 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.mainRendererInterface.setSize( width, height );
   	// transparent background if the bg is white
   	this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
+
+    // Ray-marched volumes (`DataCube2`) are drawn into a target of their own
+    // before the main view's pass; created before any volume, which needs its
+    // textures (see `VolumePass`)
+    this.volumePass = new VolumePass({ rendererInterface : this.mainRendererInterface });
 
     this.main_canvas.appendChild( this.domElement );
     this.main_canvas.appendChild( this.$mainGLCanvas );
@@ -1414,6 +1420,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.sideCanvasList.coronal.dispose();
     this.sideCanvasList.axial.dispose();
     this.sideCanvasList.sagittal.dispose();
+    this.volumePass.dispose();
     this.main_renderer.dispose();
 
   }
@@ -2510,6 +2517,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.set_state( "electrode_clearcoat", outlineThreshold );
     this.set_state( "electrode_outline_active_only", outlineActiveOnly );
 
+    // a volume the main view shows asks for it again in its `pre_render()`
+    this.volumePass.requested = false;
+
     // Pre render all meshes
     this.mesh.forEach((m) => {
       const inst = m.userData.instance;
@@ -2544,7 +2554,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     });
 
-    // this.main_renderer.clear();
+    // the volumes first, into their own target, which the main view's pass then
+    // composites (see `VolumePass`)
+    this.volumePass.render( this.scene, this.mainCamera );
     this.mainRendererInterface.render( this.scene, this.mainCamera );
 
     // A capture request (see `_onCaptureOnce`): the picture just drawn
