@@ -13,6 +13,12 @@ import {
 // the slices, would otherwise leave the receiver with stale values
 const CONTROLLER_REPORT_DELAY = 500;
 
+// What `drop_file` takes, as the drag & drop zone does; the extension of the
+// file name picks the reader
+const DROP_FORMATS = "volumes (nii, nii.gz, mgz, mgh), surfaces (gii, FreeSurfer, stl), " +
+  "surface values (sulc, curv, annot, niml.dset), streamlines (tck, trk, tt), " +
+  "electrode tables and color maps (csv, tsv), viewer state (json)";
+
 /**
  * Commands a driver accepts: name -> the `drive*` method that applies it. The
  * names and value shapes are the ones R's `ViewerProxy` sends, whatever the
@@ -55,6 +61,11 @@ const COMMANDS = {
     doc: "{ id, text, position: [x, y, z], font_size, color, layer }: creates or updates a text label" },
   text_decoration_delete              : { method: "driveTextDecorationDelete",
     doc: "{ id: id or [ids] }: deletes text labels" },
+  drop_file                           : { method: "driveDropFile",
+    doc: "{ name, data } or { name, text }: adds a file as if it were dropped on the drag & drop zone; " +
+      "data is its content in base64, text the content of a text file. Takes " + DROP_FORMATS +
+      ". The same name again replaces the earlier file; an electrode coordinate table replaces " +
+      "the subject's contacts. Returns { file, handlers, objects, controllers }: what the drop added" },
 };
 
 // Viewer state a driver can report on request (`getInput()`), named like the
@@ -69,6 +80,19 @@ class DriverError extends Error {
     super( message );
     this.code = code;
   }
+}
+
+// `atob` gives one character per byte; copy them out as bytes
+function base64ToBytes( base64 ) {
+  if( typeof Uint8Array.fromBase64 === "function" ) {
+    return Uint8Array.fromBase64( base64 );
+  }
+  const binary = atob( base64 );
+  const bytes = new Uint8Array( binary.length );
+  for( let index = 0; index < binary.length; index++ ) {
+    bytes[ index ] = binary.charCodeAt( index );
+  }
+  return bytes;
 }
 
 /**
@@ -773,6 +797,70 @@ class ViewerDriver {
     });
     this.canvas.needsUpdate = true;
     this._syncTextDecorations();
+  }
+
+  // ---- Drag & drop -----------------------------------------------------------
+
+  /**
+   * Adds a file as if the user dropped it on the drag & drop zone, through
+   * the zone's own two steps: read it (`loadFromResponse`), then let the file
+   * handlers add it (`handleFileData`).
+   * @param {object} params
+   * @param {string} params.name   - file name; its extension picks the reader
+   * @param {string} [params.data] - the content in base64
+   * @param {string} [params.text] - or the content of a text file
+   * @returns {object} `{ file, handlers, objects, controllers }`: the handlers
+   * that took the file, and the names of the objects and control panel entries
+   * the drop added. These are new by identity rather than by name, because a
+   * file dropped again replaces its objects and entries under the same names.
+   */
+  async driveDropFile( params = {} ) {
+    const name = typeof params?.name === "string" ? params.name.trim() : "";
+    const hasData = typeof params?.data === "string";
+    if( name === "" || hasData === ( typeof params?.text === "string" ) ) {
+      throw new DriverError( "bad_value", "drop_file expects { name, data } (base64) or { name, text }" );
+    }
+    let bytes;
+    if( hasData ) {
+      try {
+        bytes = base64ToBytes( params.data );
+      } catch (e) {
+        throw new DriverError( "bad_value", `The data of ${ name } is not base64: ${ e.message }` );
+      }
+    } else {
+      bytes = new TextEncoder().encode( params.text );
+    }
+    const file = new File( [ bytes ], name );
+    // the command holds the content too: let both copies go, so that a large
+    // file is held once while it loads
+    bytes = null;
+    params.data = params.text = undefined;
+
+    const instancesBefore = new Set( this.canvas.threebrain_instances.values() );
+    const controllersBefore = new Set( this._reportedControllers() );
+
+    let data;
+    try {
+      data = await this.canvas.fileLoader.loadFromResponse( file );
+    } catch (e) {
+      throw new DriverError( "bad_value", `Cannot read ${ name }: ${ e?.message ?? e }` );
+    }
+    const handlers = await this.app.handleFileData( data, name, {} );
+    if( handlers.length === 0 ) {
+      throw new DriverError( "bad_value", `Nothing in the viewer could add ${ name }; drop_file takes ${ DROP_FORMATS }` );
+    }
+    this.canvas.needsUpdate = true;
+
+    return {
+      file        : name,
+      handlers    : handlers,
+      objects     : [ ...this.canvas.threebrain_instances.values() ]
+        .filter( ( inst ) => !instancesBefore.has( inst ) )
+        .map( ( inst ) => inst.name ),
+      controllers : this._reportedControllers()
+        .filter( ( controller ) => !controllersBefore.has( controller ) )
+        .map( ( controller ) => controller._name ),
+    };
   }
 
 }
