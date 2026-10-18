@@ -118,6 +118,16 @@ class DataCube2 extends AbstractThreeBrainObject {
       // voxel alpha value
       let voxelA;
 
+      // The byte is the voxel's position on the color ramp, which the ray
+      // march, the slice overlay and the ISO surface read: 1 at the lowest
+      // color key, 255 at the highest (0 hides the voxel). It used to be the
+      // key's red channel, which rises with the key only in a gray table; the
+      // default continuous table runs blue-white-red, so its red reaches 255
+      // halfway and the upper half of the window got one color.
+      const keyRange = lutMaxColorID - lutMinColorID;
+      const keyToByte = keyRange > 0 ? 254 / keyRange : 0;
+      const lowestByte = keyRange > 0 ? 1 : 255;
+
       for ( let z = 0; z < this.modelShape.z; z++ ) {
         for ( let y = 0; y < this.modelShape.y; y++ ) {
           for ( let x = 0; x < this.modelShape.x; x++, voxelIndex++ ) {
@@ -137,8 +147,9 @@ class DataCube2 extends AbstractThreeBrainObject {
                 voxelColor[ voxelIndex ] = 0;
               } else {
 
-                // Make sure the color is not 0 (discard)
-                voxelColor[ voxelIndex ] = voxelA.R > 0 ? voxelA.R : 1;
+                // never 0, which hides the voxel
+                voxelColor[ voxelIndex ] = lowestByte +
+                  Math.round( ( voxelColorKey - lutMinColorID ) * keyToByte );
 
                 // set bounding box
                 if( boundingMinX > x ) { boundingMinX = x; }
