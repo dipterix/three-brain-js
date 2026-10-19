@@ -2295,6 +2295,58 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.needsUpdate = true;
   }
 
+  /**
+   * Sizes electrode contacts by a continuous variable (`Radius Value`). A value
+   * at `range[0]` draws its contact with radius `ratio[0]`, one at `range[1]`
+   * with `ratio[1]`, and the middle value the middle radius; on each side of
+   * the middle the log of the radius is linear in the value, and outside the
+   * range it clamps. Ratios are radii in mm, or multiples of each contact's own
+   * radius when `relative`; no contact goes below the smallest radius its own
+   * radius allows (`CONSTANTS.GEOMETRY["electrode-radius-min-by-size"]`).
+   * Without a variable or a `ratio`, contacts keep their own radii.
+   *
+   * Fields left out keep their stored value; `range: null`, or a new variable
+   * without a range, takes the variable's default range. Stored for electrodes
+   * created later.
+   */
+  setElectrodeRadius({ variable, range, ratio, relative } = {}) {
+    const isPair = ( x ) => Array.isArray( x ) && x.length === 2 && x.every( Number.isFinite );
+    const config = {
+      variable  : "[None]",
+      range     : null,
+      ratio     : null,
+      relative  : false,
+      ...this.get_state( 'electrode_radius' ),
+    };
+    if( typeof variable === "string" && variable !== config.variable ) {
+      config.variable = variable;
+      if( range === undefined ) { range = null; }
+    }
+    if( range !== undefined ) { config.range = range; }
+    if( ratio !== undefined ) { config.ratio = ratio; }
+    if( typeof relative === "boolean" ) { config.relative = relative; }
+
+    if( !isPair( config.ratio ) ) { config.ratio = null; }
+    const cmap = this.colorMaps.get( config.variable );
+    if( cmap && cmap.isContinuous ) {
+      if( !isPair( config.range ) ) {
+        config.range = [ cmap._defaultMinV, cmap._defaultMaxV ];
+      }
+    } else {
+      config.variable = "[None]";
+      config.range = null;
+    }
+
+    this.set_state( 'electrode_radius', config );
+    this.dispatch({
+      type : "viewerApp.electrodes.radiusChanged",
+      data : config,
+      immediate : true
+    });
+    this.needsUpdate = true;
+    return config;
+  }
+
   switch_media( name ){
     this.video_canvas._playing = false;
     this.video_canvas.pause();

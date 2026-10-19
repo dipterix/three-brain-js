@@ -804,6 +804,12 @@ class ViewerControlCenter extends EventDispatcher {
       force   : true
     });
 
+    this.updateSingleSelectorOptions({
+      name    : 'Radius Value',
+      options : this.radiusVariableNames(),
+      force   : true
+    });
+
   }
 
   // update gui controllers

@@ -292,6 +292,13 @@ CONSTANTS.GEOMETRY = {
   // this far (mm) past the side views' frustum, and never past the maximum
   "crosshair-snap-margin": 5,
   "crosshair-snap-max-distance": 10,
+  // `Radius Ratio`: the smallest radius (mm) it draws a contact at, by the
+  // contact's own radius, as [ own radius at least, smallest radius ] pairs,
+  // largest first; a contact smaller than all of them gets
+  // `electrode-radius-min`. Its log scale needs positive radii, which also keep
+  // the contact matrices invertible for picking
+  "electrode-radius-min-by-size": [ [ 0.5, 0.1 ], [ 0.05, 0.01 ] ],
+  "electrode-radius-min": 1e-4,
 };
 
 

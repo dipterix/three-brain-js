@@ -548,6 +548,8 @@ class EnhancedGUI {
 
       "Display Data", "Display Range", "Threshold Data", "Threshold Range",
       "Threshold Method", "Additional Data",
+      // the variable resets its range, so it goes first
+      "Radius Value", "Radius Range", "Radius Ratio",
       "Video Mode", "Speed", "Play/Pause",
       "Show Legend", "Show Time", "Highlight Box", "Info Text",
       "Time",
