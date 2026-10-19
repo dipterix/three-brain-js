@@ -8,6 +8,33 @@ import { testColorString } from '../utility/color.js';
 
 const CanvasState = CONSTANTS.CANVAS_RENDER_STATE;
 
+// "a,b" -> numbers; a leading `x` (spaces allowed) marks multiples
+function parseNumbers( text ) {
+  let s = `${ text ?? "" }`.trim();
+  const relative = /^x/i.test( s );
+  if( relative ) { s = s.slice( 1 ); }
+  const numbers = s.split( ',' ).map( x => parseFloat( x ) ).filter( x => !isNaN( x ) );
+  return { numbers, relative };
+}
+
+// `Radius Range`, read as `Display Range` is: one number v means -|v|,|v|;
+// blank or 0 means the variable's own range (null)
+function parseRadiusRange( text ) {
+  const v = parseNumbers( text ).numbers;
+  if( v.length === 0 || ( v.length === 1 && v[0] === 0 ) ) { return null; }
+  if( v.length === 1 ) { return [ -Math.abs( v[0] ), Math.abs( v[0] ) ]; }
+  return [ v[0], v[1] ];
+}
+
+// `Radius Ratio`: radii in mm at the two range ends, or multiples of each
+// contact's own radius with a leading `x`; one number sizes every contact
+// alike, blank keeps their radii (null)
+function parseRadiusRatio( text ) {
+  const { numbers, relative } = parseNumbers( text );
+  if( numbers.length === 0 ) { return { ratio : null, relative : false }; }
+  return { ratio : [ numbers[0], numbers[ numbers.length > 1 ? 1 : 0 ] ], relative : relative };
+}
+
 function registerPresetElectrodeAnimation( ViewerControlCenter ){
 
 
@@ -67,7 +94,8 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
    * electrode, a discrete colormap, or a track with a single time point.
    *
    * The series is the electrode's stored keyframes for the displayed variable,
-   * which is the same data the animation colors by.
+   * which is the same data the animation colors by. On a multi-contact
+   * electrode it is the focused contact's; focusing another contact redraws it.
    */
   ViewerControlCenter.prototype.updateElectrodeActivityGraph = function(){
     const graph = this.ctrlClipGraph;
@@ -90,8 +118,13 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     const colorMap = this.canvas.switchColorMap( variableName, false );
     if( !colorMap || !colorMap.isContinuous ) { return graph.hide(); }
 
+    // A multi-contact electrode stores one value per contact at each time, in
+    // contact order (the order `updateColors` paints them). Plot the focused
+    // contact; a sphere electrode has a single contact, at index 0.
+    const contact = Math.max( instance.state.focusedContact, 0 );
     const times = keyFrames.map( frame => frame[0] );
-    const values = keyFrames.map( frame => frame[1] );
+    const values = keyFrames.map( frame =>
+      Array.isArray( frame[1] ) ? frame[1][ contact ] : frame[1] );
 
     graph.setData( values, times );
     if( !graph.hasData ) { return graph.hide(); }
@@ -99,6 +132,18 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
     graph.setValue( this.animParameters.time );
     // graph.name( `${ instance.label ?? 'Electrode' } - ${ variableName }` );
     return graph.show();
+  }
+
+  /**
+   * `Radius Value` choices: `[None]` and every continuous variable, since only
+   * values on a scale can map onto radii.
+   */
+  ViewerControlCenter.prototype.radiusVariableNames = function(){
+    const names = [ '[None]' ];
+    this.canvas.colorMaps.forEach( ( cmap, name ) => {
+      if( cmap.isContinuous && !name.startsWith( '[' ) ) { names.push( name ); }
+    });
+    return names;
   }
 
   ViewerControlCenter.prototype.addPreset_animation = function(){
@@ -346,6 +391,62 @@ function registerPresetElectrodeAnimation( ViewerControlCenter ){
         this.broadcast();
         this.canvas.needsUpdate = true;
       });
+
+    // Contact sizes from a continuous variable; see `ViewerCanvas.setElectrodeRadius`
+    this.ctrlRadiusVariable = this.gui
+      .addController(
+        'Radius Value', '[None]',
+        {
+          folderName : folderName, args : this.radiusVariableNames(),
+          tooltip : "Continuous variable that sets the contact radius"
+        })
+      .onChange((v) => {
+        if( !this.ctrlRadiusVariable._allChoices.includes(v) ) { return; }
+        const config = this.canvas.setElectrodeRadius({ variable : v, range : null });
+        if( config.range ) {
+          this.ctrlRadiusRange
+            .setValue( `${ config.range[0].toPrecision(4) },${ config.range[1].toPrecision(4) }` )
+            .show();
+          this.ctrlRadiusRatio.show();
+        } else {
+          this.ctrlRadiusRange.setValue( "" ).hide();
+          this.ctrlRadiusRatio.hide();
+        }
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      });
+    this.ctrlRadiusVariable._allChoices = this.radiusVariableNames();
+
+    this.ctrlRadiusRange = this.gui
+      .addController(
+        'Radius Range', '',
+        {
+          folderName : folderName,
+          tooltip : "Values mapped to the two radii, as min,max; blank uses the variable's range"
+        })
+      .onChange((v) => {
+        this.canvas.setElectrodeRadius({ range : parseRadiusRange( v ) });
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+      .hide();
+
+    this.ctrlRadiusRatio = this.gui
+      .addController(
+        'Radius Ratio', '',
+        {
+          folderName : folderName,
+          tooltip : "Radii in mm at the two ends of the range, e.g. 0.1,2: the middle value gets the middle radius, log-spaced on each side; x0.5,2 for multiples of each contact's radius; blank keeps the radius"
+        })
+      .onChange((v) => {
+        this.canvas.setElectrodeRadius( parseRadiusRatio( v ) );
+        this.broadcast();
+        this.canvas.needsUpdate = true;
+      })
+      .hide();
+
+    // the panel starts without sizing, and so do the electrodes
+    this.canvas.setElectrodeRadius({ variable : '[None]', ratio : null, relative : false });
 
     this.gui
       .addController(

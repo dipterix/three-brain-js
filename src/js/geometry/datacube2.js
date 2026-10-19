@@ -11,7 +11,7 @@ import { MeshPhysicalNodeMaterial } from 'three/webgpu';
 import { vertexColor } from 'three/tsl';
 import { CONSTANTS } from '../core/constants.js';
 import { get_or_default } from '../utils.js';
-import { RayMarchingMaterial } from '../shaders/VolumeShader.js';
+import { RayMarchingMaterial, VolumeCompositeMaterial } from '../shaders/VolumeShader.js';
 import { fromDisplayColor } from '../shaders/nodeHelpers.js';
 import { isoSurfaceFromColors } from '../Math/isoSurface.js';
 import { FreeSurferMesh } from '../formats/FreeSurferMesh.js';
@@ -118,6 +118,16 @@ class DataCube2 extends AbstractThreeBrainObject {
       // voxel alpha value
       let voxelA;
 
+      // The byte is the voxel's position on the color ramp, which the ray
+      // march, the slice overlay and the ISO surface read: 1 at the lowest
+      // color key, 255 at the highest (0 hides the voxel). It used to be the
+      // key's red channel, which rises with the key only in a gray table; the
+      // default continuous table runs blue-white-red, so its red reaches 255
+      // halfway and the upper half of the window got one color.
+      const keyRange = lutMaxColorID - lutMinColorID;
+      const keyToByte = keyRange > 0 ? 254 / keyRange : 0;
+      const lowestByte = keyRange > 0 ? 1 : 255;
+
       for ( let z = 0; z < this.modelShape.z; z++ ) {
         for ( let y = 0; y < this.modelShape.y; y++ ) {
           for ( let x = 0; x < this.modelShape.x; x++, voxelIndex++ ) {
@@ -137,8 +147,9 @@ class DataCube2 extends AbstractThreeBrainObject {
                 voxelColor[ voxelIndex ] = 0;
               } else {
 
-                // Make sure the color is not 0 (discard)
-                voxelColor[ voxelIndex ] = voxelA.R > 0 ? voxelA.R : 1;
+                // never 0, which hides the voxel
+                voxelColor[ voxelIndex ] = lowestByte +
+                  Math.round( ( voxelColorKey - lutMinColorID ) * keyToByte );
 
                 // set bounding box
                 if( boundingMinX > x ) { boundingMinX = x; }
@@ -1252,6 +1263,18 @@ class DataCube2 extends AbstractThreeBrainObject {
 
     mesh.position.fromArray( g.position );
 
+    // The box above is drawn by `VolumePass` alone, into a target without
+    // multisampling (see `core/VolumePass.js`). This mesh brings its pixels into
+    // the main view: the same back faces, transform and render order, so it
+    // covers and sorts the way the box used to. `set_display_mode()` keeps
+    // their layers in step.
+    this.compositeMesh = new Mesh( geometry, new VolumeCompositeMaterial({
+      volumePass : canvas.volumePass
+    }) );
+    this.compositeMesh.name = 'mesh_datacube_composite_' + g.name;
+    this.compositeMesh.renderOrder = CONSTANTS.RENDER_ORDER.DataCube2;
+    this.compositeMesh.layers.set( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    mesh.add( this.compositeMesh );
 
     this._mesh = mesh;
     this.object = mesh;
@@ -1309,6 +1332,14 @@ class DataCube2 extends AbstractThreeBrainObject {
         this.isoSurface.removeFromParent();
         this.isoSurface.geometry.dispose();
         this.isoSurface.material.dispose();
+      }
+    } catch (e) {}
+
+    // the geometry is the box's, and the textures belong to `VolumePass`
+    try {
+      if( this.compositeMesh ) {
+        this.compositeMesh.removeFromParent();
+        this.compositeMesh.material.dispose();
       }
     } catch (e) {}
 
@@ -1409,31 +1440,43 @@ class DataCube2 extends AbstractThreeBrainObject {
     }
   }
 
+  // Whether the main view shows the ray-marched volume: `VolumePass` draws the
+  // box (its own layer) and the composite mesh brings it into the main view
+  // (the main camera's layer)
+  _showInMainView( show ) {
+    if( show ) {
+      this.object.layers.enable( CONSTANTS.LAYER_SYS_VOLUME_PASS_12 );
+      this.compositeMesh.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    } else {
+      this.object.layers.disable( CONSTANTS.LAYER_SYS_VOLUME_PASS_12 );
+      this.compositeMesh.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
+    }
+  }
+
   set_display_mode( mode ) {
 
     super.set_display_mode( mode );
 
-    // do not render in side canvas
+    // no camera but `VolumePass`'s draws the box: not the side canvases, and
+    // not the main camera, which shows the composite mesh instead
     this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+    this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
 
     if( this.useISOSurface && this.isoSurface && !this.isoSurface.isInvalid ) {
       // show the isoSurface instead of the volume
       switch (mode) {
         case 'main camera':
           this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( false );
           break;
         case 'side camera':
         case 'anat. slices':
           this.isoSurface.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( false );
           break;
         default:
           this.isoSurface.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( false );
       }
     } else {
       if( this.isoSurface ) {
@@ -1442,17 +1485,14 @@ class DataCube2 extends AbstractThreeBrainObject {
 
       switch (mode) {
         case 'main camera':
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.disable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( true );
           break;
         case 'side camera':
         case 'anat. slices':
-          this.object.layers.disable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( false );
           break;
         default:
-          this.object.layers.enable( CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 );
-          // this.object.layers.enable( CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 );
+          this._showInMainView( true );
       }
     }
 
@@ -1483,6 +1523,13 @@ class DataCube2 extends AbstractThreeBrainObject {
       this.object.material.depthWrite = true;
       this.object.material.depthTest = true;
       this.object.material.useDithering = this._dithering ?? true;
+
+      // the main view shows this volume this frame: `VolumePass` draws it before
+      // the main view's pass
+      if( this.object.visible &&
+          this.object.layers.isEnabled( CONSTANTS.LAYER_SYS_VOLUME_PASS_12 ) ) {
+        this._canvas.volumePass.requested = true;
+      }
     }
 
     this.updateTextureFilter();

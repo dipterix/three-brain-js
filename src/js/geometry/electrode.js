@@ -25,6 +25,15 @@ const MATERIAL_PARAMS_BASIC = {
   'side'          : FrontSide,
 };
 
+// The smallest radius (mm) `Radius Value` draws a contact at, by the contact's
+// own radius (`CONSTANTS.GEOMETRY`)
+function smallestContactRadius( ownRadius ) {
+  for( const [ atLeast, smallest ] of CONSTANTS.GEOMETRY[ "electrode-radius-min-by-size" ] ) {
+    if( ownRadius >= atLeast ) { return smallest; }
+  }
+  return CONSTANTS.GEOMETRY[ "electrode-radius-min" ];
+}
+
 function guessHemisphere(g) {
   // guess hemisphere from freesurfer label
   if( !g.hemisphere || !['left', 'right'].includes( g.hemisphere ) ) {
@@ -375,6 +384,10 @@ class Electrode extends AbstractThreeBrainObject {
         "viewerApp.electrodes.colorMapChanged",
         this.onColorMapUpdated
       )
+      this._canvas.$el.removeEventListener(
+        "viewerApp.electrodes.radiusChanged",
+        this.onRadiusChanged
+      )
     } catch (e) {}
 
     if( this.instancedObjects ) {
@@ -538,6 +551,7 @@ class Electrode extends AbstractThreeBrainObject {
     // this._animationName = "[None]";
 
     this.colorNeedsUpdate = true;        // whether updateColors needs to run
+    this.radiusNeedsUpdate = true;       // whether updateRadius needs to resize the contacts
 
     this.state = {
       // For inner text
@@ -562,6 +576,7 @@ class Electrode extends AbstractThreeBrainObject {
       additionalDisplayActive   : false,
       additionalDisplayVariable : "[None]",
       additionalDisplayValues   : undefined,
+      radiusValues      : undefined,        // Array or number, electrode value(s) sizing the contacts (`Radius Value`)
 
       thresholdActive   : false,            // whether threshold is on
       thresholdVariable : "[None]",         // threshold variable names
@@ -654,6 +669,11 @@ class Electrode extends AbstractThreeBrainObject {
     const hasTransform = this._geometry.parameters.hasTransform;
     this.contactCenter = this._geometry.parameters.contactCenter;
 
+    // Per-contact radius chosen by `updateRadius`: mm, or a multiple of the
+    // contact's own radius when `_contactRadiusRelative`; NaN keeps its own
+    this._contactRadius = new Float32Array( this.contactCenter.length ).fill( NaN );
+    this._contactRadiusRelative = false;
+
     // materials
     if( this.isElectrodePrototype ) {
       this._material = new ElectrodePhysicalMaterial( MATERIAL_PARAMS_BASIC );
@@ -737,16 +757,10 @@ class Electrode extends AbstractThreeBrainObject {
       instancedObjects.userData.instance = this;
       this.instancedObjects = instancedObjects;
 
-      const contactMatrix = new Matrix4().identity();
       this.contactCenter.forEach( (el, ii) => {
-        const contactRadius = el.radius ?? 0.1;
-        contactMatrix
-          .makeScale(contactRadius, contactRadius, contactRadius)
-          .setPosition( el );
-        instancedObjects.setMatrixAt( ii, contactMatrix );
         instancedObjects.setColorAt( ii, this.defaultColor );
       });
-      this.instancedObjects.instanceMatrix.needsUpdate = true;
+      this.updateContactMatrices();
       // three r185 drew instance colors from a copy whose version it synced
       // only after deciding whether to upload, so a `needsUpdate` showed one
       // render late -- and `updateColors()` recolors inside the one render a
@@ -946,27 +960,52 @@ class Electrode extends AbstractThreeBrainObject {
       const xName = `_${ coordinateSys }X`,
             yName = `_${ coordinateSys }Y`,
             zName = `_${ coordinateSys }Z`;
-      const contactMatrix = new Matrix4().identity();
 
-      this.contactCenter.forEach( (el, ii) => {
-
+      this.contactCenter.forEach( (el) => {
         el.set( el[ xName ], el[ yName ], el[ zName ] );
-
-        if( this.hasInstancedMesh ) {
-          const contactRadius = el.radius ?? 0.1;
-          contactMatrix.makeScale(contactRadius, contactRadius, contactRadius).setPosition( el );
-          this.instancedObjects.setMatrixAt( ii, contactMatrix );
-        }
       });
-
-      if( this.hasInstancedMesh ) {
-        this.instancedObjects.instanceMatrix.needsUpdate = true;
-      }
+      this.updateContactMatrices();
 
     }
 
     // has to be prototype
     this._geometry.updatePositions(rigid);
+  }
+
+  /**
+   * Writes the contacts' instance matrices: each at its center, at its own
+   * radius or the one `updateRadius` chose. A radius in mm divides out the
+   * shaft's world scale, which a template mapping may carry, so it is that many
+   * mm in the displayed space along every axis.
+   */
+  updateContactMatrices() {
+    if( !this.hasInstancedMesh ) { return; }
+    const instancedObjects = this.instancedObjects;
+    const radius = this._contactRadius;
+    const matrix = this._tmpMat4;
+    let worldScale;
+
+    this.contactCenter.forEach( (el, ii) => {
+      const ownRadius = el.radius ?? 0.1;
+      const target = radius[ ii ];
+      if( isNaN( target ) ) {
+        matrix.makeScale( ownRadius, ownRadius, ownRadius );
+      } else if( this._contactRadiusRelative ) {
+        const r = ownRadius * target;
+        matrix.makeScale( r, r, r );
+      } else {
+        if( !worldScale ) { worldScale = instancedObjects.getWorldScale( this._tmpVec3 ); }
+        matrix.makeScale( target / worldScale.x, target / worldScale.y, target / worldScale.z );
+      }
+      matrix.setPosition( el );
+      instancedObjects.setMatrixAt( ii, matrix );
+    });
+    instancedObjects.instanceMatrix.needsUpdate = true;
+
+    // three caches the instances' bounds for culling, picking and the
+    // highlight box, and computes them only once
+    instancedObjects.computeBoundingSphere();
+    instancedObjects.boundingBox = null;
   }
 
   updateElectrodeDirection() {
@@ -1044,6 +1083,13 @@ class Electrode extends AbstractThreeBrainObject {
     this._canvas.$el.addEventListener(
       "viewerApp.electrodes.colorMapChanged",
       this.onColorMapUpdated
+    );
+
+    // `Radius Value` settings made before this electrode existed
+    this._radiusConfig = this._canvas.get_state( 'electrode_radius' );
+    this._canvas.$el.addEventListener(
+      "viewerApp.electrodes.radiusChanged",
+      this.onRadiusChanged
     );
 
   }
@@ -1375,6 +1421,87 @@ class Electrode extends AbstractThreeBrainObject {
   }
   onColorMapUpdated = () => {
     this.colorNeedsUpdate = true;
+  }
+  onRadiusChanged = ( event ) => {
+    this._radiusConfig = event.detail;
+    this.radiusNeedsUpdate = true;
+  }
+
+  /**
+   * Sizes the contacts from `Radius Value` (`ViewerCanvas.setElectrodeRadius`)
+   * by each contact's value at `time`. The middle value of `Radius Range` draws
+   * the middle of the two `Radius Ratio` radii; on each side of it the log of
+   * the radius is linear in the value, reaching the ratio ends at the range
+   * ends and clamping beyond them. No contact goes below the smallest radius
+   * its own radius allows (`smallestContactRadius`). Sphere electrodes scale
+   * their mesh, prototypes their instanced contacts; the shaft keeps its size.
+   * A contact without a value keeps its own radius.
+   */
+  updateRadius( time ) {
+    const config = this._radiusConfig;
+    // localized electrodes are sized by `LocElectrode.updateScale`
+    const sized = !!( config && config.ratio && config.range && config.variable !== "[None]" &&
+      ( this.isElectrodePrototype || !this.object.userData.localization_instance ) );
+    const values = sized ? this.getKFValues( time, config.variable ) : undefined;
+
+    // `getKFValues` hands back the stored key frame, so the same reference
+    // means the same values
+    if( !this.radiusNeedsUpdate && values === this.state.radiusValues ) { return; }
+    this.radiusNeedsUpdate = undefined;
+    this.state.radiusValues = values;
+
+    const radius = this._contactRadius;
+    radius.fill( NaN );
+    this._contactRadiusRelative = sized && config.relative === true;
+    if( values !== undefined && values !== null ) {
+      const [ v0, v1 ] = config.range;
+      const [ r0, r1 ] = config.ratio;
+      const rMid = ( r0 + r1 ) / 2;
+      const relative = this._contactRadiusRelative;
+      const valueIsArray = Array.isArray( values );
+      for( let i = 0; i < radius.length; i++ ) {
+        const v = valueIsArray ? values[ i ] : values;
+        if( typeof v !== "number" || !isFinite( v ) ) { continue; }
+        // Never below the smallest radius the contact's size allows (as a
+        // multiple of its radius when relative). Log-linear on each side of
+        // the middle radius also needs all three radii positive
+        const ownRadius = this.contactCenter[ i ].radius ?? 0.1;
+        let floor = smallestContactRadius( ownRadius );
+        if( relative && ownRadius > 0 ) { floor /= ownRadius; }
+        const lLow  = Math.log( Math.max( r0, floor ) ),
+              lMid  = Math.log( Math.max( rMid, floor ) ),
+              lHigh = Math.log( Math.max( r1, floor ) );
+        // the middle of the range when it has no width, as `NamedLut` does
+        let t = v1 === v0 ? 0.5 : ( v - v0 ) / ( v1 - v0 );
+        t = Math.min( Math.max( t, 0 ), 1 );
+        radius[ i ] = Math.exp( t <= 0.5 ?
+          lLow + 2 * t * ( lMid - lLow ) :
+          lMid + ( 2 * t - 1 ) * ( lHigh - lMid ) );
+      }
+    }
+
+    if( this.hasInstancedMesh ) {
+      this.updateContactMatrices();
+    } else if( !this.isElectrodePrototype && !this.object.userData.localization_instance ) {
+      // a sphere's geometry has the contact's own radius
+      const target = radius[ 0 ];
+      const scale = this.object.scale;
+      if( isNaN( target ) ) {
+        scale.set( 1, 1, 1 );
+      } else if( this._contactRadiusRelative ) {
+        scale.setScalar( target );
+      } else {
+        // mm in the displayed space, whatever the parent's scale
+        const ownRadius = this.contactCenter[ 0 ].radius;
+        const parentScale = this.object.parent ?
+          this.object.parent.getWorldScale( this._tmpVec3 ) : this._tmpVec3.set( 1, 1, 1 );
+        scale.set(
+          target / ( ownRadius * parentScale.x ),
+          target / ( ownRadius * parentScale.y ),
+          target / ( ownRadius * parentScale.z )
+        );
+      }
+    }
   }
 
   updateFixedColor() {
@@ -1840,6 +1967,9 @@ class Electrode extends AbstractThreeBrainObject {
     const previousDisplayVariable = this.state.displayVariable;
     this.updateDisplayValue(time);
 
+    // contact sizes from `Radius Value`
+    this.updateRadius(time);
+
     // colorSize         : 1,                // size of the colors: 1 for using one color for all, or n for different contacts
     // fixColor          : [false],          // Whether to fix the electrode color, array of size `colorSize`
     if( this.colorNeedsUpdate ||
@@ -1934,7 +2064,11 @@ class Electrode extends AbstractThreeBrainObject {
     if( cid >= 0 ) {
       const contact = this.contactCenter[ cid ];
       pos.copy( contact );
-      pos.radius = contact.radius ?? 1.0;
+      // the radius as drawn, so the highlight box fits a contact `Radius Value` resized
+      const ownRadius = contact.radius ?? 1.0;
+      const target = this._contactRadius[ cid ];
+      pos.radius = isNaN( target ) ? ownRadius :
+        ( this._contactRadiusRelative ? ownRadius * target : target );
       pos.chanNum = contact.chanNum;
     }
     this.object.localToWorld( pos );
@@ -2005,6 +2139,8 @@ class Electrode extends AbstractThreeBrainObject {
 
     this.updateElectrodeDirection();
     this.matrixNeedsUpdate = true;
+    // radii in mm depend on the world scale this may have changed
+    this.radiusNeedsUpdate = true;
     this._canvas.needsUpdate = true;
   }
 

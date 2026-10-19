@@ -32,6 +32,7 @@ CONSTANTS.LAYER_SYS_MAIN_CAMERA_8 = 8;            // System reserved, main camer
 CONSTANTS.LAYER_SYS_CORONAL_9 = 9;                // System reserved, coronal camera only
 CONSTANTS.LAYER_SYS_AXIAL_10 = 10;                // System reserved, axial camera only
 CONSTANTS.LAYER_SYS_SAGITTAL_11 = 11;             // System reserved, sagittal camera only
+CONSTANTS.LAYER_SYS_VOLUME_PASS_12 = 12;          // System reserved, ray-marched volumes; only `VolumePass` draws it
 CONSTANTS.LAYER_SYS_ALL_SIDE_CAMERAS_13 = 13;     // System reserved, all side cameras visible
 CONSTANTS.LAYER_SYS_RAYCASTER_CLICKABLE_14 = 14;            // System reserved, raycaster use for all "clickables"
 // Nothing is a permanent member: objects join and leave through
@@ -213,6 +214,7 @@ CONSTANTS.FOLDERS = {
   'main-camera-position'  : 'Default',
   'toggle-helpper'        : 'Default',
   'focus-object'          : 'Default',
+  'remote-control'        : 'Default',
   'toggle-side-panels'    : 'Volume Settings',
   'reset-side-panels'     : 'Volume Settings',
   'side-three-planes'     : 'Volume Settings',
@@ -290,6 +292,13 @@ CONSTANTS.GEOMETRY = {
   // this far (mm) past the side views' frustum, and never past the maximum
   "crosshair-snap-margin": 5,
   "crosshair-snap-max-distance": 10,
+  // `Radius Ratio`: the smallest radius (mm) it draws a contact at, by the
+  // contact's own radius, as [ own radius at least, smallest radius ] pairs,
+  // largest first; a contact smaller than all of them gets
+  // `electrode-radius-min`. Its log scale needs positive radii, which also keep
+  // the contact matrices invertible for picking
+  "electrode-radius-min-by-size": [ [ 0.5, 0.1 ], [ 0.05, 0.01 ] ],
+  "electrode-radius-min": 1e-4,
 };
 
 

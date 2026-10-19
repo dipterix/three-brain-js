@@ -60,23 +60,24 @@ class EnhancedGUIController {
    * @param type     "number" | "string" | "boolean" | "option" | "color" | "function"
    * @param options  `args` (choices for "option") and anything else addController passed
    */
-  constructor({ folder, name, object, type, choices } = {}) {
+  constructor({ folder, name, object, type, choices, moreArgs = {} } = {}) {
     this._folder = folder;
     this._name = name;
     this._type = type;
 
     this.object = object;
     this.property = name;
+    this.moreArgs = moreArgs;
 
     // lil-gui type flags; read by StageTransition and ViewerControlCenter
-    this._isColor    = type === "color";
-    this._isSelector = type === "option";
-    this._isNumber   = type === "number";
-    this._isString   = type === "string";
-    this._isBool     = type === "boolean";
-    this._isFunction = type === "function";
-    this._isGraph    = type === "linegraph";
-    this._isInterval = type === "interval";
+    this._isColor     = type === "color";
+    this._isSelector  = type === "option";
+    this._isNumber    = type === "number";
+    this._isString    = type === "string";
+    this._isBool      = type === "boolean";
+    this._isFunction  = type === "function";
+    this._isGraph     = type === "linegraph";
+    this._isInterval  = type === "interval";
 
     // params Tweakpane needs at creation time, mutated by min/max/step/options
     this._label    = name;
@@ -125,7 +126,7 @@ class EnhancedGUIController {
   }
 
   _bindingParams( index ) {
-    const params = { label: this._label, index: index };
+    const params = { label: this._label, index: index, ...this.moreArgs };
 
     if( this._hidden )   { params.hidden = true; }
     if( this._disabled ) { params.disabled = true; }
@@ -143,7 +144,7 @@ class EnhancedGUIController {
       return params;
     }
 
-    if( this._type === "string" ) {
+    if( this._isString ) {
       params.view = TEXT_VIEW;
       return params;
     }
@@ -464,7 +465,10 @@ class EnhancedGUIController {
       if( this._$graphLabel ) { this._$graphLabel.textContent = label; }
       return this;
     }
-    if( "label" in this._blade ) {
+    if( this._type === "function" && "title" in this._blade ) {
+      // a button shows its name on the button itself, as in lil-gui
+      this._blade.title = label;
+    } else if( "label" in this._blade ) {
       this._blade.label = label;
     } else {
       this._rebuild();
