@@ -1095,7 +1095,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.state.thresholdValues = tVals;
     this.state.thresholdTest = false;
 
-    // test the threshold ranges agaist electrode value(s)
+    // test the threshold ranges against electrode value(s)
     this._thresholdRanges = this._canvas.get_state('threshold_values');
     this._thresholdOperator = this._canvas.get_state('threshold_method');
     const thresholdRanges = asArray( this._thresholdRanges );
@@ -1930,7 +1930,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.state.focusedContact = cid;
     this.updateContactPosition();
 
-    // update pos to snaping to the electrode
+    // update pos to snapping to the electrode
     if( cid >= 0 ) {
       const contact = this.contactCenter[ cid ];
       pos.copy( contact );

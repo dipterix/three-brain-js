@@ -543,7 +543,7 @@ function createBuiltinGeometry (type, {
         if( isNaN( modelDirection.lengthSq() ) ) {
           modelDirection.set(0, 0, 0);
         } else {
-          // Modle (electrode) direction is set, check model rank
+          // Model (electrode) direction is set, check model rank
           if( !model_rigid ) {
             morphAvailable = true;
           }

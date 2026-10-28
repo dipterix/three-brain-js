@@ -1,0 +1,16 @@
+[codespell]
+# Ref: https://github.com/codespell-project/codespell#using-a-config-file
+skip = .git,.git-meta,.gitignore,.gitattributes,.*cache,.npm,node_modules,dist,*.css,*.min.*,*.map,package-lock.json,.codespellrc
+check-hidden = true
+# Ignore camelCase and PascalCase identifiers (common in code),
+# and lines of embedded base64 data (e.g. RAVELogo.js)
+ignore-regex = \b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b|^[A-Za-z0-9+/=]{60,}$
+ignore-words-list =
+  # "viewerApp.keyboad.*" event type names -- part of the event API, renaming would break listeners
+  keyboad,
+  # variable name for threshold
+  thred,
+  # variable name for FreeSurfer annotation structure (as in FreeSurfer's read_annotation)
+  struc,
+  # variable name for numerator
+  numer

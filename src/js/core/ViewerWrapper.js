@@ -8,7 +8,7 @@ class ViewerWrapper {
 
   /**
    * The whole point of class ViewerWrapper is to separate actual viewer
-   * from the enclosing HTML element. This is becuase we want to reuse the
+   * from the enclosing HTML element. This is because we want to reuse the
    * viewer in shiny applications.
    */
 
@@ -199,7 +199,7 @@ class ViewerWrapper {
       return this.createViewer( insertViewer );
     }
     if( this.debug ) {
-      console.debug('[ViewerWrapper.useCachedViewer]: Re-using an existing/cached viewer.');
+      console.debug('[ViewerWrapper.useCachedViewer]: Reusing an existing/cached viewer.');
     }
 
 

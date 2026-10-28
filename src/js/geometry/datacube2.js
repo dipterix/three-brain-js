@@ -174,7 +174,7 @@ class DataCube2 extends AbstractThreeBrainObject {
             // no need to round up as this has been done in the constructor
             voxelValue = voxelData[ voxelIndex + voxelIndexOffset ];
             if( voxelValue < dataLB || voxelValue > dataUB) {
-              // hide this voxel as it's beyong threshold
+              // hide this voxel as it's beyond threshold
               voxelColor[ voxelIndex * 4 + 3 ] = 0;
             } else {
               voxelColorKey = voxelValueToKeyIndex( voxelValue );

@@ -460,7 +460,7 @@ class NamedLut extends Lut {
       );
       let drawMinTick = true, drawMaxTick = true;
 
-      // Draw highlighed value in bold font
+      // Draw highlighted value in bold font
       let highlightValueY;
       if( typeof( highlightValue ) === 'number' &&
           !isNaN( highlightValue ) ){

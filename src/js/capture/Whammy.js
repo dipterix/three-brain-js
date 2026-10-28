@@ -405,7 +405,7 @@ const Whammy = (function(){
 
 	//woot, a function that's actually written for this project!
 	//this parses some json markup and makes it into that binary magic
-	//which can then get shoved into the matroska comtainer (peaceably)
+	//which can then get shoved into the matroska container (peaceably)
 
 	function makeSimpleBlock(data){
 		var flags = 0;

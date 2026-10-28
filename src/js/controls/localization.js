@@ -191,7 +191,7 @@ class LocElectrode {
 
     // brain-shift helper for surface electrodes
 
-    // re-use __vec3
+    // reuse __vec3
     this.shiftHelperGroup = new Group();
     this.shiftHelperGroup.visible = false;
     this.shiftHelperToShifted = new ArrowHelper();

@@ -82,7 +82,7 @@ class GiftiMesh {
 
     this.isInvalid = false;
 
-    // TODO: handle tranforms, normals, and color
+    // TODO: handle transforms, normals, and color
   }
 
   dispose() {

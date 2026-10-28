@@ -750,7 +750,7 @@
                         "data": [
                             {
                                 "id": 0x2ad7b1, // TimecodeScale
-                                "data": 1e6 // Times will be in miliseconds (1e6 nanoseconds per step = 1ms)
+                                "data": 1e6 // Times will be in milliseconds (1e6 nanoseconds per step = 1ms)
                             },
                             {
                                 "id": 0x4d80, // MuxingApp

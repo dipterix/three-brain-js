@@ -2919,7 +2919,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     }
 
     // Added: if info text is disabled, then legend should not display
-    // correspoding value
+    // corresponding value
     let hideInfoFocused = true;
     let currentValue;
     if( this.animParameters.hasObjectFocused && !this.get_state( 'info_text_disabled' ) ) {
@@ -3393,7 +3393,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
       // no subject initiated, use template if multiple subjects
       if( !target_subject || !this.subject_codes.includes( target_subject ) ){
-        // This happends when subjects are just loaded
+        // This happens when subjects are just loaded
         if( this.shared_data.get(".multiple_subjects") ){
           target_subject = this.shared_data.get(".template_subjects");
         }
@@ -3761,7 +3761,7 @@ mapped = false,
 
       for( let k in collection ){
         parsed = _regexp.exec( k );
-        // just incase
+        // just in case
         if( parsed && parsed.length === 3 ){
 
           e = collection[ k ];

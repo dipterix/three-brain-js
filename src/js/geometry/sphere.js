@@ -495,7 +495,7 @@ class Electrode extends AbstractThreeBrainObject {
     this.state.thresholdValues = thresholdKeyFrame[ idx ][ 1 ];
     this.state.thresholdTest = false;
 
-    // test the threshold ranges agaist electrode value(s)
+    // test the threshold ranges against electrode value(s)
     const thresholdRanges = asArray( this._canvas.get_state('threshold_values') );
     const operators = this._canvas.get_state('threshold_method');
     const isContinuous = this._canvas.get_state('threshold_type') === "continuous";
@@ -600,7 +600,7 @@ class Electrode extends AbstractThreeBrainObject {
       return;
     }
 
-    // 1. determine if display color needs to be caluclated
+    // 1. determine if display color needs to be calculated
     const displayVariableName = this._canvas.get_state('display_variable', "[None]");
     const displayKeyFrame = this.animationKeyFrames[ displayVariableName ];
 

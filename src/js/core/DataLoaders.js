@@ -260,7 +260,7 @@ class BasicLoader extends Loader {
         scope.logger(e);
         scope.logger("Unable to resolve parallel worker (see warning above). Trying to use regular loader: " + (resolved.resolvedUrl ?? url));
         scope.load( resolved.resolvedUrl, (v) => {
-          scope.logger("Successfully retrieved via synchronus loader: " + resolved.resolvedUrl);
+          scope.logger("Successfully retrieved via synchronous loader: " + resolved.resolvedUrl);
           resolve(v);
         }, onProgress2, reject );
       })

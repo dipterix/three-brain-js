@@ -140,7 +140,7 @@ class ThrottledEventDispatcher {
       return;
     }
 
-    // the followings are for throttled
+    // the following are for throttled
     if( buffer.throttlePause ) {
       // update data, but hold it
       return;

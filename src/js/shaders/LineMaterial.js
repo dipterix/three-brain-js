@@ -35,8 +35,8 @@ const worldPos = varyingProperty( 'vec4', 'worldPos' );
 
 const trimSegmentAlpha = Fn( ( { start, end } ) => {
 
-  const a = cameraProjectionMatrix.element( 2 ).element( 2 ); // 3nd entry in 3th column
-  const b = cameraProjectionMatrix.element( 3 ).element( 2 ); // 3nd entry in 4th column
+  const a = cameraProjectionMatrix.element( 2 ).element( 2 ); // 3rd entry in 3th column
+  const b = cameraProjectionMatrix.element( 3 ).element( 2 ); // 3rd entry in 4th column
 
   // different near estimates for reversed and default depth buffers; a is
   // positive with a reversed depth buffer

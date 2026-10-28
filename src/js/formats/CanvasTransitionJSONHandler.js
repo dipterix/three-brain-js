@@ -17,7 +17,7 @@ class CanvasTransitionJSONHandler extends FileDataHandler {
 
     const transitionData = data.transitionData;
     if(!Array.isArray(transitionData)) {
-      throw new Error("CanvasTransitionJSONHandler: data has flag `isThreeBrainTransition` set to true. Hoever, there is no `transitionData` or `transitionData` is empty.");
+      throw new Error("CanvasTransitionJSONHandler: data has flag `isThreeBrainTransition` set to true. However, there is no `transitionData` or `transitionData` is empty.");
     }
     return data;
   }

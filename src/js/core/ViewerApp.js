@@ -451,7 +451,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     let configDataPath = path;
 
     if( path.startsWith("#") ) {
-      // the data is embeded
+      // the data is embedded
       const configElements = document.querySelectorAll(`script[data-for='${ path }']`);
       const data = [];
       configElements.forEach((e) => {

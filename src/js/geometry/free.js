@@ -1080,7 +1080,7 @@ class FreeMesh extends AbstractThreeBrainObject {
 
     super.finish_init();
 
-    // Need to registr surface
+    // Need to register surface
     // instead of using surface name, use
     this.registerToMap( ['surfaces'] );
 
@@ -1434,7 +1434,7 @@ class FreeMesh extends AbstractThreeBrainObject {
     // STEP 1: initial settings
     // when subject brain is messing, subject_code will be template subject such as N27,
     // and display_code will be the missing subject
-    // actuall subject
+    // actual subject
     this.subject_code = this._params.subject_code;
     // display subject
     this.display_code = g.display_code ?? (
