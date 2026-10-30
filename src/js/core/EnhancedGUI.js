@@ -523,13 +523,18 @@ class EnhancedGUI {
 
   setFromDictionary( args ){
     const keys = [
+      // switching the subject re-fires the volume handlers, so it goes first
+      "Subject",
+
       "Background Color", "Camera Position", "Display Coordinates",
 
       "Show Panels", "Slice Brightness", "Slice Mode",
       "Coronal (P - A)", "Axial (I - S)", "Sagittal (L - R)",
       "Overlay Coronal", "Overlay Axial", "Overlay Sagittal",
-      "Frustum Near", "Frustum Far",
-      "Voxel Type", "Voxel Display", "Voxel Label", "Voxel Opacity",
+      "Frustum",
+      "Voxel Type", "Voxel Display", "Voxel Label",
+      // it sets the voxel opacity as well, so it goes before it
+      "Opacity (all volumes)", "Voxel Opacity",
       "Voxel Min", "Voxel Max", "Voxel Cmap", "Dynamic Color Map", "Symmetric Color Map",
       "Component Index",
 
@@ -544,7 +549,7 @@ class EnhancedGUI {
       "Surface Threshold Range",
 
       "Map Electrodes", "Surface Mapping", "Volume Mapping",
-      "Visibility", "Electrode Shape", "Outlines", "Text Scale","Text Visibility",
+      "Visibility", "Electrode Shape", "Outlines", "Text Scale", "Electrode Text",
 
       "Display Data", "Display Range", "Threshold Data", "Threshold Range",
       "Threshold Method", "Additional Data",
@@ -560,6 +565,27 @@ class EnhancedGUI {
 
     // Backward compatibility
     data["Surface Color Data"] = data["Surface Color Data"] ?? data["Vertex Data"];
+
+    // renamed after threeBrain 1.3.0: a checkbox that showed the channel numbers
+    if( data["Text Visibility"] !== undefined ) {
+      data["Electrode Text"] = data["Electrode Text"] ??
+        ( data["Text Visibility"] ? "channel_numbers" : "None" );
+      delete data["Text Visibility"];
+    }
+
+    // renamed after threeBrain 1.3.0: two distances, now the ends of one range
+    if( data["Frustum Near"] !== undefined || data["Frustum Far"] !== undefined ) {
+      const distance = ( v ) => {
+        v = Math.abs( Number( v ?? 1 ) );
+        return Number.isFinite( v ) ? v : 1;
+      };
+      data["Frustum"] = data["Frustum"] ?? {
+        min : -distance( data["Frustum Near"] ),
+        max : distance( data["Frustum Far"] ),
+      };
+      delete data["Frustum Near"];
+      delete data["Frustum Far"];
+    }
 
     keys.forEach((k) => {
       const value = data[k];
@@ -577,7 +603,10 @@ class EnhancedGUI {
       }
     });
 
-    for(let k in data) {
+    // `Show all (<circuit>)` sets every `Show: <circuit>/<bundle>`, so it goes first
+    const isShowAll = ( k ) => k.startsWith( "Show all (" );
+    const rest = Object.keys( data );
+    [ ...rest.filter( isShowAll ), ...rest.filter( k => !isShowAll( k ) ) ].forEach((k) => {
       try {
         const controller = this.getController( k, "", false );
         if( !controller.isfake ) {
@@ -588,7 +617,7 @@ class EnhancedGUI {
       } catch (e) {
         console.warn(`Cannot initialize settings ${ k } (not supported)`);
       }
-    }
+    });
 
   }
 
