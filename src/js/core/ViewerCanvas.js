@@ -25,6 +25,7 @@ import { StorageCache } from './StorageCache.js';
 import { CanvasEvent } from './events.js';
 import { CONSTANTS } from './constants.js';
 import { createMainRendererInterface, createSideRendererInterface } from './createRenderer.js';
+import { VolumePass } from './VolumePass.js';
 import { Compass, BasicCompass } from '../geometry/compass.js';
 import { GeometryFactory } from './GeometryFactory.js';
 import { NamedLut } from './NamedLut.js';
@@ -387,9 +388,13 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.$mainGLCanvas = this.mainRendererInterface.canvas;
     this.mainRendererInterface.setPixelRatio( this.pixel_ratio[0] );
     this.mainRendererInterface.setSize( width, height );
-  	this.main_renderer.autoClear = false; // Manual update so that it can render two scenes
   	// transparent background if the bg is white
   	this.mainRendererInterface.setClearColor( this.background_color, 0.0 );
+
+    // Ray-marched volumes (`DataCube2`) are drawn into a target of their own
+    // before the main view's pass; created before any volume, which needs its
+    // textures (see `VolumePass`)
+    this.volumePass = new VolumePass({ rendererInterface : this.mainRendererInterface });
 
     this.main_canvas.appendChild( this.domElement );
     this.main_canvas.appendChild( this.$mainGLCanvas );
@@ -1415,6 +1420,7 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.sideCanvasList.coronal.dispose();
     this.sideCanvasList.axial.dispose();
     this.sideCanvasList.sagittal.dispose();
+    this.volumePass.dispose();
     this.main_renderer.dispose();
 
   }
@@ -2289,6 +2295,58 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.needsUpdate = true;
   }
 
+  /**
+   * Sizes electrode contacts by a continuous variable (`Radius Value`). A value
+   * at `range[0]` draws its contact with radius `ratio[0]`, one at `range[1]`
+   * with `ratio[1]`, and the middle value the middle radius; on each side of
+   * the middle the log of the radius is linear in the value, and outside the
+   * range it clamps. Ratios are radii in mm, or multiples of each contact's own
+   * radius when `relative`; no contact goes below the smallest radius its own
+   * radius allows (`CONSTANTS.GEOMETRY["electrode-radius-min-by-size"]`).
+   * Without a variable or a `ratio`, contacts keep their own radii.
+   *
+   * Fields left out keep their stored value; `range: null`, or a new variable
+   * without a range, takes the variable's default range. Stored for electrodes
+   * created later.
+   */
+  setElectrodeRadius({ variable, range, ratio, relative } = {}) {
+    const isPair = ( x ) => Array.isArray( x ) && x.length === 2 && x.every( Number.isFinite );
+    const config = {
+      variable  : "[None]",
+      range     : null,
+      ratio     : null,
+      relative  : false,
+      ...this.get_state( 'electrode_radius' ),
+    };
+    if( typeof variable === "string" && variable !== config.variable ) {
+      config.variable = variable;
+      if( range === undefined ) { range = null; }
+    }
+    if( range !== undefined ) { config.range = range; }
+    if( ratio !== undefined ) { config.ratio = ratio; }
+    if( typeof relative === "boolean" ) { config.relative = relative; }
+
+    if( !isPair( config.ratio ) ) { config.ratio = null; }
+    const cmap = this.colorMaps.get( config.variable );
+    if( cmap && cmap.isContinuous ) {
+      if( !isPair( config.range ) ) {
+        config.range = [ cmap._defaultMinV, cmap._defaultMaxV ];
+      }
+    } else {
+      config.variable = "[None]";
+      config.range = null;
+    }
+
+    this.set_state( 'electrode_radius', config );
+    this.dispatch({
+      type : "viewerApp.electrodes.radiusChanged",
+      data : config,
+      immediate : true
+    });
+    this.needsUpdate = true;
+    return config;
+  }
+
   switch_media( name ){
     this.video_canvas._playing = false;
     this.video_canvas.pause();
@@ -2474,10 +2532,6 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     // Do not change flags, wait util the state come back to normal
     if(_width <= 10 || _height <= 10) { return; }
 
-    // double-buffer to make sure depth renderings
-    //this.main_renderer.setClearColor( renderer_colors[0], 0.0 );
-    this.mainRendererInterface.clear();
-
     this._mainCameraPositionNormalized.copy( this.mainCamera.position ).normalize();
 
     // set electrode outline clearcoat value
@@ -2515,6 +2569,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
     this.set_state( "electrode_clearcoat", outlineThreshold );
     this.set_state( "electrode_outline_active_only", outlineActiveOnly );
 
+    // a volume the main view shows asks for it again in its `pre_render()`
+    this.volumePass.requested = false;
+
     // Pre render all meshes
     this.mesh.forEach((m) => {
       const inst = m.userData.instance;
@@ -2549,7 +2606,9 @@ class ViewerCanvas extends ThrottledEventDispatcher {
 
     });
 
-    // this.main_renderer.clear();
+    // the volumes first, into their own target, which the main view's pass then
+    // composites (see `VolumePass`)
+    this.volumePass.render( this.scene, this.mainCamera );
     this.mainRendererInterface.render( this.scene, this.mainCamera );
 
     // A capture request (see `_onCaptureOnce`): the picture just drawn

@@ -1,12 +1,12 @@
 import {
   Vector3, DataTexture, Data3DTexture, BackSide, RGBAFormat, UnsignedByteType,
-  LinearFilter, WebGPUCoordinateSystem
+  LinearFilter, NoBlending, WebGPUCoordinateSystem
 } from 'three';
 import { NodeMaterial } from 'three/webgpu';
 import {
   Fn, If, Loop, Break, Continue, Discard, select, uniform, texture, texture3D, varying,
   positionGeometry, modelViewMatrix, cameraProjectionMatrix, screenCoordinate, depth,
-  vec2, vec3, vec4, float, int, abs, min, max, mix, clamp, pow, floor, fract, sin,
+  vec2, vec3, vec4, float, int, ivec2, abs, min, max, mix, clamp, pow, floor, fract, sin,
   dot, normalize, length, distance, all, any, equal, notEqual
 } from 'three/tsl';
 import { Lut } from '../core/CustomLut.js'
@@ -293,7 +293,6 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
         // on the surface
         firstDepth.assign( getDepth( p ) );
         firstViewPosition.assign( getViewPosition( p ) );
-        color.assign( vec4( voxelRGB, voxelAlpha ) );
 
       } ).Else( () => {
 
@@ -301,11 +300,15 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
           .and( u.maxRenderDistance.lessThan( distance( firstViewPosition, getViewPosition( p ) ) ) ), () => {
           Break();
         } );
-        color.assign( vec4(
-          color.rgb.mul( color.a ).add( voxelRGB.mul( color.a.oneMinus() ) ),
-          color.a.add( color.a.oneMinus().mul( voxelAlpha ) ) ) );
 
       } );
+
+      // front to back, premultiplied: a voxel adds its color weighted by its
+      // own opacity and by what is still see-through in front of it. (The
+      // color used to take each new voxel at weight 1 - alpha whatever its
+      // opacity, so faint deep voxels outweighed the front ones.)
+      const weight = color.a.oneMinus().mul( voxelAlpha );
+      color.assign( vec4( color.rgb.add( voxelRGB.mul( weight ) ), color.a.add( weight ) ) );
 
       If( hitCount.greaterThanEqual( MAX_VOXELS_PER_RAY ).or( color.a.greaterThan( 0.95 ) ), () => {
         Break();
@@ -319,6 +322,9 @@ function createRayMarchingFragmentNode( u, rays, { singleChannel, useGradientMap
       Discard();
     } );
     depth.assign( firstDepth ).toStack();
+
+    // straight color again: `VolumeCompositeMaterial` blends it normally
+    color.assign( vec4( color.rgb.div( color.a ), color.a ) );
 
     // the GLSL shader wrote these values to the screen as they are
     return fromDisplayColor( color );
@@ -344,6 +350,10 @@ class RayMarchingMaterial extends NodeMaterial {
     // the rays end on the box's back faces
     this.side = BackSide;
     this.transparent = true;
+    // drawn only into `VolumePass`'s target, which keeps each pixel's color
+    // and alpha as they are; `VolumeCompositeMaterial` blends them into the
+    // main view
+    this.blending = NoBlending;
     this.fog = false;
     this.lights = false;
 
@@ -517,4 +527,47 @@ class RayMarchingMaterial extends NodeMaterial {
 
 }
 
-export { RayMarchingMaterial };
+/**
+ * Brings a ray-marched volume into the main view from `VolumePass`'s target:
+ * for each pixel, the color and the first-hit depth the march left there.
+ *
+ * It draws the volume box's own back faces, with the box's transform and
+ * render order, so it covers the same pixels and sorts among the transparent
+ * objects where `RayMarchingMaterial` used to draw. Pixels the march missed are
+ * discarded; the others are blended like the march's output used to be
+ * (normal blending) and depth-tested and written with the hit's depth, so
+ * surfaces, electrodes and slices hide and are hidden as before.
+ *
+ * three flips both `screenCoordinate` and render-target texel reads on the
+ * WebGL2 backend, so `pixel` addresses the same texel on both backends.
+ */
+class VolumeCompositeMaterial extends NodeMaterial {
+
+  constructor({ volumePass } = {}) {
+    super();
+    this.isVolumeCompositeMaterial = true;
+
+    this.side = BackSide;
+    this.transparent = true;
+    this.depthTest = true;
+    this.depthWrite = true;
+    this.fog = false;
+    this.lights = false;
+
+    const volumeColor = texture( volumePass.colorTexture );
+    const volumeDepth = texture( volumePass.depthTexture );
+
+    this.fragmentNode = Fn( () => {
+      const pixel = ivec2( screenCoordinate.xy );
+      const color = volumeColor.load( pixel ).toVar();
+      If( color.a.lessThanEqual( 0.0 ), () => {
+        Discard();
+      } );
+      depth.assign( volumeDepth.load( pixel ) ).toStack();
+      return color;
+    } )();
+  }
+
+}
+
+export { RayMarchingMaterial, VolumeCompositeMaterial };

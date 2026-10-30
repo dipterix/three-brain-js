@@ -47,6 +47,7 @@ import { workerPool } from './core/Workers.js';
 
 // Addons
 import { RShinyDriver } from './drivers/RShinyDriver.js';
+import { WebSocketDriver } from './drivers/WebSocketDriver.js';
 import { DemoBackground } from './ext/DynamicBackground.js';
 import { renderMatCapToCanvas, createMatCapTexture, MatCapPresets } from './utils/createMatCapTexture.js';
 import css from '../css/dipterix.css';
@@ -98,7 +99,8 @@ const DevTools = {
 };
 
 const Drivers = {
-  Shiny : RShinyDriver
+  Shiny     : RShinyDriver,
+  WebSocket : WebSocketDriver,
 };
 
 const Importers = {

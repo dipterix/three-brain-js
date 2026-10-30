@@ -858,6 +858,7 @@ class ViewerApp extends ThrottledEventDispatcher {
             "displayName"   : name,
             "isContinuous"  : !isDiscrete,
             "controlColors" : [],
+            "timeRange"     : hasTime ? [sample.Time, sample.Time] : null,   // time range where the color map is valid
             "valueRange"    : [
               existingColorMap.minV ?? existingColorMap._defaultMinV,
               existingColorMap.maxV ?? existingColorMap._defaultMaxV
@@ -1133,6 +1134,7 @@ class ViewerApp extends ThrottledEventDispatcher {
     this.controlCenter.addPreset_resetCamera();
     this.controlCenter.addPreset_copyViewerState();
     this.controlCenter.addPreset_focusObject();
+    this.controlCenter.addPreset_remoteControl();
     // this.controlCenter.addPreset_recorder();
 
     // ---- Side canvas --------------------------------------------------------

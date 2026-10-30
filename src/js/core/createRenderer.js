@@ -64,6 +64,13 @@ function createRenderer({ canvas, forceWebGL = false } = {}) {
   });
   // before `init()`, which hands the lighting to the render lists
   renderer.lighting = new ViewLighting();
+  // Every render clears its own buffer; nothing calls `renderer.clear()`. With
+  // the sRGB output, three draws each view into a frame-buffer target and copies
+  // it to the canvas at the end of both `render()` and `clear()`, so clearing
+  // first wrote every canvas twice a frame: blank, then the picture. Safari
+  // sometimes displays the blank copy, and the views flickered during playback,
+  // when all four are redrawn every frame.
+  renderer.autoClear = true;
   return renderer;
 }
 
@@ -160,12 +167,8 @@ class RendererInterface {
     }
   }
 
-  clear() {
-    this.activate();
-    this.renderer.clear();
-  }
-
-  // the lights node follows the camera (see `ViewLighting`)
+  // Clears and draws in one pass (`autoClear`, see `createRenderer()`); the
+  // lights node follows the camera (see `ViewLighting`)
   render( scene, camera ) {
     this.activate();
     const lighting = this.renderer.lighting;
@@ -174,6 +177,30 @@ class RendererInterface {
       this.renderer.render( scene, camera );
     } finally {
       lighting.camera = null;
+    }
+  }
+
+  /**
+   * Draws into `target` instead of this canvas, cleared to transparent black,
+   * at this canvas's drawing-buffer size (see `VolumePass`). The canvas is not
+   * written, and the render target and this interface's clear color are put
+   * back afterwards.
+   */
+  renderToTarget( scene, camera, target ) {
+    this.activate();
+    const renderer = this.renderer;
+    const lighting = renderer.lighting;
+    lighting.camera = camera;
+    renderer.setRenderTarget( target );
+    renderer.setClearColor( 0x000000, 0 );
+    try {
+      renderer.render( scene, camera );
+    } finally {
+      renderer.setRenderTarget( null );
+      lighting.camera = null;
+      if( this._clearColor !== null ) {
+        renderer.setClearColor( this._clearColor, this._clearAlpha );
+      }
     }
   }
 

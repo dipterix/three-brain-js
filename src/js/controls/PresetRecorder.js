@@ -105,7 +105,6 @@ function registerPresetRecorder( ViewerControlCenter ){
       // copy the main_renderer context
       pdf_wrapper.background_color = this.canvas.background_color;
 
-      this.canvas.mainRendererInterface.clear();
       this.canvas.mainRendererInterface.render( this.canvas.scene, this.canvas.mainCamera );
       pdf_wrapper.draw_image( glCanvas, sideWidth, 0, mainWidth, totalHeight );
 
