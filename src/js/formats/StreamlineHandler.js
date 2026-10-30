@@ -35,9 +35,6 @@ class StreamlineHandler extends FileDataHandler {
     const normalizedFilename = normalizeImageName( fileName );
     const inst = gen_streamline( data, app.canvas );
 
-    // Visibility
-    app.controlCenter.dragdropAddVisibilityController( inst, fileName );
-
     const parentFolder = app.controlCenter.getDragDropFolderPath( fileName, "Configure Streamlines" );
 
     const addOrUpdateController = (name, value, args = {}) => {
@@ -64,7 +61,6 @@ class StreamlineHandler extends FileDataHandler {
 
     // Clamp values
     // app.controlCenter.dragdropAddValueClippingController( inst, fileName );
-    window.dddd = data;
     // Colors
     const colorSettings = ensureObjectColorSettings( fileName, { 'defaultSingle' : data.color });
     const ctrlColor = addOrUpdateController("Color", colorSettings.single, { isColor : true });
